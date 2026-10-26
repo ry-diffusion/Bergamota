@@ -3,6 +3,14 @@
 ## Agent handoff / active work (2026-10-15, latest)
 
 ### >>> Chlorophyll on Turnip (Chlorophyll branch `turnip` 6a27a3b, Bergamota branch `claude/chlorophyll-turnip-c432e2`), 2026-10-26: Turnip RUNS on the A630 <<<
+* **EVERYTHING ON TURNIP, STABLE (2026-10-26 16:04-16:18 phone time, boot55 rebooted through the Bergamota queue with the user's OK, all kill switches cleared).** Chlorophyll `turnip` d3cb665.
+  * backboardd, SpringBoard, iconservicesagent, PosterBoard, Mercury (x2) and the Photos poster all registered on chl.
+  * 12+ minutes with `hangs=0`, no command-buffer failures, no dead-man trips, no crash reports, and no SMMU lines in the USB log after the reboot.
+  * backboardd: 60 fps while animating, ~19 draws a frame, ~3 ms encode a frame.
+  * **The fix that did it:** Turnip asks for one page of slack after every BO on Apple (`patches/mesa-26.2/turnip-ios.patch`, `msm_bo_init`). The kernel leaves an unmapped guard page after every BO, and some GPU reader ran into it: the same page-aligned FAR, 0cc67b000, on two boots. Linux maps BOs back to back, and Gallium's BO cache left slack.
+  * Cold pipeline builds are still long (SpringBoard 52 s for 96 pipelines, iconservicesagent 38 s). The Turnip disk cache is on now and filling (`/private/var/tmp/chlorophyll-cache/501` is 14 MB), so the next start should be fast. Not measured yet.
+  * Visible bug, `/var/root/chl-turnip-1.png` vs the Gallium-era `/var/root/x46b.png`: on the lock screen, the Mercury wallpaper's lower-left planet is black with teal speckles where Gallium drew it smooth teal. Everything else matches; the big clock is missing on both. Icons not checked (the phone is locked).
+  * Stock backboardd (CoreAnimation's GL ES path through Bergamota GL) hit the same QuartzCore assert 4 times today, 15:33-16:02, which is one more reason to keep it on chl.
 * **INSTALLED SYSTEM-WIDE (2026-10-26 ~15:00-15:25 phone time, boot 51, user: "install libchlorophyll + the inject for backboardd", then "kill the dead, move everything to the new turnip one").** Chlorophyll `turnip` 7d34aac.
   * `/usr/local/lib/bgmtl/` now holds only `bgmtl-inject.dylib` (built from chl), `libchlorophyll.dylib` and the new `libdrm.2.dylib`. **Gallium/libbgair is removed from the phone.**
     * Backups: `/var/root/bgmtl-gallium-2026-10-26/` (inject 8c7a6d0e, libbgair 25ccfc5d, libdrm 90f707f5) and on the Mac at `work-chlorophyll/phone-backup-gallium-2026-10-26/`.
