@@ -3,6 +3,10 @@
 ## Agent handoff / active work (2026-10-15, latest)
 
 ### >>> Chlorophyll on Turnip (Chlorophyll branch `turnip` 6a27a3b, Bergamota branch `claude/chlorophyll-turnip-c432e2`), 2026-10-26: Turnip RUNS on the A630 <<<
+* **16:34 phone time, boot55: another SMMU fault with everything on chl, FAR 0x01104380.** That is below GVM_BASE, i.e. GPU address 0 + offset. backboardd, SpringBoard and iconservicesagent tripped their dead-man switches, so all three are stock again.
+  * Likely cause: unbound texture slots were pushed as Turnip null descriptors; the shader still fetches, and the null mask only discards the result. Chlorophyll 3f44bfe binds a 1x1 transparent texture in every unbound slot instead (chl_test 31/31, bg_is_null still right). Installed.
+  * Profiling before the fault (backboardd on chl, user interacting): 10-38 fps; ~18 ms encode per frame at 137 draws (~130 us a draw, vs 5-7 us in the bench); GPU at 257 MHz between bursts. MTLCompilerService (58 %) and iconservicesagent (41 %) were burning CPU on icon renders. One frame had a 300 ms encode stall.
+  * `/var/root/sweetsample PID SECS HZ` works for sampling (it fails on a pid that just restarted).
 * **EVERYTHING ON TURNIP, STABLE (2026-10-26 16:04-16:18 phone time, boot55 rebooted through the Bergamota queue with the user's OK, all kill switches cleared).** Chlorophyll `turnip` d3cb665.
   * backboardd, SpringBoard, iconservicesagent, PosterBoard, Mercury (x2) and the Photos poster all registered on chl.
   * 12+ minutes with `hangs=0`, no command-buffer failures, no dead-man trips, no crash reports, and no SMMU lines in the USB log after the reboot.
