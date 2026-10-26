@@ -3,6 +3,14 @@
 ## Agent handoff / active work (2026-10-15, latest)
 
 ### >>> Chlorophyll on Turnip (Chlorophyll branch `turnip` 6a27a3b, Bergamota branch `claude/chlorophyll-turnip-c432e2`), 2026-10-26: Turnip RUNS on the A630 <<<
+* **16:39-16:48 phone time, boot55 again (user OK, kill switches cleared): profiling and the next fault.**
+  * backboardd's first pipeline build after boot took 77.6 s (`A2Xghfc`, CoreAnimation's uber fragment), which freezes the screen at boot. The disk cache was cold because the library had changed.
+  * Measured in a test process (CARenderer probe, disk cache off): 86 s cold.
+    * The hot spot was ir3's `opt_jump`, which restarted its whole walk after every block it emptied: quadratic.
+    * Fixed in Chlorophyll d881e51 (`patches/mesa-26.2/ir3-opt-jump-linear.patch`): 59 s. **Not installed yet**, so that the cache built with the current library stays warm.
+    * The remaining time is spread across ir3's optimization loop, register allocation and spilling. The shader really is that big. Gallium's 0.8 s compiled the version truncated by the early-return miscompile (the fix is 7d34aac).
+  * **Another SMMU fault at about 16:47:** FAR 0f0751600, inside the GVM, not page-aligned. It came again while SpringBoard drew icon images (`primitive_image`, `filter_distance`). backboardd, SpringBoard and iconservicesagent are stock again. Every SpringBoard fault since boot 51 came on that icon path.
+  * **Next:** the stand-in's BO log is armed (`/private/var/tmp/drm-bolog`; per-process logs in `/private/var/tmp/drmlog/`, mode 1777). From the next boot, look up a fault's FAR in those logs to find the BO and the process.
 * **16:34 phone time, boot55: another SMMU fault with everything on chl, FAR 0x01104380.** That is below GVM_BASE, i.e. GPU address 0 + offset. backboardd, SpringBoard and iconservicesagent tripped their dead-man switches, so all three are stock again.
   * Likely cause: unbound texture slots were pushed as Turnip null descriptors; the shader still fetches, and the null mask only discards the result. Chlorophyll 3f44bfe binds a 1x1 transparent texture in every unbound slot instead (chl_test 31/31, bg_is_null still right). Installed.
   * Profiling before the fault (backboardd on chl, user interacting): 10-38 fps; ~18 ms encode per frame at 137 draws (~130 us a draw, vs 5-7 us in the bench); GPU at 257 MHz between bursts. MTLCompilerService (58 %) and iconservicesagent (41 %) were burning CPU on icon renders. One frame had a 300 ms encode stall.
