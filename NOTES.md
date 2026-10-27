@@ -3,6 +3,19 @@
 ## Agent handoff / active work (2026-10-15, latest)
 
 ### >>> Chlorophyll on Turnip (Chlorophyll branch `turnip` 6a27a3b, Bergamota branch `claude/chlorophyll-turnip-c432e2`), 2026-10-26: Turnip RUNS on the A630 <<<
+* **16:50-17:10 phone time, boot55 (user OK): warm cache, BO log, profile, and the SpringBoard fault attributed.**
+  * backboardd's pipelines came from the disk cache (the slowest 150 ms instead of 77 s).
+  * **Swiping (backboardd on chl):**
+    * Light animations: a steady 60 fps at ~14 draws a frame.
+    * Heavy scenes (40-155 draws: blur, glass): 20-45 fps, GPU-bound, up to 0.97 s of fence wait per second and single waits of 1-1.7 s.
+    * CPU split from sweetsample (`bbswipe*.txt`): CoreAnimation itself 46 %, kernel calls from libdrm (submit/wait) 27 %, chl+Turnip ~15 %. chl's encoding is not the bottleneck.
+    * backboardd runs with `bgmtl-bb.sync` (synchronous commits, a Gallium-era A/B), which serializes the CPU and the GPU every frame.
+  * **SMMU fault at 17:0x: FAR 0b17dd200 (FSYNR0 0x2), IB1 0x85df0000.**
+    * The drm BO log puts IB1 in **SpringBoard's** BO h=1457 (20 KB, still open), so the faulting command stream is SpringBoard's.
+    * No BO in any process was ever mapped at the FAR this boot; the highest mapped iova was 0x9da73000. So it is a wild address, and so were all the earlier SpringBoard FARs (0xcc..., 0xf07..., 0x011...). The slack page did not fix SpringBoard; it just had not faulted yet in the first 12 minutes.
+    * None of SpringBoard's run-time RenderBox shaders loads or stores through a raw pointer. Dumped with the new `/private/var/tmp/bgmtl.dumpair` (Chlorophyll 7896ccd) into `/private/var/tmp/bgmtl-refused/`; copies in the scratchpad `apple/sbdump`. So the address comes from GPU state (descriptors, vertex/index bases, scratch base, Turnip's patched input-attachment descriptors), not from shader code. Many of these shaders read the framebuffer (fa16: 3 targets) and use scratch.
+    * Next tool: the kernel dumps the faulting IB (and the state it points at) on an SMMU fault, so the draw can be decoded with Mesa's cffdump.
+  * **State now:** SpringBoard is stock by its kill switch (each of its faults resets the GPU for every process). backboardd, iconservicesagent and PosterBoard are stock from their dead-man trips. `/private/var/tmp/drm-bolog` is still armed.
 * **16:39-16:48 phone time, boot55 again (user OK, kill switches cleared): profiling and the next fault.**
   * backboardd's first pipeline build after boot took 77.6 s (`A2Xghfc`, CoreAnimation's uber fragment), which freezes the screen at boot. The disk cache was cold because the library had changed.
   * Measured in a test process (CARenderer probe, disk cache off): 86 s cold.
