@@ -3,6 +3,13 @@
 ## Agent handoff / active work (2026-10-15, latest)
 
 ### >>> Chlorophyll on Turnip (Chlorophyll branch `turnip` 6a27a3b, Bergamota branch `claude/chlorophyll-turnip-c432e2`), 2026-10-26: Turnip RUNS on the A630 <<<
+* **2026-10-27 03:47-04:01 phone time (boot55 twice, user OK): opt_jump + recorder installed; backboardd faulted on async commits; SpringBoard recording.**
+  * Installed libchlorophyll 9314c397 (opt_jump + chl.rddump) and inject 8c96dd61; previous ones in `/var/root/bgmtl-pre-optjump-20261027`. Old switches in `/var/root/killswitch-20261027`. Cleared everything but SpringBoard, removed `bgmtl-bb.sync` (async commits), rebooted via the queue (iOS up 10:49:51Z).
+  * Cold A2Xghfc with the opt_jump fix: 62 s for the first (77 s before); its variants then ~1.1 s each.
+  * **SMMU fault at backboardd's submit 14** (kernel "submitted 14 completed 13"), right after the first A2Xghfc frames: FAR 08a727b00 FSYNR0 0x2, IB1 0802f9000. The BO log puts IB1 in **backboardd's** BO h=78 (open 114.20-115.71 s; submit at 115.25 s). The FAR is above every iova any process mapped this boot (max 0x879b2000): wild, like SpringBoard's. Dead-man: backboardd, iconservicesagent and PosterBoard back on stock. recoveries=1.
+  * So the wild-address fault is not SpringBoard's alone. Every fault so far came from an async-commit process (SpringBoard always; backboardd now; backboardd on `bgmtl-bb.sync` never faulted in 12+ min). Two changes this boot (async + opt_jump), so opt_jump is not ruled out; the recorder also captures shader binaries.
+  * All FARs so far lie inside the GVM window 0x80000000-0x100000000 but beyond the mapped BOs, which looks like base + garbage offset (indices, descriptors or a pointer read while being rewritten) rather than a freed BO.
+  * 04:00: SpringBoard on chl with the recorder (`chl.rddump` = SpringBoard, dir `/private/var/tmp/chl-rd/SpringBoard-2641`, `/var/root/rdclean.sh` keeps the newest 300). Mac cffdump decodes the dumps.
 * **2026-10-27 ~07:40 (Mac time): built, not installed; phone unreachable (no USB device, no 192.168.7.x interface since overnight).**
   * User OK for the next boot: everything except SpringBoard on Turnip, async commits (remove `/private/var/tmp/bgmtl-bb.sync`), the ir3 opt_jump fix; profile backboardd while the user swipes.
   * User direction: study SpringBoard's fault instead of keeping it switched off. Plan for the same boot, after the swipe profile: clear SpringBoard's kill switch, arm the recorder below for SpringBoard, restart SpringBoard (allowed; mind the launchd limit) and wait for a fault.
