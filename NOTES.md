@@ -3,6 +3,13 @@
 ## Agent handoff / active work (2026-10-15, latest)
 
 ### >>> Chlorophyll on Turnip (Chlorophyll branch `turnip` 6a27a3b, Bergamota branch `claude/chlorophyll-turnip-c432e2`), 2026-10-26: Turnip RUNS on the A630 <<<
+* **2026-10-27 ~04:02-04:20 phone time: ROOT CAUSE of the wild-address SMMU faults found and fixed (Chlorophyll cb1ca8e), installed, SpringBoard re-testing on Turnip.**
+  * Captured SpringBoard's fault with the recorder: FAR 0b4397500, IB1 0x818be000 rem 1119 = its submit 138 (1999 dwords), the CP at dword 880, just past a GMEM pass's end. RBBM_STATUS 0xe704c5: SP/UCHE/HLSQ/VPC/RAS/RB/LRZ busy. The last bin's draws use RenderBox's uber VS 0x8026ba80 + FS 0x80332000.
+  * Its push-descriptor set (bindless base 0x861e8c00) has stale memory in the constexpr sampler slots 12-23 (ASCII text, CPU pointers). Slot 16's TEX_SAMP_2 = 0x34393320 -> border-colour index 0x687266; TPL1_GFX_BORDER_COLOR_BASE 0x80004200 + 0x687266 * 128 = **0xb4397500 = the FAR**.
+  * Cause: chl's flush_bindings skipped the immutable-sampler bindings; Turnip copies a push set's immutable sampler into it only when the push names that binding (`copy_immutable_samplers`, tu_descriptor_set.cc). Fix: a VK_DESCRIPTOR_TYPE_SAMPLER write with a null sampler for each immutable binding. The garbage differs per submit, which made the faults look random and boot-dependent; it also explains backboardd's submit-14 fault (A2Xghfc uses constexpr samplers), and probably wrong filtering (Mercury speckles; to re-check).
+  * Async commits and opt_jump are not the cause (the stale-sampler bug needs neither).
+  * Tests with the fix on the phone: chl_test 31/31, bgmtl_probe 12/12, render probe 18/18, no recovery. Installed libchlorophyll md5 0a69c7fa (previous 9314c3 in `/var/root/bgmtl-pre-samplerfix-20261027`). GPU recoveries this boot: 2 of 3.
+  * Mac tooling: `work-chlorophyll/mesa-turnip26/build-tools/src/freedreno/decode/cffdump` decodes the .rd captures (gunzip first); RD section types: 3 GPUADDR, 6 CMDSTREAM_ADDR, 12 BUFFER_CONTENTS.
 * **2026-10-27 03:47-04:01 phone time (boot55 twice, user OK): opt_jump + recorder installed; backboardd faulted on async commits; SpringBoard recording.**
   * Installed libchlorophyll 9314c397 (opt_jump + chl.rddump) and inject 8c96dd61; previous ones in `/var/root/bgmtl-pre-optjump-20261027`. Old switches in `/var/root/killswitch-20261027`. Cleared everything but SpringBoard, removed `bgmtl-bb.sync` (async commits), rebooted via the queue (iOS up 10:49:51Z).
   * Cold A2Xghfc with the opt_jump fix: 62 s for the first (77 s before); its variants then ~1.1 s each.
