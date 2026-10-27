@@ -3,6 +3,12 @@
 ## Agent handoff / active work (2026-10-15, latest)
 
 ### >>> Chlorophyll on Turnip (Chlorophyll branch `turnip` 6a27a3b, Bergamota branch `claude/chlorophyll-turnip-c432e2`), 2026-10-26: Turnip RUNS on the A630 <<<
+* **2026-10-27 ~07:40 (Mac time): built, not installed; phone unreachable (no USB device, no 192.168.7.x interface since overnight).**
+  * User OK for the next boot: everything except SpringBoard on Turnip, async commits (remove `/private/var/tmp/bgmtl-bb.sync`), the ir3 opt_jump fix; profile backboardd while the user swipes.
+  * User direction: study SpringBoard's fault instead of keeping it switched off. Plan for the same boot, after the swipe profile: clear SpringBoard's kill switch, arm the recorder below for SpringBoard, restart SpringBoard (allowed; mind the launchd limit) and wait for a fault.
+  * Chlorophyll 7bd46aa: `/private/var/tmp/chl.rddump` (process names, one a line, e.g. `SpringBoard`) sets Turnip's `FD_RD_DUMP=enable` with `FD_RD_DUMP_PATH=/private/var/tmp/chl-rd/<name>-<pid>`: one gzipped .rd per submit with the command streams, descriptor pools, global BO and the address of every BO. Pre-create `/private/var/tmp/chl-rd` mode 1777 (SpringBoard is mobile). Nothing trims it: run a cleaner that keeps the newest few hundred files. The dump happens before the kernel submit, so the faulting submit is on disk; match the fault's IB1 against RD_CMDSTREAM_ADDR.
+  * Built in `work-chlorophyll/out-metal`: libchlorophyll md5 9314c397 (opt_jump + rddump), bgmtl-inject 8c96dd61. Installed on the phone is still 6bd75b (dummy texture).
+  * Mac cffdump: `work-chlorophyll/mesa-turnip26/build-tools/src/freedreno/decode/cffdump` (meson `-Dtools=freedreno`, built 2026-10-27).
 * **16:50-17:10 phone time, boot55 (user OK): warm cache, BO log, profile, and the SpringBoard fault attributed.**
   * backboardd's pipelines came from the disk cache (the slowest 150 ms instead of 77 s).
   * **Swiping (backboardd on chl):**
