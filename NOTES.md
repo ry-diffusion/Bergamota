@@ -3,6 +3,11 @@
 ## Agent handoff / active work (2026-10-15, latest)
 
 ### >>> Chlorophyll on Turnip (Chlorophyll branch `turnip` 6a27a3b, Bergamota branch `claude/chlorophyll-turnip-c432e2`), 2026-10-26: Turnip RUNS on the A630 <<<
+* **2026-10-27 04:20-04:31 and 17:16-17:22 phone time: white icons = iconservicesagent on Turnip.**
+  * With iconservicesagent back on chl (04:14), every icon, the dock and the widget became solid white tiles; the wallpaper was fine. Kill switch `bgmtl.off.com.apple.iconservicesagent` written ("icons render blank on chl"), stock since.
+  * The phone was later found in ABL fastboot (USB log stops 09:07 Mac time with no panic/fault; battery 17 % at the next boot: likely ran flat on the Mac's 500 mA port). Booted boot55 again (00:16Z, user: try again).
+  * With iconservicesagent stock from boot and SpringBoard on chl (sampler fix): glass icon tiles again, live Clock hands, glyphs missing (backboardd stock, as in every earlier glyphs-missing run), widget "Waiting...". Lock screen: date but no clock digits; Mercury speckles still there.
+  * Not fixed: copied (non-importable) plain IOSurfaces are never written back after the GPU renders into them (only two-plane XR10 ones are, bgmtl.m bgXR10WriteBack); not proven to be iconservicesagent's path (it logged no copied surface). `/var/root/sweetwake wake|unlock|home|tap|swipe` drives the phone remotely (unlock alone stayed on the lock screen; wake + home worked).
 * **2026-10-27 ~04:02-04:20 phone time: ROOT CAUSE of the wild-address SMMU faults found and fixed (Chlorophyll cb1ca8e), installed, SpringBoard re-testing on Turnip.**
   * Captured SpringBoard's fault with the recorder: FAR 0b4397500, IB1 0x818be000 rem 1119 = its submit 138 (1999 dwords), the CP at dword 880, just past a GMEM pass's end. RBBM_STATUS 0xe704c5: SP/UCHE/HLSQ/VPC/RAS/RB/LRZ busy. The last bin's draws use RenderBox's uber VS 0x8026ba80 + FS 0x80332000.
   * Its push-descriptor set (bindless base 0x861e8c00) has stale memory in the constexpr sampler slots 12-23 (ASCII text, CPU pointers). Slot 16's TEX_SAMP_2 = 0x34393320 -> border-colour index 0x687266; TPL1_GFX_BORDER_COLOR_BASE 0x80004200 + 0x687266 * 128 = **0xb4397500 = the FAR**.
