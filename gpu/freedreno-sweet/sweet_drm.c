@@ -793,6 +793,59 @@ EXPORT int drmSyncobjImportSyncFile(int fd, uint32_t handle, int sync_file_fd) {
  * signaled or pending (the ring is in order); out syncobjs become pending on the submit's fence. A submit with no command (Turnip
  * signals semaphores that way) is not sent: its fence is the last submitted one.
  */
+/*
+ * One GEM_SUBMIT as the kernel takes it. The kernel's ring submit takes at most 128 command-stream entries
+ * (SUBMIT_CMDS_MAX, and sweet_gpu_submit's count > 128 check), and a refused submit is the end of a Turnip device
+ * (VK_ERROR_DEVICE_LOST, "submit failed": backboardd on metal2vulkan stopped drawing after a heavy frame). A longer
+ * submit goes in consecutive parts with the same BO list; the ring runs in order, so the last part's fence covers all of
+ * it. A refusal other than a bad argument (the GPU not ready for a moment) is tried again a few times. Failures are
+ * appended to /private/var/tmp/drm-submit-errors.log.
+ */
+#define KERNEL_SUBMIT_CMDS 128
+static void
+submit_failed(const struct sweet_msm_gem_submit *k, int r, int tries)
+{
+	int fd = open("/private/var/tmp/drm-submit-errors.log", O_WRONLY | O_APPEND | O_CREAT, 0666);
+	if (fd < 0)
+		return;
+	dprintf(fd, "%s[%d]: GEM_SUBMIT refused: errno %d after %d tries, %u cmds, %u bos, flags %#x\n", getprogname(), getpid(), -r,
+	        tries, k->nr_cmds, k->nr_bos, k->flags);
+	close(fd);
+}
+static int
+submit_once(struct sweet_msm_gem_submit *k)
+{
+	int r = 0, tries = 0;
+	for (; tries < 20; tries++) {
+		r = sweet_call(SWEET_GPU_SEL_GEM_SUBMIT, k, sizeof(*k));
+		if (r == 0 || r == -EINVAL)
+			break;
+		usleep(1000);
+	}
+	if (r)
+		submit_failed(k, r, tries + 1);
+	return r;
+}
+static int
+submit_split(struct sweet_msm_gem_submit *k)
+{
+	if (k->nr_cmds <= KERNEL_SUBMIT_CMDS)
+		return submit_once(k);
+	const struct sweet_msm_gem_submit_cmd *cmds = (const void *)(uintptr_t)k->cmds;
+	const uint32_t total = k->nr_cmds;
+	for (uint32_t at = 0; at < total; at += KERNEL_SUBMIT_CMDS) {
+		struct sweet_msm_gem_submit part = *k;
+		part.cmds = (uint64_t)(uintptr_t)(cmds + at);
+		part.nr_cmds = total - at < KERNEL_SUBMIT_CMDS ? total - at : KERNEL_SUBMIT_CMDS;
+		int r = submit_once(&part);
+		if (r)
+			return r;
+		k->fence = part.fence;
+		k->fence_fd = part.fence_fd;
+	}
+	return 0;
+}
+
 static int
 sweet_submit(void *data, unsigned long size)
 {
@@ -842,7 +895,7 @@ sweet_submit(void *data, unsigned long size)
 		k.fence = info.last_fence;
 		k.fence_fd = -1;
 	} else {
-		r = sweet_call(SWEET_GPU_SEL_GEM_SUBMIT, &k, sizeof(k));
+		r = submit_split(&k);
 	}
 	if (r) {
 		return r;
