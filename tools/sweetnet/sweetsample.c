@@ -284,7 +284,10 @@ main(int argc, char **argv)
 			if (k < 256) thrs[k].count++;
 		}
 		vm_deallocate(mach_task_self(), (vm_address_t)th, nth * sizeof(*th));
-		usleep(period);
+		/* spins: usleep in an SSH shell comes back ~90 ms late here, which made "500 Hz" about 16 ticks a second */
+		struct timespec t1;
+		do clock_gettime(CLOCK_MONOTONIC, &t1);
+		while ((t1.tv_sec - now.tv_sec) * 1e9 + (t1.tv_nsec - now.tv_nsec) < period * 1e3);
 	}
 
 	printf("# pid %d ticks %u running-samples %u (%.1f%% of one CPU) cache_slide 0x%llx\n", pid, ticks, total,

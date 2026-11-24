@@ -61,13 +61,30 @@ finger(double x, double y, bool touch, uint32_t mask)
 	CFRelease(hand);
 }
 
+/*
+ * A wait that ends on time. usleep(8000) in an SSH shell comes back ~90 ms later here (timer coalescing for the shell's
+ * QoS): a "300 ms" swipe took 3.4 s and gave SpringBoard touch moves at 11-20 Hz, and every page-swipe frame rate measured
+ * with it was that of the input, not of the renderer (2026-11-24).
+ */
+static void
+wait_us(uint64_t us)
+{
+	static mach_timebase_info_data_t tb;
+	if (tb.denom == 0) {
+		mach_timebase_info(&tb);
+	}
+	uint64_t end = mach_absolute_time() + us * 1000 * tb.denom / tb.numer;
+	while (mach_absolute_time() < end) {
+	}
+}
+
 static void
 swipe(double x1, double y1, double x2, double y2, int ms)
 {
 	int steps = ms / 8 > 2 ? ms / 8 : 2;
 	finger(x1, y1, true, kIOHIDDigitizerEventRange | kIOHIDDigitizerEventTouch);
 	for (int i = 1; i <= steps; i++) {
-		usleep(8000);
+		wait_us(8000);
 		finger(x1 + (x2 - x1) * i / steps, y1 + (y2 - y1) * i / steps, true, kIOHIDDigitizerEventPosition);
 	}
 	finger(x2, y2, false, kIOHIDDigitizerEventRange | kIOHIDDigitizerEventTouch);
