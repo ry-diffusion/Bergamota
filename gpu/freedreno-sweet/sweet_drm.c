@@ -55,6 +55,7 @@ static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 static io_connect_t g_conn;
 static dev_t g_null_rdev;
 static int g_trace;
+static int g_slow_fd = -1;      /* /private/var/tmp/drm-slow.log, when it exists: kernel calls that took 3 ms or more */
 
 /*
  * Buffer log (Chlorophyll, GPU fault hunting): when /private/var/tmp/drm-bolog exists at connect time, every BO this
@@ -206,6 +207,7 @@ connect_once(void)
 			g_null_rdev = st.st_rdev;
 		}
 		g_trace = getenv("SWEET_DRM_TRACE") != NULL;
+		g_slow_fd = open("/private/var/tmp/drm-slow.log", O_WRONLY | O_APPEND);
 		bolog_open();
 		io_service_t svc = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching(SWEET_GPU_SERVICE_NAME));
 		if (svc != IO_OBJECT_NULL) {
@@ -337,10 +339,22 @@ sweet_call(uint32_t sel, void *data, size_t size)
 		rel_timeout(&((struct sweet_msm_gem_cpu_prep *)in)->timeout);
 	}
 	struct timespec t0;
-	if (sel == SWEET_GPU_SEL_WAIT_FENCE) {
+	if (sel == SWEET_GPU_SEL_WAIT_FENCE || g_slow_fd >= 0) {
 		clock_gettime(CLOCK_MONOTONIC, &t0);
 	}
 	kern_return_t kr = IOConnectCallStructMethod(g_conn, sel, in, want, out, &outsz);
+	if (g_slow_fd >= 0 && sel != SWEET_GPU_SEL_WAIT_FENCE) {
+		/* the kernel serves every process's GPU calls under one lock: a long call anywhere stalls the others' */
+		struct timespec t1;
+		clock_gettime(CLOCK_MONOTONIC, &t1);
+		long us = (long)(t1.tv_sec - t0.tv_sec) * 1000000 + (t1.tv_nsec - t0.tv_nsec) / 1000;
+		if (us >= 3000) {
+			char line[160];
+			int n = snprintf(line, sizeof(line), "%lld.%03ld %d %s sel %#x %ld us size %llu\n", (long long)t1.tv_sec, t1.tv_nsec / 1000000,
+			    getpid(), getprogname(), sel, us, sel == SWEET_GPU_SEL_GEM_NEW ? (unsigned long long)((struct sweet_msm_gem_new *)in)->size : 0ull);
+			(void)write(g_slow_fd, line, (size_t)n);
+		}
+	}
 	if (sel == SWEET_GPU_SEL_WAIT_FENCE && kr != KERN_SUCCESS) {
 		wait_failed((struct sweet_msm_wait_fence *)in, kr, &t0);
 	}
