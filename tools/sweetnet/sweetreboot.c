@@ -11,6 +11,8 @@
  * Needs a kernel with 0137: without the sysctl it refuses to reboot
  * (a reboot would otherwise just land in Android, or hang on older kernels).
  * Options: -n  set the mode only, do not reboot.
+ * test-panic / test-hang (kernel patch 1020, kern.sweet_reboot_test): a deliberate
+ * panic, or stopped watchdog pets + a spinning CPU, to test the unattended recovery.
  */
 #include <dlfcn.h>
 #include <stdio.h>
@@ -32,6 +34,15 @@ main(int argc, char **argv)
 			want = argv[i];
 		}
 	}
+	if (want && (!strcmp(want, "test-panic") || !strcmp(want, "test-hang"))) {
+		int v = !strcmp(want, "test-panic") ? 1 : 2;
+		sync();
+		if (sysctlbyname("kern.sweet_reboot_test", NULL, NULL, &v, sizeof(v)) != 0) {
+			perror("sweetreboot: sysctl kern.sweet_reboot_test (kernel without patch 1020, or sweetwdt off for test-hang?)");
+			return 1;
+		}
+		return 0;	/* not reached for 1; 2 never returns either */
+	}
 	const char *mode = NULL;
 	if (want && (!strcmp(want, "fastboot") || !strcmp(want, "bootloader"))) {
 		mode = "bootloader";
@@ -43,7 +54,7 @@ main(int argc, char **argv)
 		mode = "normal";
 	}
 	if (!mode) {
-		fprintf(stderr, "usage: sweetreboot [-n] fastboot|recovery|bergamota|normal\n");
+		fprintf(stderr, "usage: sweetreboot [-n] fastboot|recovery|bergamota|normal | test-panic|test-hang\n");
 		return 2;
 	}
 	if (geteuid() != 0) {
