@@ -1,0 +1,65 @@
+1024: the swap gate waits for the fence of the frame's own submit, not for the newest one when the gate opens.
+
+libm2v now submits a frame's first passes while backboardd still encodes the rest (m2v chlCut). The gate (1022) took its
+GPU fence when it found the submit done, a vsync tick later: by then the newest fence was already the next frame's first
+passes, so each frame waited for part of the next one and CoreAnimation sat in the swap (1023) for 40-128 ms. The sysctl
+handler of kern.sweet_fb_gate_submitted now records the newest fence at each write (the worker writes right after its
+submit), for the last 16 submits, and the gate uses the one of the swap's commit. Applies after 1023.
+
+--- a/bsd/dev/sweet_fb.c
++++ b/bsd/dev/sweet_fb.c
+@@ -80,6 +80,20 @@
+  * Writes only ever raise a value (two threads write, their order is not kept). Both 0: no gate.
+  */
+ uint64_t sweet_fb_gate_committed, sweet_fb_gate_submitted;
++/*
++ * 1024: the GPU fence that was the newest when each submit number was written, so the swap gate waits for the frame's own
++ * work. A snapshot taken when the gate opens (a vsync tick later) already held the next frame's first passes, which
++ * backboardd now submits while it still encodes the rest, and other processes' work. Last 16 submits; 0 = not known.
++ */
++extern uint32_t sweet_gpu_fence_snapshot(void);         /* bsd/dev/sweet_a630.c (0229) */
++static uint64_t sweet_fb_gate_seq[16];
++static uint32_t sweet_fb_gate_fence[16];
++uint32_t
++sweet_fb_gate_fence_of(uint64_t seq)
++{
++	uint32_t fence = __atomic_load_n(&sweet_fb_gate_fence[seq & 15], __ATOMIC_ACQUIRE);
++	return __atomic_load_n(&sweet_fb_gate_seq[seq & 15], __ATOMIC_ACQUIRE) == seq ? fence : 0;
++}
+ static int
+ sysctl_sweet_fb_gate SYSCTL_HANDLER_ARGS
+ {
+@@ -89,6 +103,11 @@
+ 	if (err != 0 || req->newptr == USER_ADDR_NULL) {
+ 		return err;
+ 	}
++	if (p == &sweet_fb_gate_submitted) {
++		__atomic_store_n(&sweet_fb_gate_seq[v & 15], 0, __ATOMIC_RELEASE);
++		__atomic_store_n(&sweet_fb_gate_fence[v & 15], sweet_gpu_fence_snapshot(), __ATOMIC_RELEASE);
++		__atomic_store_n(&sweet_fb_gate_seq[v & 15], v, __ATOMIC_RELEASE);
++	}
+ 	uint64_t cur = __atomic_load_n(p, __ATOMIC_ACQUIRE);
+ 	while (v > cur && !__atomic_compare_exchange_n(p, &cur, v, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+ 	}
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+@@ -68,6 +68,7 @@
+ extern "C" uint32_t sweet_gpu_fence_snapshot(void);     /* bsd/dev/sweet_a630.c (0229) */
+ extern "C" bool sweet_gpu_blit_window(uint64_t pa, uint64_t size);      /* bsd/dev/sweet_a630.c (0240) */
+ extern "C" uint64_t sweet_fb_gate_committed, sweet_fb_gate_submitted;   /* 1022, bsd/dev/sweet_fb.c */
++extern "C" uint32_t sweet_fb_gate_fence_of(uint64_t seq);               /* 1024, bsd/dev/sweet_fb.c */
+ extern "C" uint32_t sweet_gpu_blit(uint64_t src_pa, uint32_t src_pitch, uint64_t dst_pa, uint32_t dst_pitch, uint32_t w, uint32_t h);
+ extern "C" bool sweet_gpu_fence_passed(uint32_t fence);                    /* bsd/dev/sweet_fb.c: sysctl kern.sweet_fb_hud (patch 0213) */
+ 
+@@ -1091,8 +1092,10 @@
+ 	}
+ 	if (__atomic_load_n(&sweet_fb_gate_submitted, __ATOMIC_ACQUIRE) >= fPendGate) {
+ 		/* the frame's work is on the ring only now: the GPU gate (0229) waits for the fence taken here, not at the swap */
++		/* 1024: the fence of that very submit when it is known; the newest one also covers work submitted after it */
++		uint32_t own = sweet_fb_gate_fence_of(fPendGate);
+ 		fPendGate = 0;
+-		fPendFence = sweet_gpu_fence_snapshot();
++		fPendFence = own != 0 ? own : sweet_gpu_fence_snapshot();
+ 		fPendAbs = now;         /* 1023: the GPU gate's 50 ms cap counts from the submit, not from the swap */
+ 		return true;
+ 	}
