@@ -364,6 +364,14 @@ sweet_call(uint32_t sel, void *data, size_t size)
 	if (kr == KERN_SUCCESS && g_bolog > 0) {
 		bolog_call(sel, in, out, outsz);
 	}
+	if (kr == KERN_SUCCESS && sel == SWEET_GPU_SEL_GET_PARAM && ((struct sweet_msm_param *)in)->param == 16) {
+		/* MSM_PARAM_HIGHEST_BANK_BIT: the kernel answers 15 but writes the bank registers only when booted with sweetgpuubwc=1,
+		 * and with their reset values the A630 tiles as for 14. Turnip tiles a texture's CPU upload from this answer
+		 * (VK_EXT_host_image_copy): with 15 every other macrotile row of a 16-byte-a-texel image (ASTC blocks) landed 8 KiB
+		 * off, the cut lower half of the home screen's icon glyphs (chlorophyll's m2v_probe, M2V_ASTC=1 M2V_ASTC_RAMP=1).
+		 * shortcut: right only while no boot passes sweetgpuubwc=1; when one does, have the kernel answer what it programmed. */
+		((struct sweet_msm_param *)out)->value = 14;
+	}
 	if (kr == KERN_SUCCESS && outsz) {
 		memcpy(data, out, outsz < size ? outsz : size);
 	}
