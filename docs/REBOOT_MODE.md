@@ -36,8 +36,36 @@ Panics are unaffected (`sweetreboot=bergamota` as boot-arg only sets the default
 - `sysctl kern.sweet_reboot_mode` (root, string) overrides it for the next
   reboot: `bootloader` (alias `fastboot`), `recovery`, `bergamota`, `normal`.
 - Panic: unchanged (the phone stays up on the panic screen) unless
-  `sweetreboot=bootloader` is a boot-arg; then the panic also resets into
-  fastboot. The sysctl does not affect panics.
+  `sweetreboot=bootloader` (reset into fastboot) or `sweetpanicreboot=1`
+  (patch 1020: reset in normal mode, ABL boots `boot` = iOS again) is a
+  boot-arg. The sysctl does not affect panics.
+
+## Unattended recovery (kernel patch 1020)
+
+- **Panic -> reset.** With `sweetpanicreboot=1` the reset happens at
+  `kPEPanicDiagnosticsDone`, which every panic reaches (with `debug=0xc`,
+  DB_NMI sets `panicDebugging`, so XNU never asks for `kPEPanicRestartCPU` and
+  used to spin forever). Before the reset `sweet_ufs_flush_final()` writes the
+  console ring's unwritten tail (the panic text) to the log area.
+- **Previous boot's log.** At boot the log thread reads the previous boot's last
+  8 KiB back before its first flush overwrites the ring, prints it as `prev| ...`
+  lines (between `SWEET LOG: previous boot's last ...` and `SWEET LOG: end of the
+  previous boot's log`) and keeps it in `sysctl kern.sweet_log_prev`. Over SSH:
+  `/var/root/sysctlget kern.sweet_log_prev` (prints hex; `xxd -r -p` on the Mac).
+- **Hardware watchdog.** `sweetwdt=N` (5..120 s) arms the APSS WDT
+  (0x17980000, 32768 Hz, Linux qcom-wdt kpss offsets) with a bite after N s and
+  pets it from a kernel thread every N/4 s; the bark IRQ stays off. A wedged
+  kernel, or a panic that never reaches the reset, gets bitten. Halt disables it.
+  Boot log: `SWEET REBOOT: watchdog armed, bite after N s ...`.
+- **Tests.** `sweetreboot test-panic` (`kern.sweet_reboot_test=1`, a panic) and
+  `sweetreboot test-hang` (`=2`: watchdog pets stopped, the calling CPU spins
+  with interrupts off; needs `sweetwdt`).
+- `tools/renegade/mkboot-full.sh` adds `sweetpanicreboot=1 sweetwdt=30` by default.
+- **Mac fallback.** `tools/fastboot-rescue.sh` (self-check
+  `tools/test-fastboot-rescue.sh`): when the phone sits in ABL fastboot for 90 s
+  (not Bergamota fastboot, and not while the Bergamota app has its queue armed) it
+  runs `fastboot reboot`, at most 3 times an hour. Run it with `nohup`; log in
+  `logs/fastboot-rescue.log`.
 
 ## Tool
 
