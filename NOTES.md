@@ -2,6 +2,23 @@
 
 ## Agent handoff / active work (2026-10-15, latest)
 
+### >>> Unattended recovery from panics and hangs (branch `claude/exciting-tesla-739695` off develop 37a7a7a, 2026-11-24): docs/REBOOT_MODE.md <<<
+* **Before:** a panic never reset the SoC. With `debug=0xc`, DB_NMI sets `panicDebugging`, so XNU never asks for `kPEPanicRestartCPU` and spins; 0137 only reset on panics with `sweetreboot=bootloader`. Nothing armed a hardware watchdog.
+* **xnu-12377 1020** (`1020-beryllium-panic-reboot-watchdog.patch`, sweet_reboot.c/sweet_ufs.c/SweetPlatformExpert.cpp):
+  * `sweetpanicreboot=1`: `kPEPanicDiagnosticsDone` (every panic reaches it) -> `sweet_reboot_restart(1)` -> PS_HOLD reset with PON reason 0 (normal), so ABL boots `boot` again.
+  * `sweet_ufs_flush_final()` now also writes the console ring's unwritten tail (the panic text) before every reset.
+  * At boot, the log thread reads the previous boot's last 8 KiB back before its first flush overwrites the ring, re-prints them as `prev| ...` lines and keeps them in `kern.sweet_log_prev`. Read over SSH with `/var/root/sysctlget kern.sweet_log_prev`; it prints hex, so pipe it through `xxd -r -p`.
+  * `sweetwdt=N`: APSS WDT 0x17980000, bite after N s, petted by a kernel thread every N/4 s, bark IRQ off, disabled on halt.
+  * Tests: `kern.sweet_reboot_test` = 1 (panic) or 2 (pets stop + spin); the tool is `sweetreboot test-panic|test-hang`, installed on the phone 2026-11-24 with the old copy in `/var/root/sweetreboot.pre1020`.
+  * `mkboot-full.sh` default args gained `sweetpanicreboot=1 sweetwdt=30`.
+* **Mac:** `tools/fastboot-rescue.sh` (self-check `tools/test-fastboot-rescue.sh` PASS) runs `fastboot reboot` when the phone sits in ABL fastboot for 90 s. It skips Bergamota fastboot, stays out of the way while the app's queue is armed, and allows at most 3 reboots per hour. **Running** since 2026-11-24 03:10Z (nohup, from this worktree); log in `logs/fastboot-rescue.log` of the main checkout.
+* **Build: GitHub Actions is disabled on ry-diffusion/Bergamota** (`gh workflow run` -> HTTP 422), so there is no CI run. Built locally instead: `USE_KDK=1 tools/xnu-local-build.sh 26.5` (develop + 1020, so 1019 PAC emulation is in as well). Kernel `research/ios26/kernel-1020/kernel.development.sweet` in this worktree (sha256 b026d1af...). Compile-checked, no new warnings.
+* **Images** (`tools/repack-boot.py`: boot55 with the kernel swapped and args appended; reproduces boot55 byte for byte with kernel-1130), in the main checkout's `shim/out/`:
+  * `...-boot56-recovery.img` (36d92d73...): boot55 args + `sweetpanicreboot=1 sweetwdt=30`;
+  * `...-boot56b-panic-to-fastboot.img` (41dbc129...): + `sweetreboot=bootloader sweetwdt=30`. Use it only to check that the panic text survives: panic -> fastboot -> `fastboot boot` boot56 -> read `kern.sweet_log_prev`.
+* **NOT run on the phone yet** (the GPU session was using it). Plan: `fastboot boot` boot56 -> `sweetreboot test-panic` -> back in iOS (boot55 from `boot`) -> boot56 again -> `sweetreboot test-hang` -> bite -> back in iOS. Watch the first hang test: a bite could land in Qualcomm download/crashdump mode (SDI not disabled by us). Unknown until tried.
+* **Needs the user's OK:** flash boot56 to `boot`. Until then every recovery comes back on boot55, which has no panic reset and no watchdog.
+
 ### >>> 2026-10-26: Wi-Fi, PAC fallback and Chlorophyll-on-Turnip merged into develop (user) <<<
 * Wi-Fi `claude/wlan26-chip-037a03` was already develop (f4b36c1, boot 54 WPA2 join). Merged `claude/peaceful-saha-28595a` (xnu-12377 1019 PAC emulation, tools/pacemu) and `claude/chlorophyll-turnip-c432e2` (freedreno-sweet syncobjs + prime fds, sweetgpu, notes; NOTES conflict: both sections kept below).
 * Chlorophyll: `ios26` fast-forwarded to `turnip` d3cb665 (Turnip runtime, Mesa 26.2.5, guard-page slack); `gpu/metal` gitlink dbfcd6d -> d3cb665. The Turnip session's boot 54-55 notes (SpringBoard SMMU faults, guard-page fix) are not yet in NOTES on this branch. Nothing pushed (develop and Chlorophyll ios26 are local).
