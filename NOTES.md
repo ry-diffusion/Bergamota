@@ -3,6 +3,10 @@
 ## Agent handoff / active work (2026-10-15, latest)
 
 ### >>> Chlorophyll on Turnip (Chlorophyll branch `turnip` 6a27a3b, Bergamota branch `claude/chlorophyll-turnip-c432e2`), 2026-10-26: Turnip RUNS on the A630 <<<
+* **2026-11-25 15:30-16:00 (Mac): blur cap measured: negligible.** Crimson `m2v-blurcap` (SpringBoard caps `CABackdropLayer.scale` at 0.5), same boot (flashed image):
+  * App Library GPU 21.0-21.3 ms a frame off vs 20.5 ms on; 18-22 % of frames on one refresh either way.
+  * The full-resolution backdrops must come from layers that never call `-setScale:`.
+  * The switch stays in Crimson and both apps, off by default. SpringBoard was stable with it on.
 * **2026-11-25 12:40-15:30 (Mac): the SpringBoard deaths and reboot loops were a full data partition; Performance mode apps.**
   * `df`: /dev/ufsroot0 24 G, 99 % used, 250 MB free. Processes running as mobile could not create files, so:
     * SpringBoard's metal2vulkan device was refused (cache writes);

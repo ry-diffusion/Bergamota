@@ -41,7 +41,7 @@ enum PerfCatalog {
               "SpringBoard keeps every home page, the Today view and their widgets built while you swipe. Swiping between pages rebuilt them every time: 40-43 fps with a 0.4 s stall per swipe, 57-60 without.",
               group: "SpringBoard", applies: .respring),
         .flag("m2v-blurcap", "Half-resolution blurs",
-              "SpringBoard asks for no blur finer than half resolution (glass in the App Library, folders, Control Center). Untested.",
+              "SpringBoard asks for no blur finer than half resolution (glass in the App Library, folders, Control Center). Measured: App Library GPU 21.0-21.3 -> 20.5 ms a frame, so little gain.",
               group: "SpringBoard", applies: .respring, experimental: true),
         PerfOption(id: "bgmtl-bb.env", title: "GPU rendering",
                    detail: "How Turnip renders backboardd's passes. Tiled (GMEM) gave the steadiest page drags; direct (sysmem) was the old setting; profiled times both and was slower here.",
