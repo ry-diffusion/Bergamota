@@ -5,6 +5,8 @@
  *   sweetwake pages [N]                    swipe to the next home page and back, N times (default 1)
  *   sweetwake awake SECONDS                keep the display on: undim every 10 s for SECONDS, in the background
  *   sweetwake tap X Y | swipe X1 Y1 X2 Y2 [MS] | home | lock
+ *   sweetwake drag X1 X2 Y SECONDS [MS [STEP_MS]]  finger down for SECONDS, sweeping X1<->X2 (MS each way, a move every
+ *                                          STEP_MS, default 8); run it under fgjob
  * Points in the 414x896 space of the iPhone12,1 userland. Events go into the HID event system like a digitizer's
  * (IOHIDEventSystemClientDispatchEvent, entitlement com.apple.private.hid.client.event-dispatch: touch.entitlements),
  * as sweettouch does for the iOS 18 userland. arm64e + pacstrip.
@@ -12,6 +14,7 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <dlfcn.h>
 #include <mach/mach_time.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -90,6 +93,40 @@ swipe(double x1, double y1, double x2, double y2, int ms)
 	finger(x2, y2, false, kIOHIDDigitizerEventRange | kIOHIDDigitizerEventTouch);
 }
 
+/*
+ * One finger down for SECONDS, moving left and right across Y without lifting (one sweep per MS), then up: the content under
+ * it follows every frame, with no gap between gestures (a loop of `swipe` calls pauses between processes, which a per-second
+ * frame meter counts as slow seconds).
+ */
+static void
+drag(double x1, double x2, double y, int seconds, int ms, int step_ms)
+{
+	/* Positions follow the clock, not a step count, so a late step makes the finger jump instead of freezing it (the content
+	 * stopping reads as slow frames). Run it through fgjob (a transient launchd job, ProcessType Interactive): everything
+	 * dropbear starts is darwin-background, priority 4 with timers coalesced by up to 100 ms, so its steps come 0.1-1.5 s late
+	 * (a busy wait instead gets preempted that long, and burns one of the four big cores the UI runs on). */
+	mach_timebase_info_data_t tb;
+	mach_timebase_info(&tb);
+	uint64_t tick = (uint64_t)step_ms * 1000000ull * tb.denom / tb.numer, t0 = mach_absolute_time(), late = 0, inject = 0;
+	double period = 2.0 * ms * 1e6, x = x1;
+	/* down 20 points outside the sweep: the pan's start slop is used up there, so coming back to X1 puts the page exactly
+	 * where it started (touching down at X1 overshot it every sweep, e.g. into the Today view left of home page 1) */
+	finger(x1 + (x1 > x2 ? 20 : -20), y, true, kIOHIDDigitizerEventRange | kIOHIDDigitizerEventTouch);
+	for (uint64_t i = 1; i <= (uint64_t)seconds * 1000 / step_ms; i++) {
+		mach_wait_until(t0 + i * tick);
+		uint64_t now = mach_absolute_time(), over = (now - t0 - i * tick) * tb.numer / tb.denom;
+		late = over > late ? over : late;
+		double ph = fmod((double)((now - t0) * tb.numer / tb.denom), period) / period;
+		x = x1 + (x2 - x1) * (ph <= 0.5 ? 2 * ph : 2 - 2 * ph);
+		finger(x, y, true, kIOHIDDigitizerEventPosition);
+		uint64_t d = (mach_absolute_time() - now) * tb.numer / tb.denom;
+		inject = d > inject ? d : inject;
+	}
+	finger(x, y, false, kIOHIDDigitizerEventRange | kIOHIDDigitizerEventTouch);
+	fprintf(stderr, "drag: %d steps, worst step %.1f ms late, slowest event dispatch %.1f ms\n", seconds * 1000 / step_ms, late / 1e6,
+	        inject / 1e6);
+}
+
 static void
 button(uint32_t page, uint32_t usage)
 {
@@ -164,12 +201,14 @@ main(int argc, char **argv)
 		finger(x, y, false, kIOHIDDigitizerEventRange | kIOHIDDigitizerEventTouch);
 	} else if ((argc == 6 || argc == 7) && !strcmp(argv[1], "swipe")) {
 		swipe(atof(argv[2]), atof(argv[3]), atof(argv[4]), atof(argv[5]), argc == 7 ? atoi(argv[6]) : 300);
+	} else if (argc >= 6 && argc <= 8 && !strcmp(argv[1], "drag")) {
+		drag(atof(argv[2]), atof(argv[3]), atof(argv[4]), atoi(argv[5]), argc >= 7 ? atoi(argv[6]) : 1000, argc == 8 ? atoi(argv[7]) : 8);
 	} else if (argc == 2 && !strcmp(argv[1], "home")) {
 		button(0x0c, 0x40);
 	} else if (argc == 2 && !strcmp(argv[1], "lock")) {
 		button(0x0c, 0x30);   /* consumer page, power */
 	} else {
-		fprintf(stderr, "usage: sweetwake wake | unlock | pages [N] | awake SECONDS | tap X Y | swipe X1 Y1 X2 Y2 [MS] | home | lock\n"
+		fprintf(stderr, "usage: sweetwake wake | unlock | pages [N] | awake SECONDS | tap X Y | swipe X1 Y1 X2 Y2 [MS] | drag X1 X2 Y SECONDS [MS [STEP_MS]] | home | lock\n"
 		                "       (points, 414x896)\n");
 		return 2;
 	}
