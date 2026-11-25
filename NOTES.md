@@ -3,6 +3,13 @@
 ## Agent handoff / active work (2026-10-15, latest)
 
 ### >>> Chlorophyll on Turnip (Chlorophyll branch `turnip` 6a27a3b, Bergamota branch `claude/chlorophyll-turnip-c432e2`), 2026-10-26: Turnip RUNS on the A630 <<<
+* **2026-11-25 05:30-06:40 (Mac, same goal): drags stay at 57-59 fps late in a boot (Crimson shadow-check backoff, pushed after 0ea5b2344).**
+  * Before the backoff, the same library degraded over a boot. After six resprings: 53.0-56.0 fps (alternating 60/46), backboardd 1.86 cores. About 40 % of backboardd's worker samples were `chlCheckShadow`: every client image used in a frame was copied out and CRC'd every 50 ms, and with every home icon and widget kept built there are many.
+  * Now an unchanged image's re-check interval doubles up to 1 s; a change resets it to 50 ms.
+  * Fresh boot: 58.3 / 57.0 / 59.2 fps (k3: every second 57-61, worst interval 33 ms).
+  * After six resprings: 57.5 / 57.3 fps, middle seconds 58-61, GPU tables 505/1028. `chlCheckShadow` is ~4 % of worker samples.
+  * Ruled out, no gain: a `-[UIView setHidden:]` early-out; skipping the Today view's end transitions; skipping `cleanupViews` (worse).
+  * Folder open/close animations: mostly <= 17 ms intervals, with 1-4 hitches of 25-100 ms per open.
 * **2026-11-25 04:55-05:30 (Mac, same goal): confirmed on a fresh boot70 RAM boot, no resprings (Crimson 0ea5b2344).** Five 20 s drags between home pages 1 and 2:
   * averages 56.8 / 56.9 / 56.6 / 59.6 / 57.7 fps, including the partial first and last seconds;
   * 89-98 % of frames on one refresh; middle seconds 57-61, except one 220 ms hitch (g2) and one hitch at the start (g3);
