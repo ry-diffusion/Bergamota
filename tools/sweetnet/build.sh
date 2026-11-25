@@ -88,6 +88,10 @@ if [ "${IOS18:-1}" = 1 ]; then
 	xcrun -sdk iphoneos clang -arch arm64e -mios-version-min=18.0 -O2 -Wall "$here/sweetsample.c" -o "$out18/sweetsample"
 	codesign -s - -f --entitlements "$here/sample.entitlements" "$out18/sweetsample"
 	python3 -I "$pacstrip" --sign "$out18/sweetsample"
+	# root helper of the phone's Bergamota app (apps/BergamotaPhone): switches, respring, reboot on 127.0.0.1:7307
+	xcrun -sdk iphoneos clang -arch arm64e -mios-version-min=18.0 -O2 -Wall "$here/bergamotad.c" -o "$out18/bergamotad"
+	codesign -s - -f --entitlements "$here/entitlements.plist" "$out18/bergamotad"
+	python3 -I "$pacstrip" --sign "$out18/bergamotad"
 	# Wi-Fi over SSH (iOS 26 stand-in, docs/WIFI_IOS26.md): Apple80211 info/power/scan without wifid or the UI
 	xcrun -sdk iphoneos clang -arch arm64e -mios-version-min=18.0 -O2 -Wall -framework CoreFoundation \
 		"$here/sweetwifi.c" -o "$out18/sweetwifi"

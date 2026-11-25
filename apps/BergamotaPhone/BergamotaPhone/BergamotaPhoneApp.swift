@@ -1,9 +1,8 @@
 import SwiftUI
 import Darwin
 
-/// Bergamota on the phone: the Mac app's Performance mode (same PerfCatalog), writing the switch files directly.
-/// Runs as mobile without a sandbox (entitlements.plist); the Mac app hands each switch file to mobile, so this app
-/// can change or remove it in the sticky /private/var/tmp.
+/// Bergamota on the phone: the Mac app's Performance mode (same PerfCatalog), plus Respring and Reboot. It runs sandboxed
+/// and asks the root helper bergamotad (tools/sweetnet/bergamotad.c) to read and write the switches.
 @main
 struct BergamotaPhoneApp: App {
     var body: some Scene { WindowGroup { PerformanceScreen() } }
@@ -13,6 +12,33 @@ struct BergamotaPhoneApp: App {
 func shellQuote(_ s: String) -> String {
     if !s.isEmpty && s.allSatisfy({ $0.isLetter || $0.isNumber || "-_./=:@%+,".contains($0) }) { return s }
     return "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+}
+
+/// One request to bergamotad (tools/sweetnet/bergamotad.c), the root helper on 127.0.0.1:7307: this app launches only
+/// sandboxed, so the helper writes the switches, resprings and reboots for it. Returns the reply lines, nil if it is not running.
+func helper(_ request: String) -> [String]? {
+    let fd = socket(AF_INET, SOCK_STREAM, 0)
+    guard fd >= 0 else { return nil }
+    defer { close(fd) }
+    var tv = timeval(tv_sec: 3, tv_usec: 0)
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+    var a = sockaddr_in()
+    a.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+    a.sin_family = sa_family_t(AF_INET)
+    a.sin_port = in_port_t(7307).bigEndian
+    a.sin_addr.s_addr = inet_addr("127.0.0.1")
+    let connected = withUnsafePointer(to: &a) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) } }
+    guard connected == 0 else { return nil }
+    let line = request + "\n"
+    _ = line.withCString { write(fd, $0, strlen($0)) }
+    var data = [UInt8]()
+    var buf = [UInt8](repeating: 0, count: 4096)
+    while true {
+        let n = read(fd, &buf, buf.count)
+        if n <= 0 { break }
+        data += buf[0..<n]
+    }
+    return String(decoding: data, as: UTF8.self).split(separator: "\n").map(String.init)
 }
 
 @Observable
@@ -26,13 +52,22 @@ final class PhoneSwitches {
 
     var changed: [PerfOption] { PerfCatalog.options.filter { wanted[$0.id] != nil && wanted[$0.id] != phone[$0.id] } }
     var activePreset: PerfPreset? { PerfCatalog.presets.first { p in p.choices.allSatisfy { wanted[$0.key] == $0.value } } }
+    private let notRunning = "The Bergamota helper (bergamotad) is not running on the phone."
 
     func read() {
-        var found: [String: Int] = [:]
-        for o in PerfCatalog.options {
-            let contents = FileManager.default.fileExists(atPath: o.path) ? ((try? String(contentsOfFile: o.path, encoding: .utf8)) ?? "") : nil
-            found[o.id] = PerfCatalog.choiceIndex(o, contents: contents)
+        guard let lines = helper("get") else { error = notRunning; return }
+        error = nil
+        var present: [String: String] = [:]
+        for l in lines where l.contains("=") {
+            let parts = l.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            let hex = Array(parts[1])
+            var bytes = [UInt8]()
+            var i = 0
+            while i + 1 < hex.count { bytes.append(UInt8(String(hex[i...i + 1]), radix: 16) ?? 0); i += 2 }
+            present[String(parts[0])] = String(decoding: bytes, as: UTF8.self)
         }
+        var found: [String: Int] = [:]
+        for o in PerfCatalog.options { found[o.id] = PerfCatalog.choiceIndex(o, contents: present[o.id]) }
         phone = found
         for (k, v) in found where wanted[k] == nil { wanted[k] = v }
     }
@@ -41,38 +76,34 @@ final class PhoneSwitches {
         error = nil
         for o in changed {
             guard let i = wanted[o.id], o.choices.indices.contains(i) else { continue }
-            do {
-                if let content = o.choices[i].content {
-                    try content.write(toFile: o.path, atomically: false, encoding: .utf8)
-                } else if FileManager.default.fileExists(atPath: o.path) {
-                    try FileManager.default.removeItem(atPath: o.path)
-                }
-                if o.applies == .respring { pendingRespring = true } else { pendingReboot = true }
-            } catch {
-                self.error = "\(o.title): \(error.localizedDescription) (if the file belongs to root, apply once from Bergamota on the Mac)"
+            let request: String
+            if let content = o.choices[i].content {
+                request = "set \(o.id) " + content.utf8.map { String(format: "%02x", $0) }.joined()
+            } else {
+                request = "rm \(o.id)"
             }
+            guard let r = helper(request) else { error = notRunning; return }
+            if r.first != "ok" { error = "\(o.title): \(r.first ?? "no answer")"; continue }
+            if o.applies == .respring { pendingRespring = true } else { pendingReboot = true }
         }
         read()
     }
 
-    /// SpringBoard runs as mobile like this app: a SIGTERM restarts it (backboardd keeps running).
     func respring() {
-        var mib = [CTL_KERN, KERN_PROC, KERN_PROC_ALL]
-        var size = 0
-        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0 else { error = "process list: errno \(errno)"; return }
-        var procs = [kinfo_proc](repeating: kinfo_proc(), count: size / MemoryLayout<kinfo_proc>.stride + 16)
-        size = procs.count * MemoryLayout<kinfo_proc>.stride
-        guard sysctl(&mib, 3, &procs, &size, nil, 0) == 0 else { error = "process list: errno \(errno)"; return }
-        for p in procs.prefix(size / MemoryLayout<kinfo_proc>.stride) {
-            let name = withUnsafeBytes(of: p.kp_proc.p_comm) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
-            if name == "SpringBoard" { kill(p.kp_proc.p_pid, SIGTERM); pendingRespring = false; return }
-        }
-        error = "SpringBoard not found"
+        guard let r = helper("respring") else { error = notRunning; return }
+        if r.first == "ok" { pendingRespring = false } else { error = r.first }
+    }
+
+    /// A normal reboot (sweetreboot normal): the phone comes up on its flashed boot image. For a worn power button.
+    func reboot() {
+        guard let r = helper("reboot") else { error = notRunning; return }
+        if r.first != "ok" { error = r.first }
     }
 }
 
 struct PerformanceScreen: View {
     @State private var s = PhoneSwitches()
+    @State private var confirmReboot = false
 
     var body: some View {
         NavigationStack {
@@ -97,8 +128,15 @@ struct PerformanceScreen: View {
                         ForEach(PerfCatalog.options.filter { $0.group == g }) { o in optionRow(o) }
                     }
                 }
-                if s.pendingReboot {
-                    Section { Label("backboardd reads its switches when it starts: reboot the phone from Bergamota on the Mac.", systemImage: "arrow.triangle.2.circlepath") }
+                Section {
+                    // two taps instead of a confirmation sheet: sheets and alerts do not show in this app on this phone
+                    Button(role: .destructive) {
+                        if confirmReboot { s.reboot() } else { confirmReboot = true }
+                    } label: {
+                        Label(confirmReboot ? "Tap again to reboot" : "Reboot phone", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                } footer: {
+                    Text(s.pendingReboot ? "backboardd reads its switches when it starts: reboot for them to take effect." : "A normal reboot, onto the boot image flashed to the phone.")
                 }
                 if let e = s.error { Section { Label(e, systemImage: "exclamationmark.triangle").foregroundStyle(.orange) } }
             }

@@ -4,6 +4,8 @@ import SwiftUI
 struct PerformanceModePanel: View {
     @Environment(AppModel.self) private var model
     @State private var advanced = false
+    @State private var confirmReboot = false
+    @State private var rebootResult: String?
 
     var body: some View {
         let p = model.perf
@@ -27,6 +29,13 @@ struct PerformanceModePanel: View {
             footer(p)
         }
         .task(id: model.monitor.state) { await p.read() }
+        .confirmationDialog("Reboot the phone?", isPresented: $confirmReboot, titleVisibility: .visible) {
+            Button("Reboot", role: .destructive) {
+                Task { let r = await model.tools.rebootIOS(to: "normal"); rebootResult = r.1; if r.0 { p.pendingReboot = false; p.pendingRespring = false } }
+            }
+        } message: {
+            Text("It comes up on the boot image flashed to the phone (a RAM-booted test image is gone after the reboot).")
+        }
     }
 
     private var groups: [String] {
@@ -91,6 +100,9 @@ struct PerformanceModePanel: View {
                 Button("Respring") { Task { await p.respring() } }
                     .help("Restart SpringBoard so its switches take effect (backboardd keeps running)")
             }
+            Button("Reboot phone") { confirmReboot = true }
+                .help("A normal reboot (sweetreboot normal): comes up on the flashed boot image; backboardd reads its switches then")
+                .disabled(model.tools.rebooting != nil)
             Button { Task { await p.read() } } label: { Image(systemName: "arrow.clockwise") }
                 .help("Read the switches from the phone again")
                 .disabled(p.reading)
@@ -103,5 +115,6 @@ struct PerformanceModePanel: View {
                    symbol: "arrow.triangle.2.circlepath", color: .muted)
         }
         if let e = p.error { Notice(text: e) }
+        if let r = rebootResult { Notice(text: r, symbol: "arrow.triangle.2.circlepath", color: .muted) }
     }
 }

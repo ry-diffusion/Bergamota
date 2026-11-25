@@ -9,14 +9,12 @@
 /* Begin PBXBuildFile section */
 		1C4849A1EB6318A5D600CE61 /* BergamotaPhoneApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A8CE97D033C478B40C373DF /* BergamotaPhoneApp.swift */; };
 		64C92A17EE4D6EF88CE39843 /* PerfCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A46290E3ECFDD918043F3A08 /* PerfCatalog.swift */; };
-		8EC704C8AB14A057C8BCB0A5 /* entitlements.plist in Resources */ = {isa = PBXBuildFile; fileRef = BE1B57601A40921CD374C1C0 /* entitlements.plist */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		28D3C10990D46404DFF6A219 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		2A8CE97D033C478B40C373DF /* BergamotaPhoneApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BergamotaPhoneApp.swift; sourceTree = "<group>"; };
 		A46290E3ECFDD918043F3A08 /* PerfCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerfCatalog.swift; sourceTree = "<group>"; };
-		BE1B57601A40921CD374C1C0 /* entitlements.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = entitlements.plist; sourceTree = "<group>"; };
 		EA18641B423B9F1742FA77E4 /* BergamotaPhone.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = BergamotaPhone.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -34,7 +32,6 @@
 			isa = PBXGroup;
 			children = (
 				2A8CE97D033C478B40C373DF /* BergamotaPhoneApp.swift */,
-				BE1B57601A40921CD374C1C0 /* entitlements.plist */,
 				28D3C10990D46404DFF6A219 /* Info.plist */,
 			);
 			path = BergamotaPhone;
@@ -65,7 +62,6 @@
 			buildConfigurationList = 4EF6FB88F3381DDC6893190C /* Build configuration list for PBXNativeTarget "BergamotaPhone" */;
 			buildPhases = (
 				1B823076FE8B262A9259C794 /* Sources */,
-				EC58F96481E28CCAF3F0DBB4 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -108,17 +104,6 @@
 		};
 /* End PBXProject section */
 
-/* Begin PBXResourcesBuildPhase section */
-		EC58F96481E28CCAF3F0DBB4 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				8EC704C8AB14A057C8BCB0A5 /* entitlements.plist in Resources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXResourcesBuildPhase section */
-
 /* Begin PBXSourcesBuildPhase section */
 		1B823076FE8B262A9259C794 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -135,7 +120,7 @@
 		0948D358551FFB93323A4339 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ARCHS = arm64;
+				ARCHS = arm64e;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGNING_ALLOWED = NO;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
@@ -274,7 +259,7 @@
 		EA9CCC00389D2E7ABA38E9AA /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ARCHS = arm64;
+				ARCHS = arm64e;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGNING_ALLOWED = NO;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
