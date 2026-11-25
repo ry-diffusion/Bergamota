@@ -3,6 +3,11 @@
 ## Agent handoff / active work (2026-10-15, latest)
 
 ### >>> Chlorophyll on Turnip (Chlorophyll branch `turnip` 6a27a3b, Bergamota branch `claude/chlorophyll-turnip-c432e2`), 2026-10-26: Turnip RUNS on the A630 <<<
+* **2026-11-25 07:50-08:20 (Mac, same goal): backboardd back on GMEM, without the mid-pass cut; page drags at 59.1 fps, middle seconds 58-61.**
+  * Phone flags: `/private/var/tmp/bgmtl-bb.env` emptied (was `TU_DEBUG=sysmem`) and `m2v-midcut` removed. Backups: `/var/root/bgmtl-bb.env.sysmem`, `/var/root/m2v-midcut.bak`.
+  * boot72, fresh: drags 57.7 / 59.1 fps (97 % on one refresh, every middle second 58-61). The same kernel on sysmem gave 56.9-57.4 with uneven seconds.
+  * Folder loop: GPU per frame 11.4 ms (sysmem: 13.7), but still 67 % of intervals on one refresh. Folder frames carry ~120 draws and 10-13 passes (blur), the GPU stays at 710 MHz, and the misses track commit-to-submit (10-13 ms) and SpringBoard's ~75 ms setup per open, not GPU time.
+  * Home screen and the open folder's blur render correctly (screenshots).
 * **2026-11-25 06:55-07:50 (Mac, same goal): xnu 1031 (`kern.sweet_input_boost`, write-only) -> boot72; no fps change.**
   * Injected touches never reached the touch driver, so they never triggered the CPU/GPU input boost (`input_boosts=0`). Now `sweetwake` writes the sysctl on every touch report, and `input_boosts` counts them.
   * Image: `scratchpad/boot72-boost.img` = boot70 + kernel 1022-1026, 1028-1031 (`scratchpad/k1031/`); RAM-booted, running now.
