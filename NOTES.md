@@ -3,6 +3,18 @@
 ## Agent handoff / active work (2026-10-15, latest)
 
 ### >>> Chlorophyll on Turnip (Chlorophyll branch `turnip` 6a27a3b, Bergamota branch `claude/chlorophyll-turnip-c432e2`), 2026-10-26: Turnip RUNS on the A630 <<<
+* **2026-11-25 12:40-15:30 (Mac): the SpringBoard deaths and reboot loops were a full data partition; Performance mode apps.**
+  * `df`: /dev/ufsroot0 24 G, 99 % used, 250 MB free. Processes running as mobile could not create files, so:
+    * SpringBoard's metal2vulkan device was refused (cache writes);
+    * the inject dead-man could not write `bgmtl.off.<bundle>` and `_exit`ed anyway, so every launch looped;
+    * SpringBoard died at unlock, and launchd rebooted the phone repeatedly.
+  * Big items: /var/root 2.0 G (`drmlog-old` 556 MB, `IconsCache.*` copies ~400 MB, test builds), /private/var/db/diagnostics 1.7 G, /private/var/tmp 656 MB (`m2v-cache` 380 MB, `m2v.log` 50 MB).
+  * Freed (my own or regenerable): log copies, `m2v-cache`, `/var/root/libcrimson.dylib.pre-*`, `m2v.log` trimmed to 5 MB -> 818 MB free. SpringBoard then survived unlocks again.
+  * Crimson 7dda37ab9: `m2v.log` starts over past 32 MB.
+  * Not deleted (needs the user's OK): `drmlog-old`, the `IconsCache.*` copies and other old test artifacts.
+  * Inject bug (Chlorophyll `inject/bgmtl_inject.m` `trip()`): it `_exit`s even when the kill-switch write fails, so a full disk becomes a SpringBoard crash loop. Fix pending.
+  * Also reverted: Crimson 800c20038 (`storageMode`/`usage` in the sampled render-target log), as a suspect; probably innocent.
+  * **Performance mode** (Bergamota f55f530 + this commit): Mac Performance page panel (Smooth / Balanced / Safe presets, every switch under Advanced, Respring button) and an on-phone "Bergamota" app (`apps/BergamotaPhone`, same `PerfCatalog.swift`, writes the files as mobile; the Mac side `chown`s them to mobile). The phone app is built but not installed yet.
 * **2026-11-25 11:40-12:40 (Mac, same goal): the App Library's GPU time is in its blur passes, not in tile reloads; back on GMEM (boot72).**
   * `TU_DEBUG=sysmem`: App Library 20.6 ms GPU a frame, 26 passes, 10 % on one refresh, about the same as GMEM (23 ms). So the per-pod store/reload of the full frame is not the cost, and cutting those splits would not help (dropped).
   * Backdrop targets seen in backboardd (sampled counts since boot):

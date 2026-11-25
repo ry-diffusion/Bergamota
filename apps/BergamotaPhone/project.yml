@@ -1,0 +1,21 @@
+name: BergamotaPhone
+options:
+  bundleIdPrefix: org.sweet
+  deploymentTarget:
+    iOS: "18.0"
+targets:
+  BergamotaPhone:
+    type: application
+    platform: iOS
+    sources:
+      - path: BergamotaPhone
+      - path: ../Bergamota/Bergamota/Core/PerfCatalog.swift
+    settings:
+      base:
+        PRODUCT_NAME: Bergamota
+        PRODUCT_BUNDLE_IDENTIFIER: org.sweet.bergamota.performance
+        INFOPLIST_FILE: BergamotaPhone/Info.plist
+        SWIFT_VERSION: "6.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGNING_ALLOWED: "NO"
+        ARCHS: arm64

@@ -16,8 +16,8 @@ check(PerfCatalog.choiceIndex(gpu, contents: "TU_DEBUG=sysmem\n") == 1, "GPU: sy
 check(PerfCatalog.choiceIndex(gpu, contents: "TU_AUTOTUNE_ALGO=profiled") == 2, "GPU: profiled without a newline")
 check(PerfCatalog.choiceIndex(cut, contents: "always\n40\n\n") == 1 && PerfCatalog.choiceIndex(cut, contents: nil) == 0, "midcut")
 check(PerfCatalog.commands(for: [keep], wanted: [keep.id: 0]) == ["rm -f /private/var/tmp/m2v-sbkeepicons"], "off removes the file")
-check(PerfCatalog.commands(for: [keep], wanted: [keep.id: 1]) == ["printf %s '' > /private/var/tmp/m2v-sbkeepicons"], "on writes an empty file")
-check(PerfCatalog.commands(for: [gpu], wanted: [gpu.id: 1]) == ["printf %s 'TU_DEBUG=sysmem\n' > /private/var/tmp/bgmtl-bb.env"], "contents written as given")
+check(PerfCatalog.commands(for: [keep], wanted: [keep.id: 1]) == ["printf %s '' > /private/var/tmp/m2v-sbkeepicons && chown mobile:mobile /private/var/tmp/m2v-sbkeepicons"], "on writes an empty file")
+check(PerfCatalog.commands(for: [gpu], wanted: [gpu.id: 1]) == ["printf %s 'TU_DEBUG=sysmem\n' > /private/var/tmp/bgmtl-bb.env && chown mobile:mobile /private/var/tmp/bgmtl-bb.env"], "contents written as given")
 check(PerfCatalog.commands(for: [gpu], wanted: [:]).isEmpty && PerfCatalog.commands(for: [gpu], wanted: [gpu.id: 9]).isEmpty, "unknown choice: nothing")
 for p in PerfCatalog.presets {
     check(p.choices.allSatisfy { k, v in PerfCatalog.options.first { $0.id == k }.map { $0.choices.indices.contains(v) } ?? false }, "preset \(p.id): known options, valid choices")

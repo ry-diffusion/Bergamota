@@ -98,7 +98,8 @@ enum PerfCatalog {
         options.compactMap { o in
             guard let i = wanted[o.id], o.choices.indices.contains(i) else { return nil }
             guard let content = o.choices[i].content else { return "rm -f \(shellQuote(o.path))" }
-            return "printf %s \(shellQuote(content)) > \(shellQuote(o.path))"
+            // owned by mobile, so the phone's own Bergamota app (which runs as mobile) can change or remove it in the sticky /private/var/tmp
+            return "printf %s \(shellQuote(content)) > \(shellQuote(o.path)) && chown mobile:mobile \(shellQuote(o.path))"
         }
     }
 }
