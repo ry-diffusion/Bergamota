@@ -3,6 +3,13 @@
 ## Agent handoff / active work (2026-10-15, latest)
 
 ### >>> Chlorophyll on Turnip (Chlorophyll branch `turnip` 6a27a3b, Bergamota branch `claude/chlorophyll-turnip-c432e2`), 2026-10-26: Turnip RUNS on the A630 <<<
+* **2026-11-25 06:55-07:50 (Mac, same goal): xnu 1031 (`kern.sweet_input_boost`, write-only) -> boot72; no fps change.**
+  * Injected touches never reached the touch driver, so they never triggered the CPU/GPU input boost (`input_boosts=0`). Now `sweetwake` writes the sysctl on every touch report, and `input_boosts` counts them.
+  * Image: `scratchpad/boot72-boost.img` = boot70 + kernel 1022-1026, 1028-1031 (`scratchpad/k1031/`); RAM-booted, running now.
+  * Drags with the boost: 56.9 / 57.0 / 57.4 fps (unchanged: the clocks were already up during drags).
+  * Folder open/close loop: 68-74 % of intervals on one refresh, with or without the boost.
+  * Folder hitch: each open costs ~75 ms on SpringBoard's main thread (`pushNestedViewController`: UIKit adds the folder's views and builds icon views) before the animation starts. That is Apple's code, and the boost does not shorten it.
+  * The per-second meter can exceed 60 with `sweetfb_copyearly=1`: frames taken before vsync are counted, so a 98/21 pair of seconds is bunching, not 98 frames shown.
 * **2026-11-25 06:40-06:55 (Mac, same goal): 59.5 fps, every second 57-62, worst interval 33 ms (one missed refresh)** on a 20 s page drag with the standard 8 ms injector (Crimson 91a4231a0, same boot after six resprings).
   * A 4 ms injector is worse (56.8-56.9): more touch events, more SpringBoard work per frame.
   * Run averages below that come from the partial first and last seconds of a drag (30-44 frames), which `summ1.py` keeps.

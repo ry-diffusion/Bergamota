@@ -1,0 +1,29 @@
+--- a/bsd/dev/sweet_cpufreq.c	2026-11-25 06:36:38
++++ b/bsd/dev/sweet_cpufreq.c	2026-11-25 06:36:38
+@@ -757,6 +757,26 @@
+ SYSCTL_PROC(_kern, OID_AUTO, sweet_cpufreq,
+     CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, 0, 0, cf_sysctl, "A",
+     "Poco F1 cpufreq governor state per cluster (see bsd/dev/sweet_cpufreq.c)");
++
++/*
++ * 1031: kern.sweet_input_boost (write-only, root): any write is one touch report for the input boost, as the touch driver's
++ * sweet_input_boost() calls are. Touches injected into the HID event system (sweetwake) never reach the touch driver, so
++ * without this a test drag or tap ran at the governor's clocks while a finger gets the boost.
++ */
++static int
++cf_input_boost_sysctl SYSCTL_HANDLER_ARGS
++{
++#pragma unused(oidp, arg1, arg2)
++	int v = 0, err = sysctl_handle_int(oidp, &v, 0, req);
++	if (err || req->newptr == USER_ADDR_NULL) {
++		return err;
++	}
++	sweet_input_boost();
++	return 0;
++}
++SYSCTL_PROC(_kern, OID_AUTO, sweet_input_boost,
++    CTLTYPE_INT | CTLFLAG_WR | CTLFLAG_LOCKED, 0, 0, cf_input_boost_sysctl, "I",
++    "write: one touch report for the input boost (injected touches)");
+ 
+ /*
+  * Current clock of the A55 and A75 clusters in MHz (0 = cluster not under our control), read live from

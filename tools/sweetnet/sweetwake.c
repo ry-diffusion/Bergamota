@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/sysctl.h>
 #include <unistd.h>
 
 typedef struct __IOHIDEvent *IOHIDEventRef;
@@ -51,6 +52,10 @@ static IOHIDEventSystemClientRef cli;
 static void
 finger(double x, double y, bool touch, uint32_t mask)
 {
+	/* a touch report for the clock boost, as the touch driver gives a finger's (kernel 1031; ignored without it) */
+	int one = 1;
+	if (touch)
+		(void)sysctlbyname("kern.sweet_input_boost", NULL, NULL, &one, sizeof(one));
 	uint64_t t = mach_absolute_time();
 	IOHIDEventRef hand = IOHIDEventCreateDigitizerEvent(kCFAllocatorDefault, t, kIOHIDDigitizerTransducerTypeHand, 0, 0,
 	    mask, 0, 0, 0, 0, 0, 0, touch, touch, 0);
