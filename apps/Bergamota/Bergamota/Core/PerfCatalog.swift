@@ -1,0 +1,104 @@
+import Foundation
+
+/// One performance switch on the phone. Every one is a file in /private/var/tmp that libcrimson (Crimson's
+/// ios/crimson.mm and ios/metal2/NativeBridgeMetalFrontend.mm) or Chlorophyll's inject reads once, when the process
+/// that uses it starts: SpringBoard's on a respring, backboardd's on a reboot.
+struct PerfOption: Identifiable, Hashable {
+    enum Applies: String { case respring = "respring", reboot = "reboot" }
+    struct Choice: Hashable { let title: String; let content: String? }   // content nil: the file is absent
+
+    let id: String                  // the file name in /private/var/tmp
+    let title: String
+    let detail: String
+    let group: String
+    let applies: Applies
+    let choices: [Choice]           // two for an on/off flag (absent, present), more for a file with contents
+    var experimental = false
+
+    static func flag(_ id: String, _ title: String, _ detail: String, group: String, applies: Applies,
+                     experimental: Bool = false) -> PerfOption {
+        PerfOption(id: id, title: title, detail: detail, group: group, applies: applies,
+                   choices: [Choice(title: "Off", content: nil), Choice(title: "On", content: "")], experimental: experimental)
+    }
+    var isFlag: Bool { choices.count == 2 && choices[0].content == nil && choices[1].content == "" }
+    var path: String { PerfCatalog.dir + "/" + id }
+}
+
+/// A named set of choices (option id -> choice index); options it leaves out keep their current choice.
+struct PerfPreset: Identifiable, Hashable {
+    let id: String
+    let title: String
+    let detail: String
+    let choices: [String: Int]
+}
+
+/// The phone's performance switches and presets, and how a choice maps to a file (pure: Tests/perf-tests.swift).
+enum PerfCatalog {
+    static let dir = "/private/var/tmp"
+
+    static let options: [PerfOption] = [
+        .flag("m2v-sbkeepicons", "Keep home pages built",
+              "SpringBoard keeps every home page, the Today view and their widgets built while you swipe. Swiping between pages rebuilt them every time: 40-43 fps with a 0.4 s stall per swipe, 57-60 without.",
+              group: "SpringBoard", applies: .respring),
+        .flag("m2v-blurcap", "Half-resolution blurs",
+              "SpringBoard asks for no blur finer than half resolution (glass in the App Library, folders, Control Center). Untested.",
+              group: "SpringBoard", applies: .respring, experimental: true),
+        PerfOption(id: "bgmtl-bb.env", title: "GPU rendering",
+                   detail: "How Turnip renders backboardd's passes. Tiled (GMEM) gave the steadiest page drags; direct (sysmem) was the old setting; profiled times both and was slower here.",
+                   group: "backboardd", applies: .reboot,
+                   choices: [PerfOption.Choice(title: "Tiled", content: ""),
+                             PerfOption.Choice(title: "Direct", content: "TU_DEBUG=sysmem\n"),
+                             PerfOption.Choice(title: "Profiled", content: "TU_AUTOTUNE_ALGO=profiled\n")]),
+        .flag("m2v-batch", "Batched encoding", "Encoder work is recorded in batches on worker threads instead of call by call.",
+              group: "backboardd", applies: .reboot),
+        .flag("m2v-defer", "Deferred encoding", "CoreAnimation's Metal calls are queued and run off its thread.",
+              group: "backboardd", applies: .reboot),
+        .flag("m2v-async-commit", "Asynchronous commit", "A command buffer's commit returns before its work is submitted (needs deferred encoding).",
+              group: "backboardd", applies: .reboot),
+        .flag("m2v-bb-nowait", "No scheduled waits", "backboardd does not block on waitUntilScheduled.",
+              group: "backboardd", applies: .reboot),
+        .flag("m2v-cut", "Early submit", "Passes are submitted to the GPU as they end instead of all at the commit.",
+              group: "backboardd", applies: .reboot),
+        PerfOption(id: "m2v-midcut", title: "Mid-pass cut",
+                   detail: "Long passes are split every 40 draws so the GPU starts sooner. Cheap only with Direct rendering.",
+                   group: "backboardd", applies: .reboot,
+                   choices: [PerfOption.Choice(title: "Off", content: nil), PerfOption.Choice(title: "Every 40", content: "always\n40\n")]),
+        .flag("m2v-hud", "On-screen HUD", "The fps/GPU overlay in the top-left corner.", group: "Diagnostics", applies: .reboot),
+        .flag("m2v-fps", "fps log", "A per-second fps line in m2v.log.", group: "Diagnostics", applies: .reboot),
+        .flag("m2v-telemetry", "Telemetry", "Timing summaries in m2v.log.", group: "Diagnostics", applies: .reboot),
+        .flag("m2v-cpumeter", "CPU meter", "Per-batch CPU time in the fps line (two system calls a batch).", group: "Diagnostics", applies: .reboot),
+    ]
+
+    private static let pipelineOn = ["m2v-batch": 1, "m2v-defer": 1, "m2v-async-commit": 1, "m2v-bb-nowait": 1, "m2v-cut": 1]
+
+    static let presets: [PerfPreset] = [
+        PerfPreset(id: "smooth", title: "Smooth",
+                   detail: "Everything measured to help: pages kept built, tiled GPU rendering, the full encoding pipeline.",
+                   choices: pipelineOn.merging(["m2v-sbkeepicons": 1, "bgmtl-bb.env": 0, "m2v-midcut": 0, "m2v-blurcap": 0]) { $1 }),
+        PerfPreset(id: "balanced", title: "Balanced",
+                   detail: "As Smooth, but SpringBoard manages pages and widgets itself (less memory; Today widgets keep their normal lifecycle).",
+                   choices: pipelineOn.merging(["m2v-sbkeepicons": 0, "bgmtl-bb.env": 0, "m2v-midcut": 0, "m2v-blurcap": 0]) { $1 }),
+        PerfPreset(id: "safe", title: "Safe",
+                   detail: "No SpringBoard changes and the plainest pipeline: for checking whether an optimization causes a problem.",
+                   choices: ["m2v-sbkeepicons": 0, "m2v-blurcap": 0, "bgmtl-bb.env": 0, "m2v-midcut": 0,
+                             "m2v-batch": 0, "m2v-defer": 0, "m2v-async-commit": 0, "m2v-bb-nowait": 0, "m2v-cut": 0]),
+    ]
+
+    /// The choice index of an option from the file's state: nil (absent) or its contents.
+    static func choiceIndex(_ o: PerfOption, contents: String?) -> Int {
+        if let i = o.choices.firstIndex(where: { $0.content == contents }) { return i }
+        if contents != nil, o.isFlag { return 1 }                          // a flag file with anything in it is on
+        if contents == nil, let i = o.choices.firstIndex(where: { $0.content == "" }) { return i }   // no file = empty file
+        let trimmed = contents?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return o.choices.firstIndex { $0.content?.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed } ?? 0
+    }
+
+    /// The shell lines that make the phone's files match `wanted` for the changed options.
+    static func commands(for options: [PerfOption], wanted: [String: Int]) -> [String] {
+        options.compactMap { o in
+            guard let i = wanted[o.id], o.choices.indices.contains(i) else { return nil }
+            guard let content = o.choices[i].content else { return "rm -f \(shellQuote(o.path))" }
+            return "printf %s \(shellQuote(content)) > \(shellQuote(o.path))"
+        }
+    }
+}

@@ -13,6 +13,7 @@ final class AppModel {
     let remote: RemoteControl
     let tools: PhoneTools
     let flasher: UserdataFlasher
+    let perf: PerformanceMode
     let hooks = ControlPlaneHooks()
 
     init() {
@@ -27,6 +28,7 @@ final class AppModel {
         tools = t
         let f = UserdataFlasher(settings: s, monitor: m)
         flasher = f
+        perf = PerformanceMode(settings: s, monitor: m)
         let q = BootQueue(settings: s, monitor: m, tools: t, flasher: f)
         queue = q
         remote = RemoteControl(settings: s, monitor: m, queue: q, build: build, logs: logs)
