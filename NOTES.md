@@ -3,6 +3,13 @@
 ## Agent handoff / active work (2026-10-15, latest)
 
 ### >>> Chlorophyll on Turnip (Chlorophyll branch `turnip` 6a27a3b, Bergamota branch `claude/chlorophyll-turnip-c432e2`), 2026-10-26: Turnip RUNS on the A630 <<<
+* **2026-11-25 04:55-05:30 (Mac, same goal): confirmed on a fresh boot70 RAM boot, no resprings (Crimson 0ea5b2344).** Five 20 s drags between home pages 1 and 2:
+  * averages 56.8 / 56.9 / 56.6 / 59.6 / 57.7 fps, including the partial first and last seconds;
+  * 89-98 % of frames on one refresh; middle seconds 57-61, except one 220 ms hitch (g2) and one hitch at the start (g3);
+  * best run (g4): every second 58-62.
+  * GPU tables 207/1028 afterwards.
+  * Remaining load: ReportCrash (0.3-0.65 core, cause unknown; the battery widget extension crashed twice this boot, not a loop). Its usage-observer callbacks cost <= 2 ms each.
+  * Not yet measured: folders, App Library, app launch and close, a real finger.
 * **2026-11-25 01:45-04:55 (Mac, same goal): HUD 57-60 fps sustained on 20 s drags between home pages 1 and 2 (honest injector, corrected summary).** Fresh boot70 (0xf0), Crimson `sbkeepicons` (see the Crimson commit after 6d320ca1b):
   * Runs: 59.0, 57.4, 59.5 fps; 92-96 % of frames on one refresh; middle seconds 57-61; worst interval 49-104 ms. The HUD reads 57 mid-drag in screenshots. Same boot without the change: 40-43 fps.
   * **What the stall was.** A trace of `-[SBIconListView setCellVisibility:...]` (visibility 0 on screen, 1 partly, 2 off), `-setContentVisibility:` (0 on screen, 3 off and prepared, 2 off), `removeAllIconViews` and `_setUpMultiplexedViewController` showed this every time page 1 settled:
