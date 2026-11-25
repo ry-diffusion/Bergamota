@@ -3,6 +3,12 @@
 ## Agent handoff / active work (2026-10-15, latest)
 
 ### >>> Chlorophyll on Turnip (Chlorophyll branch `turnip` 6a27a3b, Bergamota branch `claude/chlorophyll-turnip-c432e2`), 2026-10-26: Turnip RUNS on the A630 <<<
+* **2026-11-25 16:00-17:10 (Mac): the slowdown after leaving the App Library is the wallpaper's blur left on, not SpringBoard's layers.**
+  * After an App Library visit and Home, page drags run 33-37 fps (lhb 48-50 on this flashed-image boot): 136 draws and 25.6 passes a frame, against 81 and 1.5. It ends at the next Home press.
+  * backboardd's extra render targets: full-resolution 830x1794 ImageCaptureBackdrop + ImageFilterBackdrop, ~5 448x928 surfaces a frame.
+  * SpringBoard's own tree: its full-screen backdrops (3 UISDFBackdropView in UIKit glass groups + a `_UIBackdropView` under `PBUIPortalReplicaEffectView`) are identical before and after (enabled, scale 0.5, opacity 1).
+  * The App Library's own view (`SBFFocusIsolationView`, `trailingCustomView`) sits at x=414 after Home. Hiding it while off screen (`m2v-libhide`, tried and dropped) changed nothing.
+  * So the leftover is most likely the wallpaper blur the App Library turns on (PosterBoard / PBUI effect, another context), not undone by a Home press out of the App Library. Next step: find the wallpaper effect state (PBUI / SBWallpaperController) that the second Home press resets.
 * **2026-11-25 15:30-16:00 (Mac): blur cap measured: negligible.** Crimson `m2v-blurcap` (SpringBoard caps `CABackdropLayer.scale` at 0.5), same boot (flashed image):
   * App Library GPU 21.0-21.3 ms a frame off vs 20.5 ms on; 18-22 % of frames on one refresh either way.
   * The full-resolution backdrops must come from layers that never call `-setScale:`.
