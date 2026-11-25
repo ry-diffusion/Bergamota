@@ -3,6 +3,19 @@
 ## Agent handoff / active work (2026-10-15, latest)
 
 ### >>> Chlorophyll on Turnip (Chlorophyll branch `turnip` 6a27a3b, Bergamota branch `claude/chlorophyll-turnip-c432e2`), 2026-10-26: Turnip RUNS on the A630 <<<
+* **2026-11-25 01:45-04:55 (Mac, same goal): HUD 57-60 fps sustained on 20 s drags between home pages 1 and 2 (honest injector, corrected summary).** Fresh boot70 (0xf0), Crimson `sbkeepicons` (see the Crimson commit after 6d320ca1b):
+  * Runs: 59.0, 57.4, 59.5 fps; 92-96 % of frames on one refresh; middle seconds 57-61; worst interval 49-104 ms. The HUD reads 57 mid-drag in screenshots. Same boot without the change: 40-43 fps.
+  * **What the stall was.** A trace of `-[SBIconListView setCellVisibility:...]` (visibility 0 on screen, 1 partly, 2 off), `-setContentVisibility:` (0 on screen, 3 off and prepared, 2 off), `removeAllIconViews` and `_setUpMultiplexedViewController` showed this every time page 1 settled:
+    * page 2 went off and lost its icon views;
+    * the Today view (an SBIconListView left of page 1) was marked partly visible and loaded 9 widget stacks;
+    * SpringBoard flapped Today and page 2 between content 2 and 3, and `-[SBHTodayViewController viewWillDisappear:]` ran appearance transitions on every widget stack, setting up the multiplexed widget controllers again (8 x 20-35 ms).
+  * **Fix, all three needed** (the Today part alone: 42-43 fps):
+    * home lists that are off or partly visible are reported as partly visible with every cell;
+    * content 2 is reported as 3;
+    * `-[SBTodayViewController _beginAppearanceTransitionForChildViewControllersToVisible:animated:]` is a no-op.
+  * The Today view still shows its widgets when opened (it showed none with only the first two changes).
+  * Earlier wrong guesses: I had the visibility values reversed. "Pinning 2" forced pages off, which explains the empty pages and the SpringBoard hang.
+  * `sweetwake drag` now makes its first move at X1 and turns 8 pt inside it. GPU address space: tables reached 1026/1028 after ~10 resprings in one boot and SpringBoard textures failed (`OutOfMemory(Device)`); drags alone level off near 300. Reboot after many resprings.
 * **2026-11-25 22:45-01:45 (Mac, same goal): the earlier drag numbers were inflated; honest continuous-drag fps is ~33-38, with a 0.25-0.95 s SpringBoard stall once per 2 s drag cycle.** Observations:
   * **The injector was starved.** Everything dropbear starts is darwin-background (thread priority 4; `org.sweet.dropbear` has no ProcessType). Sleeps are coalesced by up to 100 ms (`kern.timer_coalesce_bg_ns_max`), and the old busy-wait `sweetwake` got preempted 0.4-1.5 s, freezing the finger. QoS, PRIO_DARWIN_ROLE, TASK_CATEGORY_POLICY, a spawn process type and clearing PRIO_DARWIN_PROCESS (internal or external) do not lift it.
   * **Fix: `tools/sweetnet/fgjob.c`** runs a command as a transient launchd job with ProcessType Interactive (nothing persists). Under it an 8 ms sleep is ~1 ms late (was ~80 ms) and drag steps are <= 25 ms late.

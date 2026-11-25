@@ -109,9 +109,15 @@ drag(double x1, double x2, double y, int seconds, int ms, int step_ms)
 	mach_timebase_info(&tb);
 	uint64_t tick = (uint64_t)step_ms * 1000000ull * tb.denom / tb.numer, t0 = mach_absolute_time(), late = 0, inject = 0;
 	double period = 2.0 * ms * 1e6, x = x1;
-	/* down 20 points outside the sweep: the pan's start slop is used up there, so coming back to X1 puts the page exactly
-	 * where it started (touching down at X1 overshot it every sweep, e.g. into the Today view left of home page 1) */
-	finger(x1 + (x1 > x2 ? 20 : -20), y, true, kIOHIDDigitizerEventRange | kIOHIDDigitizerEventTouch);
+	/* Down 20 points outside the sweep, first move at X1: the pan starts there and the page sits where it started. The sweep
+	 * then turns 8 points inside X1, because a page back at its exact start (a pixel over, after rounding) counts its
+	 * neighbour as visible: from home page 1 that is the Today view, whose 9 widget stacks SpringBoard loads (and page 1's
+	 * icon views it removes) in ~0.4 s, every sweep. */
+	double dir = x2 > x1 ? 1 : -1;
+	finger(x1 - 20 * dir, y, true, kIOHIDDigitizerEventRange | kIOHIDDigitizerEventTouch);
+	wait_us(8000);
+	finger(x1, y, true, kIOHIDDigitizerEventPosition);
+	x1 += 8 * dir;
 	for (uint64_t i = 1; i <= (uint64_t)seconds * 1000 / step_ms; i++) {
 		mach_wait_until(t0 + i * tick);
 		uint64_t now = mach_absolute_time(), over = (now - t0 - i * tick) * tb.numer / tb.denom;
