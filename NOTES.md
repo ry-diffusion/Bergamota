@@ -3,6 +3,12 @@
 ## Agent handoff / active work (2026-10-15, latest)
 
 ### >>> Chlorophyll on Turnip (Chlorophyll branch `turnip` 6a27a3b, Bergamota branch `claude/chlorophyll-turnip-c432e2`), 2026-10-26: Turnip RUNS on the A630 <<<
+* **2026-11-25 10:10-11:40 (Mac, same goal): App Library GPU cost, two dead ends; back on the GMEM default (boot72).**
+  * CA's offscreen render targets are Private (sm=2), so Crimson gives them no host-transfer usage and Turnip can use UBWC. That is not the cause.
+  * `TU_AUTOTUNE_ALGO=profiled`: App Library unchanged (17 % on one refresh, 22.5 ms GPU a frame); page drags fell to 48 fps. Reverted.
+  * Default GMEM after the revert: drags 56.6 / 58.3 fps.
+  * The likely cost: each glass pod splits CA's full-screen pass (capture + blur), so the full 828x1792 frame is stored and reloaded per pod, ~100 MB a frame. Untested.
+  * A respring on the user's first unlock after a reboot: SpringBoard exited cleanly with no crash report, twice in that boot. My script's own unlock may have overlapped it. Not reproduced.
 * **2026-11-25 08:20-10:10 (Mac, same goal): other scenarios measured; App Library is GPU-bound; a SpringBoard probe tripped the kill switch.**
   * **App launch/close** (Settings x5): 90 % of intervals on one refresh.
   * **App Library scrolling**: 10-20 % on one refresh. 20-29 render passes a frame (glass pods), GPU 20-25 ms a frame at 710 MHz: GPU-bound at ~40 fps. TU_DEBUG=nobin: no change (folders worse); reverted to the GMEM default.
