@@ -3,6 +3,17 @@
 ## Agent handoff / active work (2026-10-15, latest)
 
 ### >>> Chlorophyll on Turnip (Chlorophyll branch `turnip` 6a27a3b, Bergamota branch `claude/chlorophyll-turnip-c432e2`), 2026-10-26: Turnip RUNS on the A630 <<<
+* **2026-11-25 08:20-10:10 (Mac, same goal): other scenarios measured; App Library is GPU-bound; a SpringBoard probe tripped the kill switch.**
+  * **App launch/close** (Settings x5): 90 % of intervals on one refresh.
+  * **App Library scrolling**: 10-20 % on one refresh. 20-29 render passes a frame (glass pods), GPU 20-25 ms a frame at 710 MHz: GPU-bound at ~40 fps. TU_DEBUG=nobin: no change (folders worse); reverted to the GMEM default.
+  * **After an App Library visit, home-page drags fall to 34-37 fps** (24-31 passes a frame) until the next Home press, then 59.4.
+    * This also happens without our SpringBoard hooks (34.2).
+    * The App Library's glass layers sit at x=414 (touching the screen edge) instead of x=828, not hidden.
+    * Forcing `-[SBRootFolderView hidesOffscreenCustomPageViews]` to YES did not change it (reverted).
+  * **Kill switch incident.** A view-walking probe in SpringBoard crashed it twice. Inject's dead-man then wrote `bgmtl.off.com.apple.springboard`, every later SpringBoard ran stock and died at unlock, and launchd rebooted the phone into the flashed image.
+    * Recovery: delete both `bgmtl.off.com.apple.springboard` and `bgmtl.state.com.apple.springboard` (backups in /var/root), then RAM-boot boot72 again.
+    * A layer-only probe also crashed SpringBoard. Do not run walk probes on SpringBoard's main thread.
+  * State now: boot72 RAM boot, committed Crimson library. Drags 57.3 / 59.4 fps; z2 every second 58-60, worst interval 33 ms.
 * **2026-11-25 07:50-08:20 (Mac, same goal): backboardd back on GMEM, without the mid-pass cut; page drags at 59.1 fps, middle seconds 58-61.**
   * Phone flags: `/private/var/tmp/bgmtl-bb.env` emptied (was `TU_DEBUG=sysmem`) and `m2v-midcut` removed. Backups: `/var/root/bgmtl-bb.env.sysmem`, `/var/root/m2v-midcut.bak`.
   * boot72, fresh: drags 57.7 / 59.1 fps (97 % on one refresh, every middle second 58-61). The same kernel on sysmem gave 56.9-57.4 with uneven seconds.
