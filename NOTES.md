@@ -3,6 +3,9 @@
 ## Agent handoff / active work (2026-10-15, latest)
 
 ### >>> Chlorophyll on Turnip (Chlorophyll branch `turnip` 6a27a3b, Bergamota branch `claude/chlorophyll-turnip-c432e2`), 2026-10-26: Turnip RUNS on the A630 <<<
+* **2026-11-25 06:40-06:55 (Mac, same goal): 59.5 fps, every second 57-62, worst interval 33 ms (one missed refresh)** on a 20 s page drag with the standard 8 ms injector (Crimson 91a4231a0, same boot after six resprings).
+  * A 4 ms injector is worse (56.8-56.9): more touch events, more SpringBoard work per frame.
+  * Run averages below that come from the partial first and last seconds of a drag (30-44 frames), which `summ1.py` keeps.
 * **2026-11-25 05:30-06:40 (Mac, same goal): drags stay at 57-59 fps late in a boot (Crimson shadow-check backoff, pushed after 0ea5b2344).**
   * Before the backoff, the same library degraded over a boot. After six resprings: 53.0-56.0 fps (alternating 60/46), backboardd 1.86 cores. About 40 % of backboardd's worker samples were `chlCheckShadow`: every client image used in a frame was copied out and CRC'd every 50 ms, and with every home icon and widget kept built there are many.
   * Now an unchanged image's re-check interval doubles up to 1 s; a change resets it to 50 ms.
