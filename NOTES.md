@@ -3,6 +3,14 @@
 ## Agent handoff / active work (2026-10-15, latest)
 
 ### >>> Chlorophyll on Turnip (Chlorophyll branch `turnip` 6a27a3b, Bergamota branch `claude/chlorophyll-turnip-c432e2`), 2026-10-26: Turnip RUNS on the A630 <<<
+* **2026-11-25 11:40-12:40 (Mac, same goal): the App Library's GPU time is in its blur passes, not in tile reloads; back on GMEM (boot72).**
+  * `TU_DEBUG=sysmem`: App Library 20.6 ms GPU a frame, 26 passes, 10 % on one refresh, about the same as GMEM (23 ms). So the per-pod store/reload of the full frame is not the cost, and cutting those splits would not help (dropped).
+  * Backdrop targets seen in backboardd (sampled counts since boot):
+    * 830x1794 BGRA8 capture and filter (full resolution);
+    * 414x896 capture (half);
+    * 210x450 RGBA16F capture and filter (quarter).
+  * Full-resolution blurs are the expensive kind. Next: cap `CABackdropLayer.scale` in SpringBoard (e.g. <= 0.5) and measure the App Library.
+  * GMEM default after the revert: drag 57.3 fps, middle seconds 56-60.
 * **2026-11-25 10:10-11:40 (Mac, same goal): App Library GPU cost, two dead ends; back on the GMEM default (boot72).**
   * CA's offscreen render targets are Private (sm=2), so Crimson gives them no host-transfer usage and Turnip can use UBWC. That is not the cause.
   * `TU_AUTOTUNE_ALGO=profiled`: App Library unchanged (17 % on one refresh, 22.5 ms GPU a frame); page drags fell to 48 fps. Reverted.
