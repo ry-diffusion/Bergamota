@@ -3,6 +3,7 @@
 ## Agent handoff / active work (2026-10-15, latest)
 
 ### >>> Chlorophyll on Turnip (Chlorophyll branch `turnip` 6a27a3b, Bergamota branch `claude/chlorophyll-turnip-c432e2`), 2026-10-26: Turnip RUNS on the A630 <<<
+* **2026-11-26 00:46-04:25 (Mac): real-finger HUD test still not run.** `scratchpad/dp/finger.sh` waited 3.6 h for `input_boosts` to rise and saw no touch. An earlier run (23:53) fired at 00:44 on an input_boosts blip and recorded only idle seconds (1-13 fps, invalid). To run it: arm `finger.sh`, then drag pages 1<->2 ~15 s, scroll the App Library ~15 s, open/close Utilities (page 2).
 * **2026-11-26 00:50-01:40 (Mac, same goal): GPU clock-scaling test: the App Library is bound by the GPU core clock, which is at its maximum.**
   * `scratchpad/boot72-gpumax5.img` = boot72 with `sweetgpuhb=10` replaced in place by `sweetgpumax=5` (same length; the XNU boot-args are a plain string in the enxerto image; the boost level is clamped to the cap), RAM-booted. Kernel table: L5 = 596 MHz, L7 = 710 MHz (1.19x).
   * App Library scrolling GPU: L5 23.5-24.0 ms a frame vs L7 20.3-21.3 ms (same layout, same libcrimson): x1.13. Fit t = a/f + b: ~14.7 ms of the 20.9 ms at 710 MHz scales with the core clock, ~6 ms does not (tile load/store, binning, CP, memory latency).
