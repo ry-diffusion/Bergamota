@@ -19,15 +19,12 @@ server and no SSH in this path. Code: `tools/berga/` (README there).
 Hosts match the interface by its class triple (`ff/62/01`), never by VID/PID, so the IDs can change without touching
 the tools beyond `berga_core::ids`.
 
-**The VID/PID question (open, needs the user's decision).** `1209:0001` is one of pid.codes' *test* PIDs: free to
-use while developing, not for anything distributed. The kernel has presented it since the USB-Ethernet bring-up.
-Options:
-
-1. Request a PID from pid.codes (VID 0x1209, free, a pull request to `pidcodes/pidcodes.github.com` with the
-   project's URL and an open-source license). Their rules are written for open-source *hardware*; whether a kernel
-   gadget on someone else's phone qualifies is their call. Proposed request: "Bergamota phone management
-   interface", one PID.
-2. Keep `1209:0001` for development only and decide before any public build.
+**The VID/PID.** `1209:0001` is one of pid.codes' *test* PIDs: free to use while developing, not for anything
+distributed. The kernel has presented it since the USB-Ethernet bring-up. **Requested 2026-11-26 (user):
+`1209:BE6A`** "Bergamota Phone management interface", owner org `bergamota`, in
+[pidcodes/pidcodes.github.com#1406](https://github.com/pidcodes/pidcodes.github.com/pull/1406) (the repository got
+its MIT `LICENSE` for this). Until it is merged the kernel and `berga_core::ids` keep `1209:0001`; once it is, change
+the PID byte pair in `ud_dev_desc` (patch 1037, both series), `ids::PID`, the Linux udev rule here and on `/manage/`.
 
 Not an option: reusing another vendor's VID (Google's 18d1, which ABL and Enxerto's fastboot use, included).
 
