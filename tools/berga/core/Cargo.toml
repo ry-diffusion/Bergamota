@@ -1,0 +1,17 @@
+[package]
+name = "berga-core"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+description = "Bergamota host core: berga USB protocol, fastboot, sparse images, boot images, the boot/flash queue. Sans-IO, shared by the berga CLI, the web UI (wasm) and the desktop app."
+
+[features]
+# Native USB transports (nusb). Off for wasm.
+usb = ["dep:nusb"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+blake2 = "0.10"
+sha2 = "0.10"
+nusb = { version = "0.2", optional = true }

@@ -1,4 +1,5 @@
 #!/bin/bash
+# Superseded by berga (tools/berga, `berga --help`): same inbox/queue files and commands; kept while the app exists.
 # CLI for the Bergamota app's file-based API (no network). Needs python3 for JSON only.
 #   bergamota enqueue IMG [--label L] [--no-arm] [--wait]
 #   bergamota build --name N --kernel K --adt A (--preset P | --cmdline C) [--label L] [--no-enqueue] [--no-arm] [--wait]
@@ -19,7 +20,7 @@ BASE="$HOME/Library/Application Support/Bergamota"
 INBOX="$BASE/inbox"
 
 die() { echo "bergamota: $*" >&2; exit 1; }
-usage() { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 # submit KIND JSON [wait]: write atomically (tmp name is not *.json), optionally wait for the result.
 submit() {

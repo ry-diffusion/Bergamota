@@ -4,4 +4,5 @@ dist/
 .impeccable/preview/
 .impeccable/mocks/
 src/patcher/renegade.wasm
+src/manage/berga.wasm
 public/tools/

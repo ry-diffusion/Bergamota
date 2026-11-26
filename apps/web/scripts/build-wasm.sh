@@ -1,5 +1,6 @@
 #!/bin/sh
-# Builds the Renegade root builder (tools/renegade-wasm, Rust) for the browser into src/patcher/renegade.wasm.
+# Builds the Renegade root builder (tools/renegade-wasm, Rust) for the browser into src/patcher/renegade.wasm,
+# and berga-core (tools/berga/wasm: the phone protocol for /manage/) into src/manage/berga.wasm.
 # Needs rustup with the wasm32-unknown-unknown target (rustup target add wasm32-unknown-unknown).
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
@@ -9,3 +10,7 @@ cargo build --release --target wasm32-unknown-unknown --manifest-path "$crate/Ca
 mkdir -p "$(dirname "$out")"
 cp "$crate/target/wasm32-unknown-unknown/release/renegade_wasm.wasm" "$out"
 echo "wrote $out ($(wc -c < "$out" | tr -d ' ') bytes)"
+berga="$here/../../../tools/berga"
+cargo build --release --target wasm32-unknown-unknown --manifest-path "$berga/Cargo.toml" -p berga-wasm
+cp "$berga/target/wasm32-unknown-unknown/release/berga_wasm.wasm" "$here/../src/manage/berga.wasm"
+echo "wrote src/manage/berga.wasm ($(wc -c < "$here/../src/manage/berga.wasm" | tr -d ' ') bytes)"
