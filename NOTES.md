@@ -3,6 +3,10 @@
 ## Agent handoff / active work (2026-10-15, latest)
 
 ### >>> Chlorophyll on Turnip (Chlorophyll branch `turnip` 6a27a3b, Bergamota branch `claude/chlorophyll-turnip-c432e2`), 2026-10-26: Turnip RUNS on the A630 <<<
+* **2026-11-26 04:30-05:10 (Mac, same goal): two more pass-level knobs for the App Library, neither helps.**
+  * `TU_AUTOTUNE_ALGO=prefer_sysmem` (in `bgmtl-bb.env`; Turnip's own hybrid: sysmem everywhere except passes in `sysmem_single_prim_mode`, i.e. framebuffer fetch, which stay GMEM): App Library GPU 21.2-21.5 ms a frame vs default 21.1-21.3; page drags 58-61. The heavy full-screen resume passes are the framebuffer-fetch ones, so they stay GMEM either way. Reverted (file empty).
+  * `backboardd:M2V_TIGHT_RENDER_AREA=1` (Crimson's existing option: render area = bounds of the pass's draws; never tried on Turnip before): App Library 21.0-21.3 ms, page drags 57-60. The pods cover most of the screen, so the bounds stay near full screen. Removed from `m2v-env`.
+  * With the clock-scaling fit (~14.7 ms core-bound, ~6 ms fixed, top clock), sysmem (-1 ms), fast math, native linear filter, fp16, Reduce Transparency, prefer_sysmem and tight render area all measured, nothing on the renderer side is left that moves the App Library's ~21 ms; 59 fps there needs a faster GPU or lighter glass shaders from iOS.
 * **2026-11-26 00:46-04:25 (Mac): real-finger HUD test still not run.** `scratchpad/dp/finger.sh` waited 3.6 h for `input_boosts` to rise and saw no touch. An earlier run (23:53) fired at 00:44 on an input_boosts blip and recorded only idle seconds (1-13 fps, invalid). To run it: arm `finger.sh`, then drag pages 1<->2 ~15 s, scroll the App Library ~15 s, open/close Utilities (page 2).
 * **2026-11-26 00:50-01:40 (Mac, same goal): GPU clock-scaling test: the App Library is bound by the GPU core clock, which is at its maximum.**
   * `scratchpad/boot72-gpumax5.img` = boot72 with `sweetgpuhb=10` replaced in place by `sweetgpumax=5` (same length; the XNU boot-args are a plain string in the enxerto image; the boost level is clamped to the cap), RAM-booted. Kernel table: L5 = 596 MHz, L7 = 710 MHz (1.19x).
