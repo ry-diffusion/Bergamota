@@ -3,6 +3,11 @@
 ## Agent handoff / active work (2026-10-15, latest)
 
 ### >>> Chlorophyll on Turnip (Chlorophyll branch `turnip` 6a27a3b, Bergamota branch `claude/chlorophyll-turnip-c432e2`), 2026-10-26: Turnip RUNS on the A630 <<<
+* **2026-11-26 00:50-01:40 (Mac, same goal): GPU clock-scaling test: the App Library is bound by the GPU core clock, which is at its maximum.**
+  * `scratchpad/boot72-gpumax5.img` = boot72 with `sweetgpuhb=10` replaced in place by `sweetgpumax=5` (same length; the XNU boot-args are a plain string in the enxerto image; the boost level is clamped to the cap), RAM-booted. Kernel table: L5 = 596 MHz, L7 = 710 MHz (1.19x).
+  * App Library scrolling GPU: L5 23.5-24.0 ms a frame vs L7 20.3-21.3 ms (same layout, same libcrimson): x1.13. Fit t = a/f + b: ~14.7 ms of the 20.9 ms at 710 MHz scales with the core clock, ~6 ms does not (tile load/store, binning, CP, memory latency).
+  * Memory bus not starved: the kernel's GPU bandwidth table is a single zero vote and nothing votes DDR (Linux votes it from the CPU through interconnect for the A630), but u_trace's full-frame GMEM store/load move 5.9 MB in ~0.19 ms (~30 GB/s effective, UBWC included), the LPDDR4X ceiling, not a low DDR clock. CPU memcpy 14.45 GB/s read+write single-thread (`/var/root/membw`, out of darwin-bg). A DDR BCM vote via `sweet_rpmh` (MC0/SH0) was considered and not built.
+  * So: GPU core at its top clock, ~70 % of the frame's GPU time core-bound, the rest fixed-function/memory at full speed, shaders = CoreAnimation's own maths. The App Library's 44-51 fps is this device's limit for iOS 26's glass on this renderer.
 * **2026-11-26 00:30-00:50 (Mac, same goal): vertex shaders audited; ALU estimate.**
   * `backboardd:IR3_SHADER_DEBUG=vs,fs` over App Library + folder use: 94 vertex shaders, mean 19 instructions (max 47; constant/UBO loads and a few fmads per vertex of a quad): no cost. 77 fragment shaders in that run, mean 126 non-nop instructions, max 1439.
   * ALU estimate: the A630 is rated ~727 GFLOPS fp32 at 710 MHz (~512 FMA lanes, ~363 G instruction slots a second). One full-screen 828x1792 pass of the 1439-slot glass shader would take ~5.9 ms at peak; u_trace measured ~3.5 ms per full-screen resume pass, i.e. ALU-bound near peak if the glass covers ~60 % of the screen (the pods do). Not a counter measurement (no perf counters on this stack).
