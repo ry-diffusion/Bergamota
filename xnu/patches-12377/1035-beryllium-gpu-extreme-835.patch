@@ -1,8 +1,8 @@
 diff --git a/bsd/dev/bergamota_a630.c b/bsd/dev/bergamota_a630.c
-index 80d8b31..0923fad 100644
+index 95e88a2..59d10f3 100644
 --- a/bsd/dev/bergamota_a630.c
 +++ b/bsd/dev/bergamota_a630.c
-@@ -317,6 +317,8 @@ static uint32_t a630_bw_linux;          /* bergamotagpubw=linux: the fixed Linux a63
+@@ -319,6 +319,8 @@ static uint32_t a630_bw_linux;          /* bergamotagpubw=linux: the fixed Linux
  static int a630_gov;                    /* bergamotagpufreq=gov */
  static unsigned a630_level = 1;         /* current GX level (index into gpu_levels) */
  static unsigned a630_level_max = 7;     /* bergamotagpumax=N */
@@ -11,7 +11,7 @@ index 80d8b31..0923fad 100644
  /* Input boost (patch 0217), driven from the touch driver through bergamota_input_boost() in bergamota_cpufreq.c. */
  static uint64_t a630_input_until;       /* mach time until which the input floor holds (written lock-free by the hook) */
  static uint32_t a630_input_level = 4;   /* bergamotagpuinput=N: floor while the screen is touched (0 = off); default L4, 520 MHz */
-@@ -1569,14 +1571,25 @@ gpu_hfi_dump(void)
+@@ -1571,14 +1573,25 @@ gpu_hfi_dump(void)
   * ascending as KGSL orders gmu->gpu_freqs) with the RPMh VLVL of the
   * Linux sdm845.dtsi OPP table: 257 MHz LOW_SVS 64, 342 SVS 128, 414 SVS_L1 192,
   * 520 NOM 256, 596 NOM_L1 320, 675 TURBO 384, 710 TURBO_L1 416.
@@ -37,7 +37,7 @@ index 80d8b31..0923fad 100644
  static uint32_t gx_votes[MAX_GX_LEVELS], cx_votes[MAX_CX_LEVELS];
  static uint32_t gx_khz[MAX_GX_LEVELS], cx_khz[MAX_CX_LEVELS];
  static unsigned gx_levels;
-@@ -3382,11 +3395,11 @@ gpu_resume(void)
+@@ -3444,11 +3457,11 @@ gpu_resume(void)
  	if (a630_gov && a630_boost_level) {
  		uint64_t hold;
  		nanoseconds_to_absolutetime(400 * NSEC_PER_MSEC, &hold);
@@ -51,7 +51,7 @@ index 80d8b31..0923fad 100644
  	}
  	a630_quiet = a630_resumes >= 2;
  	if (a630_resumes < 2) {
-@@ -3531,7 +3544,7 @@ gpu_hfi_start_dcvs(bool gx_on)
+@@ -3593,7 +3606,7 @@ gpu_hfi_start_dcvs(bool gx_on)
  	return true;
  }
  
@@ -60,7 +60,7 @@ index 80d8b31..0923fad 100644
  static unsigned gov_low_windows, gov_prev_submits, gov_rate;
  
  /*
-@@ -3564,7 +3577,7 @@ bergamota_gpu_input_boost(uint64_t now)
+@@ -3626,7 +3639,7 @@ bergamota_gpu_input_boost(uint64_t now)
  static unsigned
  gpu_input_floor(uint64_t now)
  {
@@ -69,7 +69,7 @@ index 80d8b31..0923fad 100644
  }
  
  /*
-@@ -3639,7 +3652,7 @@ gpu_gov_tick(uint64_t dt)
+@@ -3701,7 +3714,7 @@ gpu_gov_tick(uint64_t dt)
  	gov_win_ns = gov_win_busy_ns = 0;
  	uint64_t now = mach_absolute_time(), hold;
  	nanoseconds_to_absolutetime(400 * NSEC_PER_MSEC, &hold);
@@ -78,7 +78,7 @@ index 80d8b31..0923fad 100644
  	if (a630_boost_level && gov_rate >= 4) {
  		gov_boost_until = now + hold;
  	}
-@@ -3694,18 +3707,18 @@ bergamota_gpu_sysctl SYSCTL_HANDLER_ARGS
+@@ -3756,18 +3769,18 @@ bergamota_gpu_sysctl SYSCTL_HANDLER_ARGS
  	if (a630_dev.ready) {
  		now_in = 0;
  	}
@@ -101,9 +101,9 @@ index 80d8b31..0923fad 100644
  		if (i) {
  			n += snprintf(buf + n, sizeof(buf) - n, ",L%u:%llu", i, res_ns[i] / NSEC_PER_MSEC);
  		} else {
-@@ -3715,6 +3728,31 @@ bergamota_gpu_sysctl SYSCTL_HANDLER_ARGS
- 	return sysctl_handle_string(oidp, buf, sizeof(buf), req);
- }
+@@ -3803,6 +3816,31 @@ bergamota_gpu_llcc_sysctl SYSCTL_HANDLER_ARGS
+ SYSCTL_PROC(_kern, OID_AUTO, bergamota_gpu_llcc, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, 0, 0, bergamota_gpu_llcc_sysctl, "I",
+     "1: GPU through the system cache (LLCC slices 12, 11; CP idle), 2: activate the slices only; read: diagnostics");
  
 +/* kern.bergamota_gpu_extreme: 1 = levels up to 835 MHz, 0 = the stock 710 MHz top (bergamotad sets 0 in Low Power Mode). */
 +static int
@@ -133,7 +133,7 @@ index 80d8b31..0923fad 100644
  SYSCTL_PROC(_kern, OID_AUTO, bergamota_gpu, CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, 0, 0, bergamota_gpu_sysctl, "A",
      "Adreno 630 metrics: key=value line (docs/GPU_KERNEL.md)");
  
-@@ -3751,7 +3789,7 @@ a630_pm_thread(void *arg, wait_result_t wr)
+@@ -3839,7 +3877,7 @@ a630_pm_thread(void *arg, wait_result_t wr)
  		absolutetime_to_nanoseconds(now - last, &dt);
  		last = now;
  		if (a630_dev.ready && !a630_dev.lost) {
@@ -142,7 +142,7 @@ index 80d8b31..0923fad 100644
  			gpu_input_tick(now);                            /* before the governor: its floor includes the input floor */
  			if (a630_awake) {
  				gpu_gov_tick(dt);                       /* measures always, acts only with bergamotagpufreq=gov */
-@@ -3767,14 +3805,14 @@ a630_pm_thread(void *arg, wait_result_t wr)
+@@ -3855,14 +3893,14 @@ a630_pm_thread(void *arg, wait_result_t wr)
  		}
  		if (a630_dev.ready && (a630_gov || a630_idle_ms) && ns_since(summary) >= 30 * NSEC_PER_SEC) {
  			uint64_t tot = 1;
@@ -160,7 +160,7 @@ index 80d8b31..0923fad 100644
  		}
  		if (a630_hb_s && gcc && ns_since(hb) >= (uint64_t)a630_hb_s * NSEC_PER_SEC) {
  			hb = now;
-@@ -3986,6 +4024,9 @@ bergamota_a630_probe(void)
+@@ -4077,6 +4115,9 @@ bergamota_a630_probe(void)
  		if (PE_parse_boot_argn("bergamotagpustamps", &v, sizeof(v))) {
  			a630_stamps = v != 0;
  		}
