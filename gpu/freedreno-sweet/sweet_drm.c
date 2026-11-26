@@ -29,6 +29,7 @@
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <sys/sysctl.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
@@ -364,7 +365,13 @@ sweet_call(uint32_t sel, void *data, size_t size)
 	if (kr == KERN_SUCCESS && g_bolog > 0) {
 		bolog_call(sel, in, out, outsz);
 	}
-	if (kr == KERN_SUCCESS && sel == SWEET_GPU_SEL_GET_PARAM && ((struct sweet_msm_param *)in)->param == 16) {
+	static int hbb_kernel = -1;   /* booted with sweetgpuubwc=1: the kernel programmed bank bit 15, so its answer holds */
+	if (hbb_kernel < 0) {
+		char args[1024] = "";
+		size_t len = sizeof(args) - 1;
+		hbb_kernel = sysctlbyname("kern.bootargs", args, &len, NULL, 0) == 0 && strstr(args, "sweetgpuubwc=1") != NULL;
+	}
+	if (kr == KERN_SUCCESS && sel == SWEET_GPU_SEL_GET_PARAM && ((struct sweet_msm_param *)in)->param == 16 && !hbb_kernel) {
 		/* MSM_PARAM_HIGHEST_BANK_BIT: the kernel answers 15 but writes the bank registers only when booted with sweetgpuubwc=1,
 		 * and with their reset values the A630 tiles as for 14. Turnip tiles a texture's CPU upload from this answer
 		 * (VK_EXT_host_image_copy): with 15 every other macrotile row of a 16-byte-a-texel image (ASTC blocks) landed 8 KiB
