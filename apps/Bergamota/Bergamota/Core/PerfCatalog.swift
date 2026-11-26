@@ -1,7 +1,7 @@
 import Foundation
 
 /// One performance switch on the phone. Every one is a file in /private/var/tmp that libcrimson (Crimson's
-/// ios/crimson.mm and ios/metal2/NativeBridgeMetalFrontend.mm) or Chlorophyll's inject reads once, when the process
+/// ios/crimson.mm and ios/metal2/NativeBridgeMetalFrontend.mm) or the Crimson inject reads once, when the process
 /// that uses it starts: SpringBoard's on a respring, backboardd's on a reboot.
 struct PerfOption: Identifiable, Hashable {
     enum Applies: String { case respring = "respring", reboot = "reboot" }
@@ -37,51 +37,51 @@ enum PerfCatalog {
     static let dir = "/private/var/tmp"
 
     static let options: [PerfOption] = [
-        .flag("m2v-sbkeepicons", "Keep home pages built",
+        .flag("crimson-sbkeepicons", "Keep home pages built",
               "SpringBoard keeps every home page, the Today view and their widgets built while you swipe. Swiping between pages rebuilt them every time: 40-43 fps with a 0.4 s stall per swipe, 57-60 without.",
               group: "SpringBoard", applies: .respring),
-        .flag("m2v-blurcap", "Half-resolution blurs",
+        .flag("crimson-blurcap", "Half-resolution blurs",
               "SpringBoard asks for no blur finer than half resolution (glass in the App Library, folders, Control Center). Measured: App Library GPU 21.0-21.3 -> 20.5 ms a frame, so little gain.",
               group: "SpringBoard", applies: .respring, experimental: true),
-        PerfOption(id: "bgmtl-bb.env", title: "GPU rendering",
+        PerfOption(id: "crimson-bb.env", title: "GPU rendering",
                    detail: "How Turnip renders backboardd's passes. Tiled (GMEM) gave the steadiest page drags; direct (sysmem) was the old setting; profiled times both and was slower here.",
                    group: "backboardd", applies: .reboot,
                    choices: [PerfOption.Choice(title: "Tiled", content: ""),
                              PerfOption.Choice(title: "Direct", content: "TU_DEBUG=sysmem\n"),
                              PerfOption.Choice(title: "Profiled", content: "TU_AUTOTUNE_ALGO=profiled\n")]),
-        .flag("m2v-batch", "Batched encoding", "Encoder work is recorded in batches on worker threads instead of call by call.",
+        .flag("crimson-batch", "Batched encoding", "Encoder work is recorded in batches on worker threads instead of call by call.",
               group: "backboardd", applies: .reboot),
-        .flag("m2v-defer", "Deferred encoding", "CoreAnimation's Metal calls are queued and run off its thread.",
+        .flag("crimson-defer", "Deferred encoding", "CoreAnimation's Metal calls are queued and run off its thread.",
               group: "backboardd", applies: .reboot),
-        .flag("m2v-async-commit", "Asynchronous commit", "A command buffer's commit returns before its work is submitted (needs deferred encoding).",
+        .flag("crimson-async-commit", "Asynchronous commit", "A command buffer's commit returns before its work is submitted (needs deferred encoding).",
               group: "backboardd", applies: .reboot),
-        .flag("m2v-bb-nowait", "No scheduled waits", "backboardd does not block on waitUntilScheduled.",
+        .flag("crimson-bb-nowait", "No scheduled waits", "backboardd does not block on waitUntilScheduled.",
               group: "backboardd", applies: .reboot),
-        .flag("m2v-cut", "Early submit", "Passes are submitted to the GPU as they end instead of all at the commit.",
+        .flag("crimson-cut", "Early submit", "Passes are submitted to the GPU as they end instead of all at the commit.",
               group: "backboardd", applies: .reboot),
-        PerfOption(id: "m2v-midcut", title: "Mid-pass cut",
+        PerfOption(id: "crimson-midcut", title: "Mid-pass cut",
                    detail: "Long passes are split every 40 draws so the GPU starts sooner. Cheap only with Direct rendering.",
                    group: "backboardd", applies: .reboot,
                    choices: [PerfOption.Choice(title: "Off", content: nil), PerfOption.Choice(title: "Every 40", content: "always\n40\n")]),
-        .flag("m2v-hud", "On-screen HUD", "The fps/GPU overlay in the top-left corner.", group: "Diagnostics", applies: .reboot),
-        .flag("m2v-fps", "fps log", "A per-second fps line in m2v.log.", group: "Diagnostics", applies: .reboot),
-        .flag("m2v-telemetry", "Telemetry", "Timing summaries in m2v.log.", group: "Diagnostics", applies: .reboot),
-        .flag("m2v-cpumeter", "CPU meter", "Per-batch CPU time in the fps line (two system calls a batch).", group: "Diagnostics", applies: .reboot),
+        .flag("crimson-hud", "On-screen HUD", "The fps/GPU overlay in the top-left corner.", group: "Diagnostics", applies: .reboot),
+        .flag("crimson-fps", "fps log", "A per-second fps line in crimson.log.", group: "Diagnostics", applies: .reboot),
+        .flag("crimson-telemetry", "Telemetry", "Timing summaries in crimson.log.", group: "Diagnostics", applies: .reboot),
+        .flag("crimson-cpumeter", "CPU meter", "Per-batch CPU time in the fps line (two system calls a batch).", group: "Diagnostics", applies: .reboot),
     ]
 
-    private static let pipelineOn = ["m2v-batch": 1, "m2v-defer": 1, "m2v-async-commit": 1, "m2v-bb-nowait": 1, "m2v-cut": 1]
+    private static let pipelineOn = ["crimson-batch": 1, "crimson-defer": 1, "crimson-async-commit": 1, "crimson-bb-nowait": 1, "crimson-cut": 1]
 
     static let presets: [PerfPreset] = [
         PerfPreset(id: "smooth", title: "Smooth",
                    detail: "Everything measured to help: pages kept built, tiled GPU rendering, the full encoding pipeline.",
-                   choices: pipelineOn.merging(["m2v-sbkeepicons": 1, "bgmtl-bb.env": 0, "m2v-midcut": 0, "m2v-blurcap": 0]) { $1 }),
+                   choices: pipelineOn.merging(["crimson-sbkeepicons": 1, "crimson-bb.env": 0, "crimson-midcut": 0, "crimson-blurcap": 0]) { $1 }),
         PerfPreset(id: "balanced", title: "Balanced",
                    detail: "As Smooth, but SpringBoard manages pages and widgets itself (less memory; Today widgets keep their normal lifecycle).",
-                   choices: pipelineOn.merging(["m2v-sbkeepicons": 0, "bgmtl-bb.env": 0, "m2v-midcut": 0, "m2v-blurcap": 0]) { $1 }),
+                   choices: pipelineOn.merging(["crimson-sbkeepicons": 0, "crimson-bb.env": 0, "crimson-midcut": 0, "crimson-blurcap": 0]) { $1 }),
         PerfPreset(id: "safe", title: "Safe",
                    detail: "No SpringBoard changes and the plainest pipeline: for checking whether an optimization causes a problem.",
-                   choices: ["m2v-sbkeepicons": 0, "m2v-blurcap": 0, "bgmtl-bb.env": 0, "m2v-midcut": 0,
-                             "m2v-batch": 0, "m2v-defer": 0, "m2v-async-commit": 0, "m2v-bb-nowait": 0, "m2v-cut": 0]),
+                   choices: ["crimson-sbkeepicons": 0, "crimson-blurcap": 0, "crimson-bb.env": 0, "crimson-midcut": 0,
+                             "crimson-batch": 0, "crimson-defer": 0, "crimson-async-commit": 0, "crimson-bb-nowait": 0, "crimson-cut": 0]),
     ]
 
     /// The choice index of an option from the file's state: nil (absent) or its contents.

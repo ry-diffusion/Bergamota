@@ -11,7 +11,8 @@
  *   lpm                       "lpm STATE extreme X": iOS Low Power Mode (notify state) and kern.sweet_gpu_extreme
  * It also keeps the GPU's Extreme Performance Mode (kernel 1035, levels above 710 MHz) in step with iOS Low Power Mode:
  * on normally, off while Low Power Mode is on (notify "com.apple.system.lowpowermode", polled every 2 s).
- * NAME must be m2v-<lowercase letters, digits, dashes> or bgmtl-bb.env; files live in /private/var/tmp only.
+ * NAME must be crimson-<lowercase letters, digits, dashes> or crimson-bb.env (the old m2v-* / bgmtl-bb.env names are still
+ * accepted); files live in /private/var/tmp only.
  * Any local process can use it (a test phone): it binds the loopback address and nothing else.
  * Started by launchd: /System/Library/LaunchDaemons/org.sweet.bergamotad.plist. arm64e + pacstrip (tools/sweetnet/build.sh).
  */
@@ -39,11 +40,12 @@ extern char **environ;
 static int
 name_ok(const char *n)
 {
-	if (!strcmp(n, "bgmtl-bb.env"))
+	if (!strcmp(n, "crimson-bb.env") || !strcmp(n, "bgmtl-bb.env"))
 		return 1;
-	if (strncmp(n, "m2v-", 4) || !n[4] || strlen(n) > 48)
+	size_t pre = !strncmp(n, "crimson-", 8) ? 8 : !strncmp(n, "m2v-", 4) ? 4 : 0;
+	if (!pre || !n[pre] || strlen(n) > 48)
 		return 0;
-	for (const char *p = n + 4; *p; p++)
+	for (const char *p = n + pre; *p; p++)
 		if (!(islower((unsigned char)*p) || isdigit((unsigned char)*p) || *p == '-'))
 			return 0;
 	return 1;
@@ -58,9 +60,9 @@ reply(int fd, const char *s)
 static void
 get(int fd)
 {
-	static const char *names[] = { "m2v-sbkeepicons", "m2v-blurcap", "bgmtl-bb.env", "m2v-batch", "m2v-defer",
-		"m2v-async-commit", "m2v-bb-nowait", "m2v-cut", "m2v-midcut", "m2v-hud", "m2v-fps", "m2v-telemetry",
-		"m2v-cpumeter", NULL };
+	static const char *names[] = { "crimson-sbkeepicons", "crimson-blurcap", "crimson-bb.env", "crimson-batch", "crimson-defer",
+		"crimson-async-commit", "crimson-bb-nowait", "crimson-cut", "crimson-midcut", "crimson-hud", "crimson-fps",
+		"crimson-telemetry", "crimson-cpumeter", NULL };
 	for (int i = 0; names[i]; i++) {
 		char path[128], buf[256], line[600];
 		snprintf(path, sizeof(path), DIR "%s", names[i]);
