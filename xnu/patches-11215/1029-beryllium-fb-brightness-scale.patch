@@ -1,0 +1,15 @@
+--- a/iokit/Kernel/arm/BergamotaFramebuffer.cpp	2026-11-25 02:18:01
++++ b/iokit/Kernel/arm/BergamotaFramebuffer.cpp	2026-11-25 02:18:01
+@@ -889,6 +889,12 @@
+ 	setProperty(kIOUserClientClassKey, "IOMobileFramebufferUserClient");
+ 	setProperty("external", false);
+ 	setProperty("DisplayPipePlaneBaseAlignment", 64ULL, 32);
++	/*
++	 * 1029: CoreAnimation's IOMFBDisplay::begin_update reads Brightness_Scale (an int, 16.16 fixed point, 1.0 when absent)
++	 * through IOMobileFramebufferCopyProperty at every frame; absent, kern_CopyProperty syslogged "key : Brightness_Scale
++	 * not found" each time on its display thread. 1.0: what CoreAnimation assumed anyway. (Split out of 1027.)
++	 */
++	setProperty("Brightness_Scale", 65536ULL, 32);
+ 	registerService();
+ 	__atomic_store_n(&bergamota_fb_shot_fb, this, __ATOMIC_RELEASE);     /* kern.bergamota_fb_shot (patch 0224) */
+ 	IOLog("BERGAMOTA FB: AppleCLCD %ux%u stride %u at 0x%llx, default surface %u, presented as %ux%u, vsync %u us, copy every %u, scale %u (pad %d,%d), direct %d early %d\n",

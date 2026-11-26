@@ -3,13 +3,12 @@ bergamota: power off on halt with PSCI SYSTEM_OFF
 Shutdown from iOS and reboot(RB_HALT) end in PEHaltRestart(kPEHaltCPU); the platform
 expert only handled restarts, so a halt printed "CPU halted" and spun with the phone on.
 kPEHaltCPU / kPEUPSDelayHaltCPU now call PSCI SYSTEM_OFF (0x84000008) on the Poco F1.
-
 diff --git a/bsd/dev/bergamota_reboot.c b/bsd/dev/bergamota_reboot.c
-index e3542d4..746ce98 100644
+index d35f8b1..12a3cff 100644
 --- a/bsd/dev/bergamota_reboot.c
 +++ b/bsd/dev/bergamota_reboot.c
-@@ -138,6 +138,15 @@ sr_psci_system_reset(void)
- 	    "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15", "x16", "x17", "cc", "memory");
+@@ -247,6 +247,15 @@ bergamota_reboot_halt(void)
+ 	}
  }
  
 +/* PSCI SYSTEM_OFF (SMCCC 1.0): the secure firmware turns the PMIC off. Returns only if refused. */
@@ -24,7 +23,7 @@ index e3542d4..746ce98 100644
  /* Thread context, after the SPMI driver can start. Idempotent. */
  void
  bergamota_reboot_init(void)
-@@ -253,4 +262,20 @@ bergamota_reboot_restart(int panic_restart)
+@@ -374,4 +383,20 @@ bergamota_reboot_restart(int panic_restart)
  	delay(2000 * 1000);
  	return -1;
  }
@@ -46,7 +45,7 @@ index e3542d4..746ce98 100644
 +}
  #endif /* ARM64_BOARD_CONFIG_BERGAMOTA */
 diff --git a/iokit/Kernel/arm/BergamotaPlatformExpert.cpp b/iokit/Kernel/arm/BergamotaPlatformExpert.cpp
-index 0164473..4d8e648 100644
+index f71fd59..12d9852 100644
 --- a/iokit/Kernel/arm/BergamotaPlatformExpert.cpp
 +++ b/iokit/Kernel/arm/BergamotaPlatformExpert.cpp
 @@ -12,6 +12,7 @@
@@ -54,19 +53,19 @@ index 0164473..4d8e648 100644
  extern "C" int bergamota_reboot_restart(int panic_restart);
  extern "C" void bergamota_reboot_note_panic(void);
 +extern "C" int bergamota_reboot_poweroff(void);
+ extern "C" void bergamota_reboot_halt(void);
  #include "../../../bsd/dev/bergamota_board.h"
  #include "../../../bsd/dev/bergamota_spmi.h"
- 
-@@ -46,7 +47,7 @@ BergamotaPlatformExpert::start(IOService *provider)
+@@ -47,7 +48,7 @@ BergamotaPlatformExpert::start(IOService *provider)
  }
  
  /*
 - * Reset path (bsd/dev/bergamota_reboot.c, Poco F1: PS_HOLD + reboot reason).
 + * Reset path (bsd/dev/bergamota_reboot.c, Poco F1: PS_HOLD + reboot reason); halt = power off (PSCI SYSTEM_OFF, 1036).
   * Other boards, and every type not handled here, keep the stock behaviour.
-  * Panics only reset with boot-arg bergamotareboot=bootloader (the helper checks).
+  * Panics only reset with boot-arg bergamotareboot=bootloader or bergamotapanicreboot=1 (the helper checks).
   */
-@@ -67,6 +68,10 @@ BergamotaPlatformExpert::haltRestart(unsigned int type)
+@@ -75,6 +76,10 @@ BergamotaPlatformExpert::haltRestart(unsigned int type)
  	case kPERestartCPU:
  		(void)bergamota_reboot_restart(0);
  		break;

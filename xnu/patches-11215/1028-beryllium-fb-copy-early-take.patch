@@ -1,8 +1,11 @@
+
+With 1027 applied (CI) the early take does not promote 1027's queued second slot; only relevant with kern.bergamota_fb_queue2=1 (default 0).
+
 diff --git a/iokit/Kernel/arm/BergamotaFramebuffer.cpp b/iokit/Kernel/arm/BergamotaFramebuffer.cpp
-index 3b0fa9d..0073bdb 100644
+index c7bde02..6c7d3ff 100644
 --- a/iokit/Kernel/arm/BergamotaFramebuffer.cpp
 +++ b/iokit/Kernel/arm/BergamotaFramebuffer.cpp
-@@ -250,6 +250,7 @@ class AppleCLCD : public IOMobileFramebuffer {
+@@ -266,6 +266,7 @@ class AppleCLCD : public IOMobileFramebuffer {
  
  	static void vsyncFired(OSObject *owner, IOTimerEventSource *sender);
  	static void swapFired(OSObject *owner, IOTimerEventSource *sender);
@@ -10,7 +13,7 @@ index 3b0fa9d..0073bdb 100644
  
  public:
  	uint64_t      fPhys;
-@@ -364,6 +365,7 @@ public:
+@@ -380,6 +381,7 @@ public:
  	uint32_t      fPendFence;       /* 0229: newest GPU fence submitted when the pending swap arrived */
  	uint64_t      fPendAbs;         /* 0229: when it arrived */
  	bool          gpuGateOpen(uint64_t now);
@@ -18,7 +21,7 @@ index 3b0fa9d..0073bdb 100644
  	uint64_t      fPendGate;        /* 1022: backboardd's async commits made before the pending swap */
  	/*
  	 * 1027 (kern.bergamota_fb_queue2): with async commits, a swap that arrives while another is pending waits in this second
-@@ -425,6 +427,14 @@ public:
+@@ -441,6 +443,14 @@ public:
  	 */
  	bool          fDirect, fEarly;
  	IOTimerEventSource *fSwapTimer;
@@ -33,7 +36,7 @@ index 3b0fa9d..0073bdb 100644
  	uint8_t       fEarlyRec[BERGAMOTA_FB_SWAP_REC_SIZE];
  	void          quietConsole(void);
  	uint32_t      fZcCleanMode;     /* bergamotafb_zcclean: 0 never, 1 always (0127 behaviour), 2 auto (patch 0212) */
-@@ -854,6 +864,20 @@ AppleCLCD::start(IOService *provider)
+@@ -870,6 +880,20 @@ AppleCLCD::start(IOService *provider)
  		fFlushTicks = 1;
  	}
  	fVsync->setTimeoutUS(fVsyncUS);
@@ -54,7 +57,7 @@ index 3b0fa9d..0073bdb 100644
  	if (fEarly) {
  		fSwapTimer = IOTimerEventSource::timerEventSource(this, &AppleCLCD::swapFired);
  		if (fSwapTimer == NULL || fWorkLoop->addEventSource(fSwapTimer) != kIOReturnSuccess) {
-@@ -1162,6 +1186,51 @@ AppleCLCD::promoteNext(void)
+@@ -1172,6 +1196,51 @@ AppleCLCD::promoteNext(void)
  	fDirty = true;
  }
  
@@ -106,7 +109,7 @@ index 3b0fa9d..0073bdb 100644
  void
  AppleCLCD::swapFired(OSObject *owner, IOTimerEventSource *)
  {
-@@ -1483,6 +1552,9 @@ AppleCLCD::swap(const uint8_t *rec)
+@@ -1493,6 +1562,9 @@ AppleCLCD::swap(const uint8_t *rec)
  	if (fEarly && !fPowerOff) {
  		fSwapTimer->setTimeoutUS(1);    /* scan it now: the MDP latches at its next vsync */
  	}
@@ -116,7 +119,7 @@ index 3b0fa9d..0073bdb 100644
  	if ((++bergamota_fb_swap_count % 1000) == 0) {
  		IOLog("BERGAMOTA FB: %llu swaps\n", bergamota_fb_swap_count);
  	}
-@@ -1908,6 +1980,15 @@ AppleCLCD::flipSetup(void)
+@@ -1918,6 +1990,15 @@ AppleCLCD::flipSetup(void)
   * panel frame apart (bergamotafb_hz >= ~40, or bergamotafb_vsync=1): torn frames.
   * Wait (bounded, one vsync plus slack) for the latch before drawing.
   */

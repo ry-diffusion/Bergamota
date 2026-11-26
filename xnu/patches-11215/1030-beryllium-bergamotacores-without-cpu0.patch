@@ -1,0 +1,21 @@
+--- a/bsd/dev/bergamota_cpufreq.c	2026-11-25 02:35:42
++++ b/bsd/dev/bergamota_cpufreq.c	2026-11-25 02:35:42
+@@ -561,7 +561,17 @@
+ 	 */
+ 	uint64_t cores = 0;
+ 	if (PE_parse_boot_argn("bergamotacores", &cores, sizeof(cores)) && cores) {
+-		cores |= 1;
++		/*
++		 * 1030: bergamotacores_cpu0=0 leaves CPU0 (an A55) out too: it stays online for its bound kernel threads and
++		 * interrupts, but no user thread is placed there. With CoreAnimation's display thread landing on it now and
++		 * then, 26 % of page-drag frames missed a refresh (0xf1) against 4 % without it (0xf0, measured with the
++		 * DEVELOPMENT sysctl, 2026-11-25).
++		 */
++		int keep0 = 1;
++		(void)PE_parse_boot_argn("bergamotacores_cpu0", &keep0, sizeof(keep0));
++		if (keep0 || (cores & ~1ull) == 0) {
++			cores |= 1;
++		}
+ 		sched_perfcontrol_update_recommended_cores_reason(cores, REASON_CLPC_USER, 0);
+ 		printf("BERGAMOTA CPUFREQ: recommended cores 0x%llx (bergamotacores)\n", cores);
+ 	}

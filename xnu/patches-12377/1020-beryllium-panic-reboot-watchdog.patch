@@ -1,0 +1,416 @@
+diff --git a/bsd/dev/bergamota_reboot.c b/bsd/dev/bergamota_reboot.c
+index 8228f52b5..3240d121e 100644
+--- a/bsd/dev/bergamota_reboot.c
++++ b/bsd/dev/bergamota_reboot.c
+@@ -30,8 +30,22 @@
+  * kern.bergamota_reboot_mode (string; "fastboot" is accepted for "bootloader").
+  *
+  * Panic: unchanged (no reset, the screen/log stays) unless the boot-arg is
+- * bergamotareboot=bootloader; then a panic also resets into fastboot (unattended
+- * tests). The sysctl does not affect panics.
++ * bergamotareboot=bootloader (a panic resets into fastboot) or bergamotapanicreboot=1
++ * (patch 1020: a panic resets in normal mode, so ABL boots the boot partition
++ * again). The reset happens at kPEPanicDiagnosticsDone, which every panic
++ * reaches whatever the debug boot-arg says (debug=0xc sets panicDebugging,
++ * so kPEPanicRestartCPU never comes), after the panic text went to the
++ * console ring; bergamota_ufs_flush_final writes the ring to the log area first
++ * (tools/bergamota-log-pull.sh). The sysctl does not affect panics.
++ *
++ * Hardware watchdog (patch 1020): boot-arg bergamotawdt=N (seconds, 5..120; 0/absent
++ * = off) arms the APSS WDT (live DT qcom,wdt@17980000 "qcom,msm-watchdog",
++ * 32768 Hz sleep clock; Linux drivers/watchdog/qcom-wdt.c kpss offsets) with a
++ * bite after N s, and a kernel thread pets it every N/4 s. A wedged scheduler,
++ * or a panic that never reaches the reset above, stops the pets and the bite
++ * resets the SoC (bark interrupt left off: XNU has no handler for it). Halt
++ * disables it. Test: sysctl kern.bergamota_reboot_test=1 panics, =2 stops the pets
++ * and spins this CPU with interrupts off (bergamotareboot test-panic|test-hang).
+  *
+  * Reset time may be non-preemptible (halt_all_cpus, panic): everything is
+  * mapped by bergamota_reboot_init() and the SPMI helpers run lock-less there.
+@@ -50,6 +64,9 @@
+ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+ extern void delay(int usec);
+ extern int bergamota_ufs_flush_final(void);      /* bsd/dev/bergamota_ufs.c: SYNCHRONIZE CACHE (patch 0221) */
++extern kern_return_t kernel_thread_start(thread_continue_t, void *, thread_t *);
++extern void thread_deallocate(thread_t);
++extern int hz;
+ 
+ #define SR_PSHOLD_PA     0x0c264000u
+ #define SR_IMEM_PA       0x146bf000u
+@@ -58,6 +75,13 @@ extern int bergamota_ufs_flush_final(void);      /* bsd/dev/bergamota_ufs.c: SYNCHRONIZE
+ #define SR_IMEM_RECOVERY   0x77665502u
+ #define SR_IMEM_BERGAMOTA  0x42455247u     /* 'BERG': our boot shim enters Bergamota fastboot (clears it) */
+ 
++#define SR_WDT_PA        0x17980000u       /* qcom,wdt@17980000 */
++#define SR_WDT_RST       0x04u
++#define SR_WDT_EN        0x08u
++#define SR_WDT_BARK      0x10u
++#define SR_WDT_BITE      0x14u
++#define SR_WDT_HZ        32768u
++
+ #define SR_PON_SID       0u
+ #define SR_PON_SPARE     0x088fu           /* PON base 0x800 + PON_SOFT_RB_SPARE 0x8f */
+ #define SR_REASON_SHIFT  1u                /* qcom,pm8998-pon: GEN2_REASON_SHIFT */
+@@ -73,6 +97,10 @@ static int sr_override = -1;               /* sysctl; -1 = none */
+ static volatile uint32_t *sr_pshold;
+ static volatile uint32_t *sr_imem;
+ static bool sr_ready, sr_pon_ready, sr_in_panic;
++static uint32_t sr_panic_reboot;           /* boot-arg bergamotapanicreboot */
++static uint32_t sr_wdt_secs;               /* boot-arg bergamotawdt, 0 = off */
++static volatile uint32_t *sr_wdt;
++static volatile bool sr_wdt_hang;          /* kern.bergamota_reboot_test=2: stop petting */
+ 
+ static const char *
+ sr_name(int mode)
+@@ -138,6 +166,87 @@ sr_psci_system_reset(void)
+ 	    "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15", "x16", "x17", "cc", "memory");
+ }
+ 
++static void
++sr_wdt_pet(void)
++{
++	if (sr_wdt && !sr_wdt_hang) {
++		sr_wdt[SR_WDT_RST / 4] = 1;
++		__asm__ volatile ("dsb sy" ::: "memory");
++	}
++}
++
++static void
++sr_wdt_thread(__unused void *arg, __unused wait_result_t wr)
++{
++	for (;;) {
++		sr_wdt_pet();
++		(void)tsleep((void *)&sr_wdt, PZERO, "bergamotawdt", hz * (int)MAX(1u, sr_wdt_secs / 4));
++	}
++}
++
++/* qcom_wdt_start(): disable, reset the count, bark = bite = N s, enable without the bark IRQ. */
++static void
++sr_wdt_start(void)
++{
++	thread_t thread;
++
++	sr_wdt = (volatile uint32_t *)ml_io_map(SR_WDT_PA, 0x1000);
++	if (!sr_wdt) {
++		printf("BERGAMOTA REBOOT: watchdog NOT mapped\n");
++		return;
++	}
++	uint32_t was = sr_wdt[SR_WDT_EN / 4];
++	sr_wdt[SR_WDT_EN / 4] = 0;
++	sr_wdt[SR_WDT_RST / 4] = 1;
++	sr_wdt[SR_WDT_BARK / 4] = sr_wdt_secs * SR_WDT_HZ;
++	sr_wdt[SR_WDT_BITE / 4] = sr_wdt_secs * SR_WDT_HZ;
++	sr_wdt[SR_WDT_EN / 4] = 1;
++	__asm__ volatile ("dsb sy" ::: "memory");
++	if (kernel_thread_start(sr_wdt_thread, NULL, &thread) == KERN_SUCCESS) {
++		thread_deallocate(thread);
++	}
++	printf("BERGAMOTA REBOOT: watchdog armed, bite after %u s, pet every %u s (EN was 0x%x, now 0x%x)\n",
++	    sr_wdt_secs, MAX(1u, sr_wdt_secs / 4), was, sr_wdt[SR_WDT_EN / 4]);
++}
++
++static int
++sr_test_sysctl SYSCTL_HANDLER_ARGS
++{
++#pragma unused(arg1, arg2)
++	int v = 0, error = sysctl_handle_int(oidp, &v, 0, req);
++	if (error || !req->newptr) {
++		return error;
++	}
++	if (v == 1) {
++		panic("BERGAMOTA REBOOT: test panic (kern.bergamota_reboot_test=1)");
++	}
++	if (v == 2) {
++		if (!sr_wdt) {
++			return ENODEV;
++		}
++		printf("BERGAMOTA REBOOT: test hang: watchdog pets stopped, spinning with interrupts off\n");
++		sr_wdt_hang = true;
++		(void)ml_set_interrupts_enabled(FALSE);
++		for (;;) {
++		}
++	}
++	return EINVAL;
++}
++
++SYSCTL_PROC(_kern, OID_AUTO, bergamota_reboot_test,
++    CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, 0, 0, sr_test_sysctl, "I",
++    "write 1: test panic; 2: test hang (stop watchdog pets, spin with interrupts off)");
++
++/* Halt (no power-off path): keep the watchdog from turning it into a reboot. */
++void
++bergamota_reboot_halt(void)
++{
++	if (sr_wdt) {
++		sr_wdt[SR_WDT_EN / 4] = 0;
++		__asm__ volatile ("dsb sy" ::: "memory");
++	}
++}
++
+ /* Thread context, after the SPMI driver can start. Idempotent. */
+ void
+ bergamota_reboot_init(void)
+@@ -161,9 +270,15 @@ bergamota_reboot_init(void)
+ 		sr_pon_ready = true;
+ 	}
+ 	sr_ready = sr_pshold != NULL;
+-	printf("BERGAMOTA REBOOT: boot-arg mode %s, PS_HOLD %s, IMEM %s, PON spare write %s\n",
++	PE_parse_boot_argn("bergamotapanicreboot", &sr_panic_reboot, sizeof(sr_panic_reboot));
++	printf("BERGAMOTA REBOOT: boot-arg mode %s, PS_HOLD %s, IMEM %s, PON spare write %s, panic %s\n",
+ 	    sr_name(sr_bootarg), sr_pshold ? "mapped" : "NOT mapped",
+-	    sr_imem ? "mapped" : "NOT mapped", sr_pon_ready ? "ready" : "unavailable");
++	    sr_imem ? "mapped" : "NOT mapped", sr_pon_ready ? "ready" : "unavailable",
++	    sr_bootarg == SR_BOOTLOADER ? "resets to fastboot" : sr_panic_reboot ? "resets (normal)" : "stays");
++	if (PE_parse_boot_argn("bergamotawdt", &sr_wdt_secs, sizeof(sr_wdt_secs)) && sr_wdt_secs) {
++		sr_wdt_secs = MIN(MAX(sr_wdt_secs, 5u), 120u);
++		sr_wdt_start();
++	}
+ }
+ 
+ /*
+@@ -200,6 +315,9 @@ sr_pon_set_reason(unsigned magic)
+ void
+ bergamota_reboot_note_panic(void)
+ {
++	if (!sr_in_panic) {
++		sr_wdt_pet();   /* the whole bite window for the panic flow and the reset */
++	}
+ 	sr_in_panic = true;
+ }
+ 
+@@ -224,11 +342,14 @@ bergamota_reboot_restart(int panic_restart)
+ 		return -1;
+ 	}
+ 	if (panic_restart || sr_in_panic) {
+-		/* Panics keep their old behaviour (stay up) unless asked for fastboot. */
+-		if (sr_bootarg != SR_BOOTLOADER) {
++		/* Panics keep their old behaviour (stay up) unless asked for fastboot or a reboot. */
++		if (sr_bootarg == SR_BOOTLOADER) {
++			mode = SR_BOOTLOADER;
++		} else if (sr_panic_reboot) {
++			mode = SR_NORMAL;
++		} else {
+ 			return -1;
+ 		}
+-		mode = SR_BOOTLOADER;
+ 	} else {
+ 		mode = sr_override >= 0 ? sr_override : sr_bootarg;
+ 	}
+diff --git a/bsd/dev/bergamota_ufs.c b/bsd/dev/bergamota_ufs.c
+index a627530c5..63a383dc8 100644
+--- a/bsd/dev/bergamota_ufs.c
++++ b/bsd/dev/bergamota_ufs.c
+@@ -1236,54 +1236,123 @@ struct bergamota_log_header {
+ 	uint64_t total, seq;
+ };
+ 
+-static void
+-bergamota_log_thread(__unused void *arg, __unused wait_result_t wr)
++static uint64_t bergamota_log_seq;
++
++/*
++ * Caller holds bergamota_ufs_lock. Write the ring bytes [flushed, total) and the header
++ * to the log area, then SYNCHRONIZE CACHE. The UFS commands poll when the caller
++ * cannot sleep, so this also runs at panic time (bergamota_log_flush_final).
++ */
++static int
++bergamota_log_write_locked(uint64_t flushed, uint64_t total)
+ {
+ 	uint64_t base = su.first_block + su.nblocks - BERGAMOTA_LOG_BLOCKS;
+-	uint64_t flushed = 0, seq = 0;
+ 	void *bounce = (void *)(su.dma + DMA_BOUNCE);
++	uint64_t pos = total - flushed >= BERGAMOTA_LOG_SIZE ? total - BERGAMOTA_LOG_SIZE : flushed;
++	int error = 0;
+ 
++	while (pos < total && !error) {
++		uint32_t off = (uint32_t)(pos % BERGAMOTA_LOG_SIZE);
++		uint32_t blk = off / UFS_BLOCK;
++		uint64_t need = ((uint64_t)off % UFS_BLOCK + (total - pos) + UFS_BLOCK - 1) / UFS_BLOCK;
++		uint32_t n = (uint32_t)MIN(MIN(need, (uint64_t)(BERGAMOTA_LOG_SIZE / UFS_BLOCK - blk)),
++		    (uint64_t)(BOUNCE_SIZE / UFS_BLOCK));
++		memcpy(bounce, bergamota_log_ring + (uint64_t)blk * UFS_BLOCK, n * UFS_BLOCK);
++		error = ufs_write_blocks(base + 1 + blk, n);
++		pos += (uint64_t)(blk + n) * UFS_BLOCK - off;
++	}
++	if (!error) {
++		struct bergamota_log_header h = {
++			.magic = { 'S', 'W', 'E', 'E', 'T', 'L', 'O', 'G' },
++			.version = 1, .size = BERGAMOTA_LOG_SIZE, .total = total, .seq = ++bergamota_log_seq,
++		};
++		bzero(bounce, UFS_BLOCK);
++		memcpy(bounce, &h, sizeof(h));
++		error = ufs_write_blocks(base, 1);
++	}
++	if (!error) {
++		error = ufs_sync_cache();
++	}
++	if (!error) {
++		os_atomic_store(&bergamota_log_flushed, total, release);
++	}
++	return error;
++}
++
++/*
++ * 1020: the previous boot's last bytes (its panic text, if it panicked), read back before this
++ * boot's first flush overwrites the ring from offset 0. Re-printed with a "prev| " prefix, so they
++ * land in this boot's log and USB live log, and kept for sysctl kern.bergamota_log_prev.
++ */
++#define BERGAMOTA_LOG_PREV 8192u
++static char bergamota_log_prev[BERGAMOTA_LOG_PREV + 1];
++
++SYSCTL_STRING(_kern, OID_AUTO, bergamota_log_prev, CTLFLAG_RD | CTLFLAG_LOCKED, bergamota_log_prev, 0,
++    "last console bytes of the previous boot (patch 1020)");
++
++static void
++bergamota_log_read_prev(void)
++{
++	uint64_t base = su.first_block + su.nblocks - BERGAMOTA_LOG_BLOCKS;
++	const char *bounce = (const char *)(su.dma + DMA_BOUNCE);
++	struct bergamota_log_header h;
++	uint64_t len = 0;
++
++	lck_mtx_lock(&bergamota_ufs_lock);
++	int error = ufs_read_blocks(base, 1);
++	if (!error) {
++		memcpy(&h, bounce, sizeof(h));
++		if (memcmp(h.magic, "BERGAMOTALOG", 8) == 0 && h.size == BERGAMOTA_LOG_SIZE) {
++			len = MIN(h.total, (uint64_t)BERGAMOTA_LOG_PREV);
++		}
++	}
++	for (uint64_t i = 0; i < len && !error;) {
++		uint32_t off = (uint32_t)((h.total - len + i) % BERGAMOTA_LOG_SIZE);
++		uint32_t n = (uint32_t)MIN((uint64_t)(UFS_BLOCK - off % UFS_BLOCK), len - i);
++		error = ufs_read_blocks(base + 1 + off / UFS_BLOCK, 1);
++		memcpy(bergamota_log_prev + i, bounce + off % UFS_BLOCK, n);
++		i += n;
++	}
++	lck_mtx_unlock(&bergamota_ufs_lock);
++	if (error || !len) {
++		bergamota_log_prev[0] = 0;
++		printf("BERGAMOTA LOG: no previous boot log (%d)\n", error);
++		return;
++	}
++	bergamota_log_prev[len] = 0;
++	printf("BERGAMOTA LOG: previous boot's last %llu bytes (it wrote %llu, flush %llu):\n", len, h.total, h.seq);
++	for (const char *p = bergamota_log_prev; *p;) {
++		int n = 0;
++		while (p[n] && p[n] != '\n') {
++			n++;
++		}
++		printf("prev| %.*s\n", n, p);
++		p += n + (p[n] != 0);
++	}
++	printf("BERGAMOTA LOG: end of the previous boot's log\n");
++}
++
++static void
++bergamota_log_thread(__unused void *arg, __unused wait_result_t wr)
++{
++	bergamota_log_read_prev();
+ 	printf("BERGAMOTA LOG: console log to the last %u KiB of the partition (block 0x%llx)\n",
+-	    BERGAMOTA_LOG_BLOCKS * UFS_BLOCK >> 10, base);
++	    BERGAMOTA_LOG_BLOCKS * UFS_BLOCK >> 10, su.first_block + su.nblocks - BERGAMOTA_LOG_BLOCKS);
+ 	for (;;) {
+ 		(void)tsleep(&bergamota_log_chan, PZERO, "bergamotalog", hz * (int)bergamota_log_secs);
+ 		uint64_t total = os_atomic_load(&bergamota_log_total, relaxed);
++		uint64_t flushed = os_atomic_load(&bergamota_log_flushed, acquire);
+ 		if (total == flushed) {
+ 			continue;
+ 		}
+-		uint64_t pos = total - flushed >= BERGAMOTA_LOG_SIZE ? total - BERGAMOTA_LOG_SIZE : flushed;
+-		int error = 0;
+-
+ 		lck_mtx_lock(&bergamota_ufs_lock);
+-		while (pos < total && !error) {
+-			uint32_t off = (uint32_t)(pos % BERGAMOTA_LOG_SIZE);
+-			uint32_t blk = off / UFS_BLOCK;
+-			uint64_t need = ((uint64_t)off % UFS_BLOCK + (total - pos) + UFS_BLOCK - 1) / UFS_BLOCK;
+-			uint32_t n = (uint32_t)MIN(MIN(need, (uint64_t)(BERGAMOTA_LOG_SIZE / UFS_BLOCK - blk)),
+-			    (uint64_t)(BOUNCE_SIZE / UFS_BLOCK));
+-			memcpy(bounce, bergamota_log_ring + (uint64_t)blk * UFS_BLOCK, n * UFS_BLOCK);
+-			error = ufs_write_blocks(base + 1 + blk, n);
+-			pos += (uint64_t)(blk + n) * UFS_BLOCK - off;
+-		}
+-		if (!error) {
+-			struct bergamota_log_header h = {
+-				.magic = { 'S', 'W', 'E', 'E', 'T', 'L', 'O', 'G' },
+-				.version = 1, .size = BERGAMOTA_LOG_SIZE, .total = total, .seq = ++seq,
+-			};
+-			bzero(bounce, UFS_BLOCK);
+-			memcpy(bounce, &h, sizeof(h));
+-			error = ufs_write_blocks(base, 1);
+-		}
+-		if (!error) {
+-			error = ufs_sync_cache();
+-		}
++		int error = bergamota_log_write_locked(flushed, total);
+ 		lck_mtx_unlock(&bergamota_ufs_lock);
+ 		if (error) {
+ 			printf("BERGAMOTA LOG: write failed (%d), stopping\n", error);
++			os_atomic_store(&bergamota_log_running, false, release);
+ 			return;
+ 		}
+-		flushed = total;
+-		os_atomic_store(&bergamota_log_flushed, total, release);
+ 	}
+ }
+ 
+@@ -1564,7 +1633,8 @@ bergamota_ufs_syncer_start(void)
+ 
+ /*
+  * Last flush before the SoC reset (bergamota_reboot_restart, also on a panic restart): nothing the
+- * file system or the device queue completed may still sit in the UFS write cache. Safe in
++ * file system or the device queue completed may still sit in the UFS write cache, and the
++ * console ring's unwritten tail (the panic text) goes to the log area first (patch 1020). Safe in
+  * non-preemptible context: the mutex is only tried (a panic inside a UFS command owns it; then the
+  * flush is skipped, as nothing consistent can be said about the device anyway).
+  */
+@@ -1580,7 +1650,10 @@ bergamota_ufs_flush_final(void)
+ 		ss.final_flush_skipped++;
+ 		return EBUSY;
+ 	}
+-	int error = ufs_sync_cache();
++	/* 1020: the console ring too (a panic's text), as the log thread will not run again */
++	int error = os_atomic_load(&bergamota_log_running, acquire) ?
++	    bergamota_log_write_locked(os_atomic_load(&bergamota_log_flushed, acquire),
++	    os_atomic_load(&bergamota_log_total, relaxed)) : ufs_sync_cache();
+ 	ss.final_flushes++;
+ 	lck_mtx_unlock(&bergamota_ufs_lock);
+ 	return error;
+diff --git a/iokit/Kernel/arm/BergamotaPlatformExpert.cpp b/iokit/Kernel/arm/BergamotaPlatformExpert.cpp
+index c6d113f93..dae93fb8f 100644
+--- a/iokit/Kernel/arm/BergamotaPlatformExpert.cpp
++++ b/iokit/Kernel/arm/BergamotaPlatformExpert.cpp
+@@ -12,6 +12,7 @@
+ 
+ extern "C" int bergamota_reboot_restart(int panic_restart);
+ extern "C" void bergamota_reboot_note_panic(void);
++extern "C" void bergamota_reboot_halt(void);
+ #include "../../../bsd/dev/bergamota_board.h"
+ #include "../../../bsd/dev/bergamota_spmi.h"
+ 
+@@ -48,7 +49,7 @@ BergamotaPlatformExpert::start(IOService *provider)
+ /*
+  * Reset path (bsd/dev/bergamota_reboot.c, Poco F1: PS_HOLD + reboot reason).
+  * Other boards, and every type not handled here, keep the stock behaviour.
+- * Panics only reset with boot-arg bergamotareboot=bootloader (the helper checks).
++ * Panics only reset with boot-arg bergamotareboot=bootloader or bergamotapanicreboot=1 (the helper checks).
+  */
+ int
+ BergamotaPlatformExpert::haltRestart(unsigned int type)
+@@ -57,8 +58,15 @@ BergamotaPlatformExpert::haltRestart(unsigned int type)
+ 	case kPEPanicBegin:
+ 	case kPEPanicSync:
+ 	case kPEPanicDiagnosticsInProgress:
++		bergamota_reboot_note_panic();
++		break;
+ 	case kPEPanicDiagnosticsDone:
++		/* 1020: every panic gets here (kPEPanicRestartCPU only without panicDebugging) */
+ 		bergamota_reboot_note_panic();
++		(void)bergamota_reboot_restart(1);
++		break;
++	case kPEHaltCPU:
++		bergamota_reboot_halt();
+ 		break;
+ 	case kPEPanicRestartCPU:
+ 		bergamota_reboot_note_panic();

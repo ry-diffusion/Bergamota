@@ -13,7 +13,7 @@ index a3615dd..43eef1e 100644
      &bergamota_fb_gate_committed, 0, sysctl_bergamota_fb_gate, "Q", "backboardd's async Metal commits (1022)");
  SYSCTL_PROC(_kern, OID_AUTO, bergamota_fb_gate_submitted, CTLTYPE_QUAD | CTLFLAG_RW | CTLFLAG_ANYBODY | CTLFLAG_LOCKED,
 diff --git a/iokit/Kernel/arm/BergamotaFramebuffer.cpp b/iokit/Kernel/arm/BergamotaFramebuffer.cpp
-index e1fcf54..3b0fa9d 100644
+index e1fcf54..5c4a4d8 100644
 --- a/iokit/Kernel/arm/BergamotaFramebuffer.cpp
 +++ b/iokit/Kernel/arm/BergamotaFramebuffer.cpp
 @@ -52,6 +52,7 @@ extern "C" int bergamota_fb_hud;
@@ -54,20 +54,7 @@ index e1fcf54..3b0fa9d 100644
  		uint64_t replaceWaits, replaceTimeouts;                 /* 0220: frames that waited for the previous one's latch / gave up */
  		uint64_t emptySwaps, emptyKept;                         /* 0233: swaps with no layer / of those, the ones that kept the frame */
  		uint64_t scanCopies, scanCopyAbs, scanCopyMaxAbs;       /* 0235: frames copied to a scan-out buffer, their time */
-@@ -849,6 +866,12 @@ AppleCLCD::start(IOService *provider)
- 	setProperty(kIOUserClientClassKey, "IOMobileFramebufferUserClient");
- 	setProperty("external", false);
- 	setProperty("DisplayPipePlaneBaseAlignment", 64ULL, 32);
-+	/*
-+	 * 1027: CoreAnimation's IOMFBDisplay::begin_update reads Brightness_Scale (an int, 16.16 fixed point, 1.0 when absent)
-+	 * through IOMobileFramebufferCopyProperty at every frame; absent, kern_CopyProperty syslogged "key : Brightness_Scale
-+	 * not found" each time (~3 % of the display thread during page swipes). 1.0: what CoreAnimation assumed anyway.
-+	 */
-+	setProperty("Brightness_Scale", 65536ULL, 32);
- 	registerService();
- 	__atomic_store_n(&bergamota_fb_shot_fb, this, __ATOMIC_RELEASE);     /* kern.bergamota_fb_shot (patch 0224) */
- 	IOLog("BERGAMOTA FB: AppleCLCD %ux%u stride %u at 0x%llx, default surface %u, presented as %ux%u, vsync %u us, copy every %u, scale %u (pad %d,%d), direct %d early %d\n",
-@@ -1001,6 +1024,14 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
+@@ -1001,6 +1018,14 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
  			fb->fDirty = false;
  			memcpy(taken, fb->fPendHold, sizeof(taken));
  			bzero(fb->fPendHold, sizeof(fb->fPendHold));
@@ -82,7 +69,7 @@ index e1fcf54..3b0fa9d 100644
  		}
  	}
  	bool dirty = fb->fDirty;        /* still unshown: not yet worth lighting the panel */
-@@ -1102,6 +1133,35 @@ AppleCLCD::submitGateOpen(uint64_t now)
+@@ -1102,6 +1127,35 @@ AppleCLCD::submitGateOpen(uint64_t now)
  	return false;
  }
  
@@ -118,7 +105,7 @@ index e1fcf54..3b0fa9d 100644
  void
  AppleCLCD::swapFired(OSObject *owner, IOTimerEventSource *)
  {
-@@ -1134,6 +1194,20 @@ AppleCLCD::swapFired(OSObject *owner, IOTimerEventSource *)
+@@ -1134,6 +1188,20 @@ AppleCLCD::swapFired(OSObject *owner, IOTimerEventSource *)
  	fb->quietConsole();
  	if (fb->zcPresent(fb->fEarlyRec, get32(fb->fEarlyRec, 0x104))) {
  		bergamota_hold_release(taken);      /* zcPresent holds the surface itself until its frame latched */
@@ -139,7 +126,7 @@ index e1fcf54..3b0fa9d 100644
  		fb->latchWatch();
  		return;
  	}
-@@ -1217,7 +1291,7 @@ AppleCLCD::statsTick(uint64_t now)
+@@ -1217,7 +1285,7 @@ AppleCLCD::statsTick(uint64_t now)
  	    "swapsync=%d swap_waits=%llu swap_wait_us=%u.%02u swap_wait_timeouts=%llu replace_waits=%llu replace_timeouts=%llu "
  	    "gpu_holds=%llu gpu_hold_timeouts=%llu empty_swaps=%llu empty_kept=%llu "
  	    "scancopy=%d scan_copies=%llu scan_copy_us=%u.%02u scan_copy_us_max=%llu scan_gpu=%d scan_gpu_copies=%llu scan_gpu_fallbacks=%llu "
@@ -148,7 +135,7 @@ index e1fcf54..3b0fa9d 100644
  	    mode, hz, fFlushTicks, fHw ? 1 : 0, fFlip ? 1 : 0, smmu, fZcCleanMode == 0 ? "never" : (fZcCleanMode == 1 ? "always" : (fZcCleanMode == 2 ? "auto" : "tracked")),
  	    bergamota_abs_us(now) / 1000000, winUS / 1000,
  	    swaps, SW_F2(PER_S(dSwaps)), coalesced, SW_F2(PER_S(dCoal)),
-@@ -1229,7 +1303,7 @@ AppleCLCD::statsTick(uint64_t now)
+@@ -1229,7 +1297,7 @@ AppleCLCD::statsTick(uint64_t now)
  	    c.gpuHolds, c.gpuHoldTimeouts, c.emptySwaps, c.emptyKept,
  	    fScanCopy && !fScanFailed ? 1 : 0, c.scanCopies, SW_F2(scAvg), bergamota_abs_us(c.scanCopyMaxAbs),
  	    fScanGpu && !fScanGpuOff ? (fScanGpuRest ? 2 : 1) : 0, c.scanGpuCopies, c.scanGpuFallbacks,
@@ -157,7 +144,7 @@ index e1fcf54..3b0fa9d 100644
  	#undef PER_S
  	bergamota_fb_stats_publish(line);
  	if (fStLogSecs != 0 && (fStLogT == 0 || bergamota_abs_us(now - fStLogT) >= (uint64_t)fStLogSecs * 1000000)) {
-@@ -1326,7 +1400,10 @@ AppleCLCD::swap(const uint8_t *rec)
+@@ -1326,7 +1394,10 @@ AppleCLCD::swap(const uint8_t *rec)
  		nanoseconds_to_absolutetime((BERGAMOTA_FB_GATE_CAP_MS + 20) * NSEC_PER_MSEC, &cap);
  		for (;;) {
  			IOLockLock(fLock);
@@ -169,7 +156,7 @@ index e1fcf54..3b0fa9d 100644
  			IOLockUnlock(fLock);
  			if (!pending) {
  				break;
-@@ -1343,9 +1420,6 @@ AppleCLCD::swap(const uint8_t *rec)
+@@ -1343,9 +1414,6 @@ AppleCLCD::swap(const uint8_t *rec)
  	}
  	IOLockLock(fLock);
  	fSt.swaps++;
@@ -179,7 +166,7 @@ index e1fcf54..3b0fa9d 100644
  	__atomic_store_n(&fSwapNewest, get32(rec, 0x50), __ATOMIC_RELEASE);
  	{
  		struct bergamota_fb_trace_rec *tr = &bergamota_fb_trace[get32(rec, 0x50) & (BERGAMOTA_FB_TRACE_N - 1)];
-@@ -1353,6 +1427,49 @@ AppleCLCD::swap(const uint8_t *rec)
+@@ -1353,6 +1421,49 @@ AppleCLCD::swap(const uint8_t *rec)
  		tr->id = get32(rec, 0x50);
  		tr->swap = mach_absolute_time();
  	}
@@ -229,7 +216,7 @@ index e1fcf54..3b0fa9d 100644
  	if (fDirty) {
  		fSt.coalesced++;        /* the previous swap never reached the panel */
  	}
-@@ -1362,6 +1479,7 @@ AppleCLCD::swap(const uint8_t *rec)
+@@ -1362,6 +1473,7 @@ AppleCLCD::swap(const uint8_t *rec)
  	memcpy(fPendHold, held, sizeof(held));
  	IOLockUnlock(fLock);
  	bergamota_hold_release(dropped);
