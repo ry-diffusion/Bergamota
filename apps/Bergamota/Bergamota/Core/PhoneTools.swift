@@ -77,7 +77,7 @@ final class PhoneTools {
     /// by the tool's "next reboot mode" line, not by the exit status.
     func rebootIOS(to target: String) async -> (Bool, String) {
         guard iosUp else { return (false, disabledReason ?? "iOS is not up") }
-        guard target == "fastboot" || target == "recovery" || target == "bergamota" else { return (false, "unknown reboot target \"\(target)\" (fastboot, bergamota or recovery)") }
+        guard ["fastboot", "recovery", "bergamota", "normal"].contains(target) else { return (false, "unknown reboot target \"\(target)\" (fastboot, bergamota, recovery or normal)") }
         guard !busy, rebooting == nil else { return (false, "another install/upload/reboot is running") }
         guard let ssh = settings.ssh else { return (false, "ssh not found") }
         rebooting = target

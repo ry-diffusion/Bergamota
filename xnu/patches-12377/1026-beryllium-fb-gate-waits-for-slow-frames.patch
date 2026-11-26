@@ -1,0 +1,50 @@
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+@@ -1060,7 +1060,15 @@
+ /*
+  * 0229: the pending swap is taken only once the GPU work submitted before it has completed (it may be drawing that very
+  * framebuffer), or after 50 ms (a stuck GPU must not stop the display). Called with fLock held.
++ */
++/*
++ * 1026: how long a pending swap waits for its frame's submit, then for its GPU work. The caps were 100 and 50 ms, and a
++ * frame that took longer (an unlock: 3 to 9 frames each time) was put on the panel before it was drawn, so the panel
++ * showed what that framebuffer held two or three frames earlier: frames going back. A slow frame is now shown late; the
++ * cap is only for a dead backboardd or a stuck GPU.
+  */
++#define SWEET_FB_GATE_CAP_MS 500
++
+ bool
+ AppleCLCD::gpuGateOpen(uint64_t now)
+ {
+@@ -1068,7 +1076,7 @@
+ 		return true;
+ 	}
+ 	uint64_t cap;
+-	nanoseconds_to_absolutetime(50 * NSEC_PER_MSEC, &cap);
++	nanoseconds_to_absolutetime(SWEET_FB_GATE_CAP_MS * NSEC_PER_MSEC, &cap);
+ 	if (now - fPendAbs > cap) {
+ 		fSt.gpuHoldTimeouts++;
+ 		fPendFence = 0;
+@@ -1100,7 +1108,7 @@
+ 		return true;
+ 	}
+ 	uint64_t cap;
+-	nanoseconds_to_absolutetime(100 * NSEC_PER_MSEC, &cap);
++	nanoseconds_to_absolutetime(SWEET_FB_GATE_CAP_MS * NSEC_PER_MSEC, &cap);
+ 	if (now - fPendAbs > cap) {
+ 		fSt.gpuHoldTimeouts++;
+ 		fPendGate = 0;
+@@ -1327,11 +1335,11 @@
+ 	 * 1023: with backboardd's async commits (1022) a swap that is still pending is not replaced by the next one. Its
+ 	 * frame was rendered, and in page swipes half of all frames were replaced before the panel showed them. The newer
+ 	 * swap waits here, on CoreAnimation's display thread, until the vsync tick took the pending one; at most until that
+-	 * one is 120 ms old (just past the gates' own 100 ms cap, so the tick after it still takes the frame).
++	 * one is just past the gates' own cap (1026), so the tick after it still takes the frame.
+ 	 */
+ 	if (__atomic_load_n(&sweet_fb_gate_committed, __ATOMIC_ACQUIRE) != 0) {
+ 		uint64_t cap;
+-		nanoseconds_to_absolutetime(120 * NSEC_PER_MSEC, &cap);
++		nanoseconds_to_absolutetime((SWEET_FB_GATE_CAP_MS + 20) * NSEC_PER_MSEC, &cap);
+ 		for (;;) {
+ 			IOLockLock(fLock);
+ 			bool pending = fDirty && !fPowerOff && mach_absolute_time() - fPendAbs < cap;

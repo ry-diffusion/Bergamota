@@ -7,6 +7,10 @@
  *   COUNT THREAD-NAME FRAME...       FRAME = d:0xADDR (unslid shared-cache address, for dsctools/symb.py SLIDE=0)
  *                                    or IMAGE+0xOFF (an image outside the cache) or ?:0xADDR
  * First lines: '# ' header with the totals and the per-thread sample counts.
+ * SWEETSAMPLE_ALL=1 counts waiting threads too. SWEETSAMPLE_TIMELINE=PREFIX samples one thread only, running or not (the
+ * one with the most CPU time among those whose name starts with PREFIX), and prints what it did over time:
+ *   S ID FRAME...            a stack, the first time it is seen
+ *   T MICROSECONDS R|W ID    at each tick where the state (R running, W waiting) or the stack changed
  * iOS 18, arm64e + pacstrip (tools/sweetnet/build.sh); entitlements: task_for_pid-allow (sample.entitlements).
  */
 #include <mach/mach.h>
@@ -129,6 +133,76 @@ by_count(const void *a, const void *b)
 
 static int all_threads;
 
+/* SWEETSAMPLE_TIMELINE: what one thread does over time (see the header). */
+static int
+timeline(task_t task, const char *prefix, double secs, int hz)
+{
+	thread_act_array_t th;
+	mach_msg_type_number_t nth;
+	if (task_threads(task, &th, &nth) != KERN_SUCCESS) return 1;
+	thread_act_t pick = MACH_PORT_NULL;
+	long best = -1;
+	for (mach_msg_type_number_t i = 0; i < nth; i++) {
+		thread_extended_info_data_t ei;
+		mach_msg_type_number_t c = THREAD_EXTENDED_INFO_COUNT;
+		if (thread_info(th[i], THREAD_EXTENDED_INFO, (thread_info_t)&ei, &c) != KERN_SUCCESS ||
+		    strncmp(ei.pth_name, prefix, strlen(prefix)) != 0) continue;
+		long cpu = (long)((ei.pth_user_time + ei.pth_system_time) / 1000);
+		if (cpu > best) { best = cpu; pick = th[i]; }
+	}
+	if (pick == MACH_PORT_NULL) { fprintf(stderr, "sweetsample: no thread named %s*\n", prefix); return 1; }
+	static uint64_t seen[4096];
+	int nseen = 0, last_id = -1, last_run = -1;
+	struct timespec t0, now;
+	clock_gettime(CLOCK_MONOTONIC, &t0);
+	for (;;) {
+		clock_gettime(CLOCK_MONOTONIC, &now);
+		double at = (now.tv_sec - t0.tv_sec) + (now.tv_nsec - t0.tv_nsec) / 1e9;
+		if (at >= secs) break;
+		thread_basic_info_data_t bi;
+		mach_msg_type_number_t c = THREAD_BASIC_INFO_COUNT;
+		if (thread_info(pick, THREAD_BASIC_INFO, (thread_info_t)&bi, &c) != KERN_SUCCESS) break;
+		uint64_t f[MAXF];
+		int n = 0;
+		if (thread_suspend(pick) == KERN_SUCCESS) {
+			arm_thread_state64_t st;
+			c = ARM_THREAD_STATE64_COUNT;
+			if (thread_get_state(pick, ARM_THREAD_STATE64, (thread_state_t)&st, &c) == KERN_SUCCESS) {
+				f[n++] = ADDR(arm_thread_state64_get_pc(st));
+				uint64_t fp = ADDR(arm_thread_state64_get_fp(st));
+				while (fp && n < 14) {
+					uint64_t rec[2];
+					if (rd(task, fp, rec, sizeof(rec))) break;
+					uint64_t ret = ADDR(rec[1]);
+					if (!ret) break;
+					if (ret != f[n - 1]) f[n++] = ret;
+					if (ADDR(rec[0]) <= fp) break;
+					fp = ADDR(rec[0]);
+				}
+			}
+			thread_resume(pick);
+		}
+		uint64_t h = 1469598103934665603ull;
+		for (int i = 0; i < n; i++) h = (h ^ f[i]) * 1099511628211ull;
+		int id;
+		for (id = 0; id < nseen && seen[id] != h; id++) {}
+		if (id == nseen && nseen < 4096) {
+			seen[nseen++] = h;
+			printf("S %d", id);
+			for (int j = 0; j < n; j++) { char fb[96]; fmt_frame(f[j], fb, sizeof(fb)); printf(" %s", fb); }
+			putchar('\n');
+		}
+		int run = bi.run_state == TH_STATE_RUNNING;
+		if (id != last_id || run != last_run) printf("T %lld %c %d\n", (long long)(at * 1e6), run ? 'R' : 'W', id);
+		last_id = id; last_run = run;
+		/* spins: usleep here comes back after 20-100 ms (the plain mode's "500 Hz" is ~16 ticks a second) */
+		struct timespec t1;
+		do clock_gettime(CLOCK_MONOTONIC, &t1);
+		while ((t1.tv_sec - now.tv_sec) * 1e9 + (t1.tv_nsec - now.tv_nsec) < 1e9 / (hz > 0 ? hz : 500));
+	}
+	return 0;
+}
+
 int
 main(int argc, char **argv)
 {
@@ -142,6 +216,10 @@ main(int argc, char **argv)
 	kern_return_t kr = task_for_pid(mach_task_self(), pid, &task);
 	if (kr != KERN_SUCCESS) { fprintf(stderr, "sweetsample: task_for_pid(%d): %s\n", pid, mach_error_string(kr)); return 1; }
 	load_images(task);
+	if (getenv("SWEETSAMPLE_TIMELINE")) {
+		printf("# timeline of %s* in pid %d, cache_slide 0x%llx\n", getenv("SWEETSAMPLE_TIMELINE"), pid, (unsigned long long)cache_slide);
+		return timeline(task, getenv("SWEETSAMPLE_TIMELINE"), secs, hz);
+	}
 
 	struct timespec t0, now;
 	clock_gettime(CLOCK_MONOTONIC, &t0);
@@ -206,7 +284,10 @@ main(int argc, char **argv)
 			if (k < 256) thrs[k].count++;
 		}
 		vm_deallocate(mach_task_self(), (vm_address_t)th, nth * sizeof(*th));
-		usleep(period);
+		/* spins: usleep in an SSH shell comes back ~90 ms late here, which made "500 Hz" about 16 ticks a second */
+		struct timespec t1;
+		do clock_gettime(CLOCK_MONOTONIC, &t1);
+		while ((t1.tv_sec - now.tv_sec) * 1e9 + (t1.tv_nsec - now.tv_nsec) < period * 1e3);
 	}
 
 	printf("# pid %d ticks %u running-samples %u (%.1f%% of one CPU) cache_slide 0x%llx\n", pid, ticks, total,

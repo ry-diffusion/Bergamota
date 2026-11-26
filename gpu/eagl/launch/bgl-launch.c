@@ -215,10 +215,16 @@ static void clean_legibility_pools(void)
 		fprintf(stderr, "bgl-launch: removed %u stale legibility pool file%s\n", n, n == 1 ? "" : "s");
 }
 
-#define BB_ARM    "/private/var/tmp/bgmtl-bb.arm"
-#define BB_OFF    "/private/var/tmp/bgmtl-bb.off"
-#define BB_STATE  "/private/var/tmp/bgmtl-bb.state"
-#define BB_LIBDIR "/usr/local/lib/bgmtl"
+/* Crimson names since 2026-11-26 (crimson-bb.*, /usr/local/lib/crimson); the old bgmtl ones still count while only they exist. */
+static const char *bb_pick(const char *now, const char *old)
+{
+	struct stat st;
+	return stat(now, &st) == 0 || stat(old, &st) != 0 ? now : old;
+}
+#define BB_ARM    bb_pick("/private/var/tmp/crimson-bb.arm", "/private/var/tmp/bgmtl-bb.arm")
+#define BB_OFF    bb_pick("/private/var/tmp/crimson-bb.off", "/private/var/tmp/bgmtl-bb.off")
+#define BB_STATE  bb_pick("/private/var/tmp/crimson-bb.state", "/private/var/tmp/bgmtl-bb.state")
+#define BB_LIBDIR "/usr/local/lib/crimson"
 
 static void bb_off(const char *why)
 {
@@ -234,7 +240,7 @@ static int metal_mode(void)
 	int alive = 1;
 	if (stat(BB_ARM, &st) != 0 || stat(BB_OFF, &st) == 0)
 		return 0;
-	if (!readable(BB_LIBDIR, "bgmtl-inject.dylib") || !readable(BB_LIBDIR, "libbgair.dylib") || !readable(BB_LIBDIR, "libdrm.2.dylib"))
+	if (!readable(BB_LIBDIR, "crimson-inject.dylib") || !readable(BB_LIBDIR, "libturnip.dylib") || !readable(BB_LIBDIR, "libdrm.2.dylib"))
 		return 0;
 	boot_uuid(boot, sizeof boot);
 	FILE *f = fopen(BB_STATE, "r");
@@ -274,7 +280,7 @@ int main(int argc, char **argv)
 
 	if (metal_mode()) {
 		struct stat st;
-		setenv("DYLD_INSERT_LIBRARIES", BB_LIBDIR "/bgmtl-inject.dylib", 1);
+		setenv("DYLD_INSERT_LIBRARIES", BB_LIBDIR "/crimson-inject.dylib", 1);
 		setenv("BGMTL_BB", "1", 1);
 		if (stat(LOG_PATH, &st) == 0 && st.st_size > (1 << 20))
 			unlink(LOG_PATH);
@@ -282,7 +288,7 @@ int main(int argc, char **argv)
 		if (fd >= 0) {
 			dup2(fd, 2);
 			close(fd);
-			fprintf(stderr, "bgl-launch: Metal mode: injecting %s/bgmtl-inject.dylib (Chlorophyll)\n", BB_LIBDIR);
+			fprintf(stderr, "bgl-launch: Metal mode: injecting %s/crimson-inject.dylib (Crimson)\n", BB_LIBDIR);
 		}
 		argv[0] = (char *)REAL_PATH;
 		execv(REAL_PATH, argv);

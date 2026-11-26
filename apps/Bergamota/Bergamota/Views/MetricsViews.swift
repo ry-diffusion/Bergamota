@@ -93,6 +93,7 @@ struct PerformanceView: View {
                 PageHeader(title: "Performance", subtitle: "sweetmetrics over SSH every ~2 s while iOS is up; the plots hold the last 2 minutes.") {
                     if let m = mon.metrics { RendererBadge(r: m.renderer, size: 11) }
                 }
+                if mon.state == .ios { PerformanceModePanel() }
                 if mon.state != .ios {
                     EmptyStage(title: "Available when iOS is up", text: "The phone is \(mon.state.title.lowercased()). Metrics start with the first sweetmetrics answer over SSH after iOS comes up.", symbol: "gauge.with.dots.needle.0percent")
                 } else if let m = mon.metrics {

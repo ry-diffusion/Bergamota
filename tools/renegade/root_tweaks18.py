@@ -115,6 +115,9 @@ def merge_pref(root, name, values):
 # Both stock CommCenter jobs are replaced by the non-cellular variant (what Wi-Fi-only devices run) without its
 # _LimitLoadFromDeviceTree condition; it idles at 0% here.
 NO_BASEBAND_JOBS = ('com.apple.CommCenter', 'com.apple.voicemail.vmd')
+# Jobs that crash at every launch on this phone and keep ReportCrash busy (measured on iOS 26 during page swipes:
+# ReportCrash 18 % of all CPU time): webbookmarksd aborts with reason deviceNotCapable (2026-11-25).
+CRASHLOOP_JOBS = ('com.apple.WebBookmarks.webbookmarksd',)
 COMMCENTER_NONCELL = '/System/Library/LaunchDaemons/com.apple.CommCenter-noncellular.plist'
 
 
@@ -132,7 +135,7 @@ def launchd(root):
     for sect in plist.values():                 # LaunchDaemons and the per-domain agent sections
         if not isinstance(sect, dict):
             continue
-        for k in [k for k, j in sect.items() if isinstance(j, dict) and j.get('Label') in NO_BASEBAND_JOBS]:
+        for k in [k for k, j in sect.items() if isinstance(j, dict) and j.get('Label') in NO_BASEBAND_JOBS + CRASHLOOP_JOBS]:
             removed.append(sect.pop(k)['Label'])
     cc = os.path.join(root, COMMCENTER_NONCELL.lstrip('/'))
     if os.path.exists(cc):
@@ -141,7 +144,7 @@ def launchd(root):
         job.pop('_PanicOnCrash', None)
         jobs[COMMCENTER_NONCELL] = job
     save(path, plist, st.st_uid, st.st_gid, st.st_mode & 0o7777)
-    print(f'launchd.plist: {renamed} _PanicOnCrash renamed, removed (no baseband) {sorted(removed)}, '
+    print(f'launchd.plist: {renamed} _PanicOnCrash renamed, removed (no baseband, crash loops) {sorted(removed)}, '
           f'CommCenter: {"non-cellular job" if os.path.exists(cc) else "absent (no " + COMMCENTER_NONCELL + ")"}')
 
 

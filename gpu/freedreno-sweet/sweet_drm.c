@@ -29,6 +29,7 @@
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <sys/sysctl.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
@@ -55,6 +56,7 @@ static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 static io_connect_t g_conn;
 static dev_t g_null_rdev;
 static int g_trace;
+static int g_slow_fd = -1;      /* /private/var/tmp/drm-slow.log, when it exists: kernel calls that took 3 ms or more */
 
 /*
  * Buffer log (Chlorophyll, GPU fault hunting): when /private/var/tmp/drm-bolog exists at connect time, every BO this
@@ -206,6 +208,7 @@ connect_once(void)
 			g_null_rdev = st.st_rdev;
 		}
 		g_trace = getenv("SWEET_DRM_TRACE") != NULL;
+		g_slow_fd = open("/private/var/tmp/drm-slow.log", O_WRONLY | O_APPEND);
 		bolog_open();
 		io_service_t svc = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching(SWEET_GPU_SERVICE_NAME));
 		if (svc != IO_OBJECT_NULL) {
@@ -337,10 +340,22 @@ sweet_call(uint32_t sel, void *data, size_t size)
 		rel_timeout(&((struct sweet_msm_gem_cpu_prep *)in)->timeout);
 	}
 	struct timespec t0;
-	if (sel == SWEET_GPU_SEL_WAIT_FENCE) {
+	if (sel == SWEET_GPU_SEL_WAIT_FENCE || g_slow_fd >= 0) {
 		clock_gettime(CLOCK_MONOTONIC, &t0);
 	}
 	kern_return_t kr = IOConnectCallStructMethod(g_conn, sel, in, want, out, &outsz);
+	if (g_slow_fd >= 0 && sel != SWEET_GPU_SEL_WAIT_FENCE) {
+		/* the kernel serves every process's GPU calls under one lock: a long call anywhere stalls the others' */
+		struct timespec t1;
+		clock_gettime(CLOCK_MONOTONIC, &t1);
+		long us = (long)(t1.tv_sec - t0.tv_sec) * 1000000 + (t1.tv_nsec - t0.tv_nsec) / 1000;
+		if (us >= 3000) {
+			char line[160];
+			int n = snprintf(line, sizeof(line), "%lld.%03ld %d %s sel %#x %ld us size %llu\n", (long long)t1.tv_sec, t1.tv_nsec / 1000000,
+			    getpid(), getprogname(), sel, us, sel == SWEET_GPU_SEL_GEM_NEW ? (unsigned long long)((struct sweet_msm_gem_new *)in)->size : 0ull);
+			(void)write(g_slow_fd, line, (size_t)n);
+		}
+	}
 	if (sel == SWEET_GPU_SEL_WAIT_FENCE && kr != KERN_SUCCESS) {
 		wait_failed((struct sweet_msm_wait_fence *)in, kr, &t0);
 	}
@@ -349,6 +364,20 @@ sweet_call(uint32_t sel, void *data, size_t size)
 	}
 	if (kr == KERN_SUCCESS && g_bolog > 0) {
 		bolog_call(sel, in, out, outsz);
+	}
+	static int hbb_kernel = -1;   /* booted with sweetgpuubwc=1: the kernel programmed bank bit 15, so its answer holds */
+	if (hbb_kernel < 0) {
+		char args[1024] = "";
+		size_t len = sizeof(args) - 1;
+		hbb_kernel = sysctlbyname("kern.bootargs", args, &len, NULL, 0) == 0 && strstr(args, "sweetgpuubwc=1") != NULL;
+	}
+	if (kr == KERN_SUCCESS && sel == SWEET_GPU_SEL_GET_PARAM && ((struct sweet_msm_param *)in)->param == 16 && !hbb_kernel) {
+		/* MSM_PARAM_HIGHEST_BANK_BIT: the kernel answers 15 but writes the bank registers only when booted with sweetgpuubwc=1,
+		 * and with their reset values the A630 tiles as for 14. Turnip tiles a texture's CPU upload from this answer
+		 * (VK_EXT_host_image_copy): with 15 every other macrotile row of a 16-byte-a-texel image (ASTC blocks) landed 8 KiB
+		 * off, the cut lower half of the home screen's icon glyphs (chlorophyll's m2v_probe, M2V_ASTC=1 M2V_ASTC_RAMP=1).
+		 * shortcut: right only while no boot passes sweetgpuubwc=1; when one does, have the kernel answer what it programmed. */
+		((struct sweet_msm_param *)out)->value = 14;
 	}
 	if (kr == KERN_SUCCESS && outsz) {
 		memcpy(data, out, outsz < size ? outsz : size);
@@ -793,6 +822,59 @@ EXPORT int drmSyncobjImportSyncFile(int fd, uint32_t handle, int sync_file_fd) {
  * signaled or pending (the ring is in order); out syncobjs become pending on the submit's fence. A submit with no command (Turnip
  * signals semaphores that way) is not sent: its fence is the last submitted one.
  */
+/*
+ * One GEM_SUBMIT as the kernel takes it. The kernel's ring submit takes at most 128 command-stream entries
+ * (SUBMIT_CMDS_MAX, and sweet_gpu_submit's count > 128 check), and a refused submit is the end of a Turnip device
+ * (VK_ERROR_DEVICE_LOST, "submit failed": backboardd on metal2vulkan stopped drawing after a heavy frame). A longer
+ * submit goes in consecutive parts with the same BO list; the ring runs in order, so the last part's fence covers all of
+ * it. A refusal other than a bad argument (the GPU not ready for a moment) is tried again a few times. Failures are
+ * appended to /private/var/tmp/drm-submit-errors.log.
+ */
+#define KERNEL_SUBMIT_CMDS 128
+static void
+submit_failed(const struct sweet_msm_gem_submit *k, int r, int tries)
+{
+	int fd = open("/private/var/tmp/drm-submit-errors.log", O_WRONLY | O_APPEND | O_CREAT, 0666);
+	if (fd < 0)
+		return;
+	dprintf(fd, "%s[%d]: GEM_SUBMIT refused: errno %d after %d tries, %u cmds, %u bos, flags %#x\n", getprogname(), getpid(), -r,
+	        tries, k->nr_cmds, k->nr_bos, k->flags);
+	close(fd);
+}
+static int
+submit_once(struct sweet_msm_gem_submit *k)
+{
+	int r = 0, tries = 0;
+	for (; tries < 20; tries++) {
+		r = sweet_call(SWEET_GPU_SEL_GEM_SUBMIT, k, sizeof(*k));
+		if (r == 0 || r == -EINVAL)
+			break;
+		usleep(1000);
+	}
+	if (r)
+		submit_failed(k, r, tries + 1);
+	return r;
+}
+static int
+submit_split(struct sweet_msm_gem_submit *k)
+{
+	if (k->nr_cmds <= KERNEL_SUBMIT_CMDS)
+		return submit_once(k);
+	const struct sweet_msm_gem_submit_cmd *cmds = (const void *)(uintptr_t)k->cmds;
+	const uint32_t total = k->nr_cmds;
+	for (uint32_t at = 0; at < total; at += KERNEL_SUBMIT_CMDS) {
+		struct sweet_msm_gem_submit part = *k;
+		part.cmds = (uint64_t)(uintptr_t)(cmds + at);
+		part.nr_cmds = total - at < KERNEL_SUBMIT_CMDS ? total - at : KERNEL_SUBMIT_CMDS;
+		int r = submit_once(&part);
+		if (r)
+			return r;
+		k->fence = part.fence;
+		k->fence_fd = part.fence_fd;
+	}
+	return 0;
+}
+
 static int
 sweet_submit(void *data, unsigned long size)
 {
@@ -842,7 +924,7 @@ sweet_submit(void *data, unsigned long size)
 		k.fence = info.last_fence;
 		k.fence_fd = -1;
 	} else {
-		r = sweet_call(SWEET_GPU_SEL_GEM_SUBMIT, &k, sizeof(k));
+		r = submit_split(&k);
 	}
 	if (r) {
 		return r;

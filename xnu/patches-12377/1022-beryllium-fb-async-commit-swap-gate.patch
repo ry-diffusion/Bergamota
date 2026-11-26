@@ -1,0 +1,129 @@
+1022: swap gate for backboardd's asynchronous Metal commits (libm2v, /private/var/tmp/m2v-async-commit).
+
+With the async commit, backboardd's command buffer is submitted by the encode worker after CoreAnimation has
+swapped. The flip's GPU gate (0229) snapshots the newest fence at the swap, before the frame's own work exists, so
+the frame was flipped undrawn; when an animation stopped the panel kept an older frame (Spotlight half closed).
+kern.sweet_fb_gate_committed / kern.sweet_fb_gate_submitted (monotonic: a write only raises them) carry backboardd's
+commit and submit sequence numbers; a pending swap is taken only once the submits caught up with the commits made
+before it, and then the GPU gate waits for a fence snapshotted at that moment. 100 ms cap. Both 0 (no async commit):
+no change. Applies after 1021 (boot56); built locally (tools/xnu-local-build.sh --remake), image boot57-swapgate.
+
+--- a/bsd/dev/sweet_fb.c	2026-11-24 03:25:28
++++ b/bsd/dev/sweet_fb.c	2026-11-24 03:25:28
+@@ -71,6 +71,34 @@
+  */
+ int sweet_fb_shot_copy(uint8_t *dst, size_t cap, uint32_t scale, uint32_t *ow, uint32_t *oh);
+ 
++/*
++ * 1022: the swap gate for asynchronous Metal commits in backboardd (libm2v, /private/var/tmp/m2v-async-commit). The
++ * compositor's command buffer is submitted by an encode worker after CoreAnimation has already swapped, so the scan-out
++ * copy (a GPU blit queued at the swap) would run ahead of the frame's own GPU work and show an older frame. backboardd
++ * raises kern.sweet_fb_gate_committed at each such commit and kern.sweet_fb_gate_submitted once the worker has
++ * submitted it; a swap is taken only when the submits have caught up with the commits made before it (100 ms cap).
++ * Writes only ever raise a value (two threads write, their order is not kept). Both 0: no gate.
++ */
++uint64_t sweet_fb_gate_committed, sweet_fb_gate_submitted;
++static int
++sysctl_sweet_fb_gate SYSCTL_HANDLER_ARGS
++{
++#pragma unused(arg2)
++	uint64_t *p = (uint64_t *)arg1, v = __atomic_load_n(p, __ATOMIC_ACQUIRE);
++	int err = sysctl_handle_quad(oidp, &v, 0, req);
++	if (err != 0 || req->newptr == USER_ADDR_NULL) {
++		return err;
++	}
++	uint64_t cur = __atomic_load_n(p, __ATOMIC_ACQUIRE);
++	while (v > cur && !__atomic_compare_exchange_n(p, &cur, v, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
++	}
++	return 0;
++}
++SYSCTL_PROC(_kern, OID_AUTO, sweet_fb_gate_committed, CTLTYPE_QUAD | CTLFLAG_RW | CTLFLAG_ANYBODY | CTLFLAG_LOCKED,
++    &sweet_fb_gate_committed, 0, sysctl_sweet_fb_gate, "Q", "backboardd's async Metal commits (1022)");
++SYSCTL_PROC(_kern, OID_AUTO, sweet_fb_gate_submitted, CTLTYPE_QUAD | CTLFLAG_RW | CTLFLAG_ANYBODY | CTLFLAG_LOCKED,
++    &sweet_fb_gate_submitted, 0, sysctl_sweet_fb_gate, "Q", "of those, submitted to the GPU (1022)");
++
+ static unsigned int sweet_fb_shot_scale = 3;
+ SYSCTL_UINT(_kern, OID_AUTO, sweet_fb_shot_scale, CTLFLAG_RW | CTLFLAG_LOCKED, &sweet_fb_shot_scale, 0,
+     "Poco F1 screenshot downscale (kern.sweet_fb_shot), 2..8");
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp	2026-11-24 03:25:28
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp	2026-11-24 03:26:46
+@@ -67,6 +67,7 @@
+ extern "C" int sweet_fb_hud;
+ extern "C" uint32_t sweet_gpu_fence_snapshot(void);     /* bsd/dev/sweet_a630.c (0229) */
+ extern "C" bool sweet_gpu_blit_window(uint64_t pa, uint64_t size);      /* bsd/dev/sweet_a630.c (0240) */
++extern "C" uint64_t sweet_fb_gate_committed, sweet_fb_gate_submitted;   /* 1022, bsd/dev/sweet_fb.c */
+ extern "C" uint32_t sweet_gpu_blit(uint64_t src_pa, uint32_t src_pitch, uint64_t dst_pa, uint32_t dst_pitch, uint32_t w, uint32_t h);
+ extern "C" bool sweet_gpu_fence_passed(uint32_t fence);                    /* bsd/dev/sweet_fb.c: sysctl kern.sweet_fb_hud (patch 0213) */
+ 
+@@ -377,6 +378,8 @@
+ 	uint32_t      fPendFence;       /* 0229: newest GPU fence submitted when the pending swap arrived */
+ 	uint64_t      fPendAbs;         /* 0229: when it arrived */
+ 	bool          gpuGateOpen(uint64_t now);
++	uint64_t      fPendGate;        /* 1022: backboardd's async commits made before the pending swap */
++	bool          submitGateOpen(uint64_t now);
+ 	uint32_t      fSwapDepth;       /* sweetfb_swapdepth: 1 = SwapWait(N) waits until N latched, 2 (default) = until N-1 latched */
+ 	bool          fWatching;        /* a frame is queued: the swap timer polls for its latch every 500 us */
+ 	void          latchWatch(void);
+@@ -1002,7 +1005,8 @@
+ 		sender->setTimeoutUS(nextUS);
+ 		return;
+ 	}
+-	bool flush = fb->fDirty && (count % fb->fFlushTicks) == 0 && fb->gpuGateOpen(mach_absolute_time());
++	bool flush = fb->fDirty && (count % fb->fFlushTicks) == 0 && fb->submitGateOpen(mach_absolute_time()) &&
++	    fb->gpuGateOpen(mach_absolute_time());
+ 	uint8_t *rec = NULL;
+ 	SweetSurface *taken[4] = {};
+ 	if (flush) {
+@@ -1067,6 +1071,35 @@
+ 	if (now - fPendAbs > cap) {
+ 		fSt.gpuHoldTimeouts++;
+ 		fPendFence = 0;
++		return true;
++	}
++	fSt.gpuHolds++;
++	return false;
++}
++
++/*
++ * 1022: the pending swap is taken only once backboardd's encode worker has submitted every async Metal commit made
++ * before the swap (kern.sweet_fb_gate_*): then the flip waits for the GPU fence of that work (0229's gate, re-armed
++ * here) and the GPU scan-out copy queues behind it on the ring. 100 ms cap: a
++ * dead backboardd must not stop the display. Called with fLock held.
++ */
++bool
++AppleCLCD::submitGateOpen(uint64_t now)
++{
++	if (fPendGate == 0) {
++		return true;
++	}
++	if (__atomic_load_n(&sweet_fb_gate_submitted, __ATOMIC_ACQUIRE) >= fPendGate) {
++		/* the frame's work is on the ring only now: the GPU gate (0229) waits for the fence taken here, not at the swap */
++		fPendGate = 0;
++		fPendFence = sweet_gpu_fence_snapshot();
++		return true;
++	}
++	uint64_t cap;
++	nanoseconds_to_absolutetime(100 * NSEC_PER_MSEC, &cap);
++	if (now - fPendAbs > cap) {
++		fSt.gpuHoldTimeouts++;
++		fPendGate = 0;
+ 		return true;
+ 	}
+ 	fSt.gpuHolds++;
+@@ -1091,7 +1124,7 @@
+ 		return;
+ 	}
+ 	/* 0241: the GPU scan-out copy needs no hold: it is queued behind the frame's own GPU work on the same ring */
+-	if (!fb->scanGpuActive() && !fb->gpuGateOpen(mach_absolute_time())) {
++	if (!fb->submitGateOpen(mach_absolute_time()) || (!fb->scanGpuActive() && !fb->gpuGateOpen(mach_absolute_time()))) {
+ 		IOLockUnlock(fb->fLock);
+ 		fb->fSwapTimer->setTimeoutUS(250);      /* 0229: the GPU is still drawing what was submitted before this swap */
+ 		return;
+@@ -1296,6 +1329,7 @@
+ 	IOLockLock(fLock);
+ 	fSt.swaps++;
+ 	fPendFence = sweet_gpu_fence_snapshot();
++	fPendGate = __atomic_load_n(&sweet_fb_gate_committed, __ATOMIC_ACQUIRE);
+ 	fPendAbs = mach_absolute_time();
+ 	__atomic_store_n(&fSwapNewest, get32(rec, 0x50), __ATOMIC_RELEASE);
+ 	{

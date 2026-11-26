@@ -63,7 +63,7 @@ enum DesignPreview {
             "[   9.017] SWEET GPU: A630 zap shader loaded, SCM resume ok",
             "[  11.932] SWEET WLAN: MPSS ready over SMP2P",
             "[  12.044] SWEET WLAN: WLFW up after 7 pd-mapper requests",
-            "[  14.311] launchd: backboardd[64] on Chlorophyll",
+            "[  14.311] launchd: backboardd[64] on Crimson",
             "[  21.902] SWEET GPU: fence 0x3f1 signalled in 3.1 ms",
             "[  22.410] SpringBoard: lock screen presented",
         ])
@@ -95,7 +95,7 @@ enum DesignPreview {
                 s.clusters = [silver, gold]
                 s.cpuLoad = [18, 27, 9, 31, 64, 12, 48, 70].map { $0 + 10 * wave }
                 s.gpu = GPUMetrics(present: true, state: "on", level: 3, levels: 6, mhz: 414 + 120 * wave, maxMhz: 710, busyPct: 38 + 20 * wave, clients: 2, freqMode: "gov")
-                s.renderer = RendererMetrics(mode: "fd630", label: "A630 (Chlorophyll)", requested: "1", injected: true, gpuClientOpen: true)
+                s.renderer = RendererMetrics(mode: "fd630", label: "A630 (Crimson)", requested: "1", injected: true, gpuClientOpen: true)
                 s.battery = BatteryMetrics(present: true, percent: 86, charging: true, external: true, currentMa: 412 - 90 * wave, voltageMv: 4_180, source: "USB")
                 s.batteryTempC = 31.4
                 m.metricsHistory.add(s)
