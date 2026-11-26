@@ -45,7 +45,7 @@ index d35f8b1..12a3cff 100644
 +}
  #endif /* ARM64_BOARD_CONFIG_BERGAMOTA */
 diff --git a/iokit/Kernel/arm/BergamotaPlatformExpert.cpp b/iokit/Kernel/arm/BergamotaPlatformExpert.cpp
-index f71fd59..12d9852 100644
+index f71fd59..586a812 100644
 --- a/iokit/Kernel/arm/BergamotaPlatformExpert.cpp
 +++ b/iokit/Kernel/arm/BergamotaPlatformExpert.cpp
 @@ -12,6 +12,7 @@
@@ -65,14 +65,13 @@ index f71fd59..12d9852 100644
   * Other boards, and every type not handled here, keep the stock behaviour.
   * Panics only reset with boot-arg bergamotareboot=bootloader or bergamotapanicreboot=1 (the helper checks).
   */
-@@ -75,6 +76,10 @@ BergamotaPlatformExpert::haltRestart(unsigned int type)
- 	case kPERestartCPU:
- 		(void)bergamota_reboot_restart(0);
+@@ -66,7 +67,9 @@ BergamotaPlatformExpert::haltRestart(unsigned int type)
+ 		(void)bergamota_reboot_restart(1);
  		break;
-+	case kPEHaltCPU:
+ 	case kPEHaltCPU:
 +	case kPEUPSDelayHaltCPU:
-+		(void)bergamota_reboot_poweroff();
-+		break;
- 	default:
+ 		bergamota_reboot_halt();
++		(void)bergamota_reboot_poweroff();      /* 1036: PSCI SYSTEM_OFF; stays halted, watchdog off, if refused */
  		break;
- 	}
+ 	case kPEPanicRestartCPU:
+ 		bergamota_reboot_note_panic();
