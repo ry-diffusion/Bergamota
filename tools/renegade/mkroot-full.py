@@ -422,6 +422,7 @@ def stage_tweaks(a, root):
         rt.usbnet(root)
         rt.netcfg(root)
         rt.bergamotareboot(root)
+        rt.bergamotametrics(root)
         rt.ssh(root)
         # Renegade auto-fixes, each with an opt-out (RENEGADE_NO_APPREG/POSTERBOARD/BLUETOOTH/JB, --no-* flags):
         # staged apps -> /Applications, bluetooth (BT_HCI_TRANSPORT, BlueTool stub, hcitest), PosterBoard + bergamotafp.dylib,

@@ -25,7 +25,9 @@ TARGETS = {
         work='research/ios18',
         board='N841',
         adt_target='D22',
-        adt='enxerto/out/beryllium-hi-3x.adt'),   # tools/mkadt.py OUT --board beryllium --highmem --display-scale 3 --identity d22ap
+        # tools/mkadt.py enxerto/out/beryllium-hi-3x.adt --board beryllium --highmem --display-scale 3 --identity d22ap, then
+        # tools/adt-gpufw.py IN OUT --fw research/gpu-fw --zap research/gpu-fw/zap (linux-firmware a630_gmu/sqe, sdm845-mainline a630_zap)
+        adt='enxerto/out/beryllium-hi-3x-gpufw.adt'),
 }
 
 NAME = os.environ.get('RENEGADE_TARGET', 'ios18')
