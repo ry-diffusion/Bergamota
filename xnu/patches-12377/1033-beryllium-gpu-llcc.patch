@@ -1,16 +1,17 @@
 diff --git a/bsd/dev/sweet_a630.c b/bsd/dev/sweet_a630.c
-index 80d8b31..93c6eed 100644
+index 80d8b31..206ed48 100644
 --- a/bsd/dev/sweet_a630.c
 +++ b/bsd/dev/sweet_a630.c
-@@ -307,6 +307,7 @@ static int a630_mode;
+@@ -307,6 +307,8 @@ static int a630_mode;
  /* Boot-args (all off/default unless given; docs/GPU_KERNEL.md "Power") */
  static uint32_t a630_idle_ms;           /* sweetgpuidle=MS: slumber after this long without a submission (0 = never) */
  static uint32_t a630_hwcg;              /* sweetgpuhwcg=1: hardware clock gating tables */
 +static uint32_t a630_llcc;              /* sweetgpullcc=1 or kern.sweet_gpu_llcc: GPU traffic through the LLCC (slices 12, 11) */
++static uint32_t a630_llcc_diag;         /* read kern.sweet_gpu_llcc: [31] tried [30] s12 ok [29] s11 ok [28] cx written, [15:8] s12 status, [7:0] s11 status */
  static uint32_t a630_ubwc;              /* sweetgpuubwc=1: program the UBWC/bank registers (hbb 15) */
  static uint32_t a630_stamps;           /* sweetgpustamps=1: CP timestamps around every submission (diagnostic; adds a WFI) */
  static uint64_t gov_boost_until;        /* mach time until which the interactive boost floor holds */
-@@ -2277,6 +2278,58 @@ gpu_hwcg(void)
+@@ -2277,6 +2279,63 @@ gpu_hwcg(void)
   * no UBWC and no RBBM_SECVID writes (secure registers, nothing here needs
   * them). a630 has VBIF, not GBIF; gmem is 1 MiB.
   */
@@ -50,17 +51,22 @@ index 80d8b31..93c6eed 100644
 +		return;
 +	}
 +	uint32_t cntl1 = 0;
++	a630_llcc_diag = 1u << 31;
 +	if (llcc_activate(bcast, 12)) {
++		a630_llcc_diag |= 1u << 30;
 +		for (unsigned i = 0; i < 5; i++) {
 +			cntl1 |= 12u << (5 * i);
 +		}
 +	}
 +	if (llcc_activate(bcast, 11)) {
++		a630_llcc_diag |= 1u << 29;
 +		cntl1 |= 11u << 25;
 +	}
-+	if (!cntl1) {
++	a630_llcc_diag |= (gpu_rd(bcast, 12 * 0x1000u + 4) & 0xffu) << 8 | (gpu_rd(bcast, 11 * 0x1000u + 4) & 0xffu);
++	if (!cntl1 || a630_llcc == 2) {
 +		return;
 +	}
++	a630_llcc_diag |= 1u << 28;
 +	gpu_wr(cxm, 8, cntl1);
 +	gpu_wr(cxm, 4, (gpu_rd(cxm, 4) & ~0xfu) | 0x3u);
 +	printf("SWEET GPU: LLCC: SYSTEM_CACHE_CNTL_1 %#x CNTL_0 %#x\n", gpu_rd(cxm, 8), gpu_rd(cxm, 4));
@@ -69,7 +75,7 @@ index 80d8b31..93c6eed 100644
  static bool
  gpu_cp_hw_init(void)
  {
-@@ -2324,6 +2377,9 @@ gpu_cp_hw_init(void)
+@@ -2324,6 +2383,9 @@ gpu_cp_hw_init(void)
  	if (a630_hwcg) {
  		gpu_hwcg();
  	}
@@ -79,7 +85,7 @@ index 80d8b31..93c6eed 100644
  	if (a630_ubwc) {
  		/* UBWC 2.0, highest bank bit 15 (field 2), no level-2 swizzle disable, macrotile 4 channels (Linux a6xx_set_ubwc_config) */
  		gpu_w(0x8e08, 0x4);             /* RB_NC_MODE_CNTL */
-@@ -3715,6 +3771,28 @@ sweet_gpu_sysctl SYSCTL_HANDLER_ARGS
+@@ -3715,6 +3777,32 @@ sweet_gpu_sysctl SYSCTL_HANDLER_ARGS
  	return sysctl_handle_string(oidp, buf, sizeof(buf), req);
  }
  
@@ -87,28 +93,32 @@ index 80d8b31..93c6eed 100644
 +sweet_gpu_llcc_sysctl SYSCTL_HANDLER_ARGS
 +{
 +#pragma unused(arg1, arg2)
-+	int v = 0, err = sysctl_handle_int(oidp, &v, 0, req);
++	int v = (int)a630_llcc_diag, err = sysctl_handle_int(oidp, &v, 0, req);
 +	if (err || req->newptr == USER_ADDR_NULL) {
 +		return err;
 +	}
-+	if (v != 1) {
++	if (v != 1 && v != 2) {
 +		return EINVAL;
 +	}
 +	sweet_gpu_lock();
-+	a630_llcc = 1;
-+	if (a630_awake) {
-+		gpu_llcc_apply();
++	if (a630_awake && v == 1 && !gpu_cp_idle_now()) {
++		err = EBUSY;
++	} else {
++		a630_llcc = (uint32_t)v;
++		if (a630_awake) {
++			gpu_llcc_apply();
++		}
 +	}
 +	sweet_gpu_unlock();
-+	return 0;
++	return err;
 +}
-+SYSCTL_PROC(_kern, OID_AUTO, sweet_gpu_llcc, CTLTYPE_INT | CTLFLAG_WR | CTLFLAG_LOCKED, 0, 0, sweet_gpu_llcc_sysctl, "I",
-+    "1: GPU through the system cache (LLCC slices 12, 11)");
++SYSCTL_PROC(_kern, OID_AUTO, sweet_gpu_llcc, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, 0, 0, sweet_gpu_llcc_sysctl, "I",
++    "1: GPU through the system cache (LLCC slices 12, 11; CP idle), 2: activate the slices only; read: diagnostics");
 +
  SYSCTL_PROC(_kern, OID_AUTO, sweet_gpu, CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, 0, 0, sweet_gpu_sysctl, "A",
      "Adreno 630 metrics: key=value line (docs/GPU_KERNEL.md)");
  
-@@ -3974,6 +4052,9 @@ sweet_a630_probe(void)
+@@ -3974,6 +4062,9 @@ sweet_a630_probe(void)
  		if (PE_parse_boot_argn("sweetgpuhwcg", &v, sizeof(v))) {
  			a630_hwcg = v != 0;
  		}
