@@ -75,7 +75,7 @@ jobs:
             # (its 00_setup_coreentitlements.sh and fixes) first, ours after them.
             for f in xnu/patches-12377/*.patch xnu/patches-12377/*.sh; do
               [ -e "$f" ] || continue
-              cp "$f" "dxb/patches/26.0/bergamota-$(basename "$f")"
+              cp "$f" "dxb/patches/26.0/zz-bergamota-$(basename "$f")"
             done
             PDIR=dxb/patches/26.0
             if [ "${{ inputs.use_kdk || 'true' }}" != "true" ]; then
@@ -90,10 +90,10 @@ jobs:
           elif [[ "$MACOS_VERSION" == 15.* ]]; then
             # xnu-11215 series (docs/XNU11215_MIGRATION.md). dxb applies patches/15.0/*.sh, then
             # patches/15.0/*.patch in name order: its own fixes (disable_bti, entitlements, iokit,
-            # link_kdk, skywalk, ...) come first and ours ("bergamota-" prefix) after them.
+            # link_kdk, skywalk, ...) come first and ours ("zz-bergamota-" prefix: zz keeps them sorted after dxb's) after them.
             for f in xnu/patches-11215/*.patch xnu/patches-11215/*.sh; do
               [ -e "$f" ] || continue
-              cp "$f" "dxb/patches/15.0/bergamota-$(basename "$f")"
+              cp "$f" "dxb/patches/15.0/zz-bergamota-$(basename "$f")"
             done
             PDIR=dxb/patches/15.0
           else
@@ -111,7 +111,7 @@ jobs:
           s = open(p).read()
           needle = '                warning "Skipping patch ${PATCH} (already upstream, previously applied, or malformed): ${APPLY_CHECK}"\n'
           assert needle in s, 'build.sh patches() layout changed; update the fatal-patch hook'
-          s = s.replace(needle, needle + '                case "$(basename "${PATCH}")" in [0-9]*|bergamota-*) error "our patch does not apply: ${PATCH}"; exit 1 ;; esac\n')
+          s = s.replace(needle, needle + '                case "$(basename "${PATCH}")" in [0-9]*|zz-bergamota-*) error "our patch does not apply: ${PATCH}"; exit 1 ;; esac\n')
           open(p, 'w').write(s)
           PY
           ls "$PDIR"

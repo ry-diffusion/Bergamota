@@ -1,0 +1,127 @@
+1025: GEM_CLOSE does not wait for the GPU: a BO the GPU may still use is released at a later call.
+
+The close waited until the last submission that listed the BO was done; Turnip lists every BO of its device in every
+submit. In backboardd (metal2vulkan on Turnip) the threads that encode a frame free command streams and imported surfaces
+of the frame before it: 133 closes of 3-28 ms in 24 home-screen page swipes (libdrm drm-slow.log), and other calls
+queued behind them. Such a BO now goes to a per-client zombie list (1024), its handle is free at once, and it is released
+by the next GEM_CLOSE or submit after its fence has passed; at client close as before (with the wait).
+
+--- a/iokit/Kernel/arm/BergamotaAdreno.cpp
++++ b/iokit/Kernel/arm/BergamotaAdreno.cpp
+@@ -70,6 +70,7 @@
+ #define SUBMIT_RELOCS_MAX       65536
+ #define WAIT_PATIENCE_MS        5000    /* a wait that asks for more than this is cut here and the GPU declared lost */
+ #define CLOSE_PATIENCE_MS       2000
++#define ZOMBIE_MAX              1024    /* 1025: BOs closed while the GPU could still use them, per client */
+ #define IOVA_UNSET              0
+ #define GPU_PAGE                0x1000ull       /* SMMU granule; never PAGE_SIZE (16 KiB) */
+ 
+@@ -112,6 +113,8 @@
+ 	task_t            fTask;
+ 	int32_t           fPid;
+ 	struct bergamota_gem *fGems;
++	struct bergamota_gem *fZombies;     /* 1025: closed BOs the GPU may still use, released by reapZombies() */
++	uint32_t          fZombieN;
+ 	uint32_t          fNextGem;
+ 	uint64_t          fQueues;      /* bit n = submitqueue id n open (id 0 = default, always) */
+ 	uint32_t          fLastFence;   /* last submission of this client */
+@@ -121,6 +124,8 @@
+ 	IOReturn copyIn(uint64_t addr, void *dst, size_t len);
+ 	bool waitFence(uint32_t fence, uint64_t ns);
+ 	void releaseGem(struct bergamota_gem *g);
++	void closeGem(struct bergamota_gem *g);
++	void reapZombies(void);
+ 	IOReturn mapGem(struct bergamota_gem *g, uint32_t flags, uint32_t *handle, uint64_t setIova, uint64_t tail = 0);
+ 
+ 	IOReturn gemNew(struct bergamota_msm_gem_new *r);
+@@ -254,6 +259,7 @@
+ 	}
+ 	IOLockUnlock(gClientsLock);
+ 	fGems = (struct bergamota_gem *)IOMallocZeroData(sizeof(struct bergamota_gem) * GEM_MAX);
++	fZombies = (struct bergamota_gem *)IOMallocZeroData(sizeof(struct bergamota_gem) * ZOMBIE_MAX);
+ 	return fGems != NULL;
+ }
+ 
+@@ -264,6 +270,10 @@
+ 		IOFreeData(fGems, sizeof(struct bergamota_gem) * GEM_MAX);
+ 		fGems = NULL;
+ 	}
++	if (fZombies != NULL) {
++		IOFreeData(fZombies, sizeof(struct bergamota_gem) * ZOMBIE_MAX);
++		fZombies = NULL;
++	}
+ 	IOUserClient::free();
+ }
+ 
+@@ -287,7 +297,11 @@
+ 					releaseGem(&fGems[i]);
+ 				}
+ 			}
++		}
++		for (uint32_t i = 0; i < fZombieN; i++) {
++			releaseGem(&fZombies[i]);       /* waits for the GPU, as for the BOs above */
+ 		}
++		fZombieN = 0;
+ 	}
+ 	bergamota_gpu_unlock();
+ 	terminate();
+@@ -431,6 +445,42 @@
+ }
+ 
+ /*
++ * 1025: GEM_CLOSE does not wait for the GPU. releaseGem() waits until the last submission that listed the BO is done,
++ * and Turnip lists every BO of its device in every submit, so a process freeing anything (a command stream at a pool
++ * reset, an imported surface) sat here until its frame in flight was drawn: in backboardd 133 closes of 3-28 ms in 24
++ * home-screen page swipes, on the threads that encode the next frame (libdrm's drm-slow.log, 2026-11-24). Now such a
++ * BO moves to the client's zombie list, its handle is free at once, and it is released at a later call once its
++ * fence has passed (Linux keeps the object alive the same way). With the list full, the old wait. Lock held.
++ */
++void
++BergamotaAdrenoUserClient::closeGem(struct bergamota_gem *g)
++{
++	reapZombies();
++	if (g->lastFence == 0 || bergamota_gpu_fence_done(g->lastFence) || !bergamota_gpu_ready() || fZombies == NULL ||
++	    fZombieN >= ZOMBIE_MAX) {
++		releaseGem(g);
++		return;
++	}
++	fZombies[fZombieN++] = *g;
++	bzero(g, sizeof(*g));
++	g->iova = IOVA_UNSET;
++}
++
++/* Releases the zombies whose last submission is done (or all of them when the GPU is gone: releaseGem leaks those). Lock held. */
++void
++BergamotaAdrenoUserClient::reapZombies(void)
++{
++	for (uint32_t i = 0; i < fZombieN;) {
++		if (bergamota_gpu_fence_done(fZombies[i].lastFence) || !bergamota_gpu_ready()) {
++			releaseGem(&fZombies[i]);
++			fZombies[i] = fZombies[--fZombieN];
++		} else {
++			i++;
++		}
++	}
++}
++
++/*
+  * 0234: one zeroed GPU page, writable, that the tails of surface BOs map to. The Adreno writes a render target in
+  * whole tiles (rows rounded up), so on a surface whose height is not a multiple of the tile height it writes up to a
+  * tile of rows past the last one: on IOSurfaces sized to the pixel (an app snapshot 281x609, bpr 1152, 704512 bytes)
+@@ -732,6 +782,7 @@
+ 		ret = kIOReturnNotReady;
+ 		goto unlock;
+ 	}
++	reapZombies();          /* 1025 */
+ 	for (uint32_t i = 0; i < r->nr_bos; i++) {
+ 		if ((bos[i].flags & ~(uint32_t)(BERGAMOTA_MSM_SUBMIT_BO_READ | BERGAMOTA_MSM_SUBMIT_BO_WRITE |
+ 		    BERGAMOTA_MSM_SUBMIT_BO_DUMP | BERGAMOTA_MSM_SUBMIT_BO_NO_IMPLICIT)) != 0 || (objs[i] = gem(bos[i].handle)) == NULL) {
+@@ -1278,7 +1329,7 @@
+ 			if (g == NULL) {
+ 				ret = kIOReturnBadArgument;
+ 			} else {
+-				releaseGem(g);
++				closeGem(g);
+ 			}
+ 		}
+ 		bergamota_gpu_unlock();

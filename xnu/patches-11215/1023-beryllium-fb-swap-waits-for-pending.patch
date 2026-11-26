@@ -1,0 +1,47 @@
+1023: with async commits (1022) a pending swap is not replaced by the next one; the newer swap waits for the vsync tick.
+
+Measured on the phone (10 home-screen page-swipe pairs, kern.bergamota_fb counters): with backboardd's async Metal commits
+about 45 % of the swaps reached the panel (~9 frames/s shown of ~19 committed); the others were replaced while their
+GPU work was still running, because CoreAnimation is no longer held back by the encode. Without async commits 91 % are
+shown (~15 frames/s). AppleCLCD::swap now waits (CoreAnimation's display thread, 1 ms steps) while a swap is pending,
+at most until that one is 120 ms old. Only when kern.bergamota_fb_gate_committed is non-zero (async commits in use).
+Also: the GPU gate (0229) gave a frame 50 ms from the swap's arrival, of which the async commit had used 20 ms or more
+before the frame's work was even submitted; 8 % of the frames were shown at that cap, some half drawn (wallpaper and dock,
+no icons). The 50 ms now count from the submit. Applies after 1022.
+
+--- a/iokit/Kernel/arm/BergamotaFramebuffer.cpp
++++ b/iokit/Kernel/arm/BergamotaFramebuffer.cpp
+@@ -1093,6 +1093,7 @@
+ 		/* the frame's work is on the ring only now: the GPU gate (0229) waits for the fence taken here, not at the swap */
+ 		fPendGate = 0;
+ 		fPendFence = bergamota_gpu_fence_snapshot();
++		fPendAbs = now;         /* 1023: the GPU gate's 50 ms cap counts from the submit, not from the swap */
+ 		return true;
+ 	}
+ 	uint64_t cap;
+@@ -1319,6 +1320,25 @@
+ AppleCLCD::swap(const uint8_t *rec)
+ {
+ 	BergamotaSurface *held[4] = {}, *dropped[4];
++	/*
++	 * 1023: with backboardd's async commits (1022) a swap that is still pending is not replaced by the next one. Its
++	 * frame was rendered, and in page swipes half of all frames were replaced before the panel showed them. The newer
++	 * swap waits here, on CoreAnimation's display thread, until the vsync tick took the pending one; at most until that
++	 * one is 120 ms old (just past the gates' own 100 ms cap, so the tick after it still takes the frame).
++	 */
++	if (__atomic_load_n(&bergamota_fb_gate_committed, __ATOMIC_ACQUIRE) != 0) {
++		uint64_t cap;
++		nanoseconds_to_absolutetime(120 * NSEC_PER_MSEC, &cap);
++		for (;;) {
++			IOLockLock(fLock);
++			bool pending = fDirty && !fPowerOff && mach_absolute_time() - fPendAbs < cap;
++			IOLockUnlock(fLock);
++			if (!pending) {
++				break;
++			}
++			IOSleep(1);
++		}
++	}
+ 	uint32_t mask = get32(rec, 0x104);
+ 	for (uint32_t i = 0; i < 4 && i < BERGAMOTA_FB_LAYERS; i++) {
+ 		uint32_t sid = get32(rec, 0x54 + 4 * i);

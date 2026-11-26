@@ -1,0 +1,117 @@
+diff --git a/bsd/dev/bergamota_rpmh.c b/bsd/dev/bergamota_rpmh.c
+index 6ef2a78..fe28817 100644
+--- a/bsd/dev/bergamota_rpmh.c
++++ b/bsd/dev/bergamota_rpmh.c
+@@ -7,6 +7,7 @@
+ #include <sys/param.h>
+ #include <sys/systm.h>
+ #include <sys/errno.h>
++#include <sys/sysctl.h>
+ #include <kern/clock.h>
+ #include <machine/machine_routines.h>
+ #include "bergamota_board.h"
+@@ -15,5 +16,6 @@ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+ int bergamota_rpmh_vreg_enable(const char *res, unsigned mv);
+ int bergamota_rpmh_vreg_set(const char *res, unsigned mv, bool enable);
+ int bergamota_rpmh_arc_vote(const char *res, bool max);
++int bergamota_rpmh_ddr_max(void);
+ 
+ /* Live downstream DT has two positional reg entries, no reg-names. */
+@@ -59,6 +61,7 @@ int bergamota_rpmh_rfclk_enable(const char *res);
+ #define RH_DB_MAX       0x100000u /* policy bound, not a DT size */
+ #define RH_ARC          3u
+ #define RH_VRM          4u
++#define RH_BCM          5u
+ #define RH_ARC_LEVELS   16u      /* RPMH_ARC_MAX_LEVELS */
+ #define RH_TIMEOUT_US   100000u
+ 
+@@ -206,7 +209,7 @@ rh_lookup_slave(const char *res, unsigned want, uint32_t *address, uint32_t *aux
+ 				continue;
+ 			}
+ 			uint32_t addr = rh_read(rh_db, e + 16);
+-			if (slave != want || (addr >> 16) != want || (addr & 15u) ||
++			if (slave != want || (addr >> 16) != want || (addr & (want == RH_BCM ? 3u : 15u)) ||
+ 			    !rh_range(aux + rh_db16(e + 22), rh_db16(e + 20))) {
+ 				printf("BERGAMOTA RPMH: invalid %s entry for %s\n", want == RH_ARC ? "ARC" : "VRM", res);
+ 				return EINVAL;
+@@ -586,4 +589,54 @@ out:
+ 	__atomic_store_n(&rh_lock, 0, __ATOMIC_RELEASE);
+ 	return error;
+ }
++
++/*
++ * kern.bergamota_ddr_max (write 1): one ACTIVE vote of MC0 (DDR) and SH0 (memory NoC) at the
++ * top of their range, BCM_TCS_CMD(commit, valid, x=0x3fff, y=0x3fff) as Linux's
++ * qcom,bcm-voter encodes it; the BCM clamps to its highest level. Nothing votes DDR on
++ * this kernel (the GMU's a630 bandwidth table is the zero vote). Never votes down: an
++ * apps-DRV vote replaces ABL's.
++ */
++int
++bergamota_rpmh_ddr_max(void)
++{
++	if (!bergamota_board_beryllium()) {
++		return EINVAL;
++	}
++	if (__atomic_exchange_n(&rh_lock, 1, __ATOMIC_ACQUIRE)) {
++		return EBUSY;
++	}
++	static const char *const res[2] = { "MC0", "SH0" };
++	uint32_t addrs[2], vals[2];
++	int error = rh_poisoned ? EIO : rh_map();
++	for (unsigned i = 0; !error && i < 2; ++i) {
++		error = rh_lookup_slave(res[i], RH_BCM, &addrs[i], NULL, NULL);
++		vals[i] = (1u << 30) | (1u << 29) | (0x3fffu << 14) | 0x3fffu;
++	}
++	if (!error) {
++		printf("BERGAMOTA RPMH: DDR max vote MC0 %#x SH0 %#x\n", addrs[0], addrs[1]);
++		/* one command each, so rh_cmds' same-16-byte-window rule holds per request */
++		error = rh_cmds(&addrs[0], &vals[0], 1);
++		if (!error) {
++			error = rh_cmds(&addrs[1], &vals[1], 1);
++		}
++	}
++	printf("BERGAMOTA RPMH: DDR max vote errno=%d\n", error);
++	__atomic_store_n(&rh_lock, 0, __ATOMIC_RELEASE);
++	return error;
++}
++
++static int
++rh_ddr_max_sysctl SYSCTL_HANDLER_ARGS
++{
++#pragma unused(arg1, arg2)
++	int v = 0, err = sysctl_handle_int(oidp, &v, 0, req);
++	if (err || req->newptr == USER_ADDR_NULL) {
++		return err;
++	}
++	return v == 1 ? bergamota_rpmh_ddr_max() : EINVAL;
++}
++SYSCTL_PROC(_kern, OID_AUTO, bergamota_ddr_max,
++    CTLTYPE_INT | CTLFLAG_WR | CTLFLAG_LOCKED, 0, 0, rh_ddr_max_sysctl, "I",
++    "1: vote DDR (MC0) and SH0 to their top level");
+ #endif /* ARM64_BOARD_CONFIG_BERGAMOTA */
+diff --git a/iokit/Kernel/arm/BergamotaAdreno.cpp b/iokit/Kernel/arm/BergamotaAdreno.cpp
+index 9aee09b..48d890d 100644
+--- a/iokit/Kernel/arm/BergamotaAdreno.cpp
++++ b/iokit/Kernel/arm/BergamotaAdreno.cpp
+@@ -37,6 +37,7 @@
+ 
+ #include "BergamotaAdrenoABI.h"
+ #include "BergamotaSurface.h"
++extern "C" int bergamota_rpmh_ddr_max(void);
+ 
+ extern "C" {
+ /* bsd/dev/bergamota_a630.c: the kept-up GPU. Not thread safe; this file holds gAdrenoLock around every call. */
+@@ -221,6 +222,13 @@ BergamotaAdrenoPublish(void)
+ 			svc->registerService();
+ 			IOLog("BERGAMOTA GPU: %s published (user client class %s)\n", BERGAMOTA_GPU_SERVICE_NAME,
+ 			    agx ? "AGXDeviceUserClient" : "BergamotaAdrenoUserClient");
++			/* bergamotaddrmax=1: DDR and the memory NoC at their top level (kernel 1032); nothing else votes DDR,
++			 * and the App Library's glass passes are ~8 % faster with it */
++			uint32_t ddr = 0;
++			if (PE_parse_boot_argn("bergamotaddrmax", &ddr, sizeof(ddr)) && ddr) {
++				int e = bergamota_rpmh_ddr_max();
++				IOLog("BERGAMOTA GPU: DDR max vote %s (%d)\n", e ? "failed" : "sent", e);
++			}
+ 		} else {
+ 			IOLog("BERGAMOTA GPU: cannot attach %s to the platform\n", BERGAMOTA_GPU_SERVICE_NAME);
+ 		}
