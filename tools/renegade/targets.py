@@ -25,7 +25,7 @@ TARGETS = {
         work='research/ios18',
         board='N841',
         adt_target='D22',
-        adt='../ios-beryllium/shim/out/beryllium-hi-3x.adt'),
+        adt='enxerto/out/beryllium-hi-3x.adt'),   # tools/mkadt.py OUT --board beryllium --highmem --display-scale 3 --identity d22ap
 }
 
 NAME = os.environ.get('RENEGADE_TARGET', 'ios18')

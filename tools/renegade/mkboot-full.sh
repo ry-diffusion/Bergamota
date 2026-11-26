@@ -4,14 +4,14 @@
 #   tools/renegade/mkboot-full.sh [KERNEL] [ADT] [OUT.img]
 # defaults (ios26): research/ios26/kernel/kernel.development.bergamota (xnu-12377), enxerto/out/beryllium-n104-2x.adt
 #           (tools/mkadt.py --identity n104ap --display-scale 2 --points 414x896), research/ios26/enxerto-boot-ios26full.img
-#           (ios18: xnu/out-0139/kernel.development.bergamota, ../ios-beryllium/shim/out/beryllium-hi-3x.adt)
+#           (ios18: research/ios18/kernel/kernel.development.bergamota (xnu-11215), enxerto/out/beryllium-hi-3x.adt)
 # Test it with `fastboot boot OUT.img` (the phone must hold the image from tools/renegade/mkroot-full.sh
 # flashed to userdata: docs/IOS18_PORT.md section 12). Nothing is flashed or booted here.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 tg() { python3 -I tools/renegade/targets.py "$1"; }
 NAME=$(tg name) WORK=$(tg work)
-if [ "$NAME" = ios18 ]; then DEF_KERNEL=xnu/out-0139/kernel.development.bergamota; else DEF_KERNEL=$WORK/kernel/kernel.development.bergamota; fi
+DEF_KERNEL=$WORK/kernel/kernel.development.bergamota
 KERNEL=${1:-$DEF_KERNEL}
 ADT=${2:-$(tg adt)}
 OUT=${3:-$WORK/enxerto-boot-${NAME}full.img}
