@@ -29,12 +29,12 @@
 
 <main>
   <section class="hero" use:hug aria-labelledby="hero-title">
-    <p class="giant l" aria-hidden="true">2</p>
-    <p class="giant r" aria-hidden="true">6</p>
+    <p class="giant l" aria-hidden="true">1</p>
+    <p class="giant r" aria-hidden="true">8</p>
     <img class="figure" data-subject src="/img/newton.webp" width="900" height="1264" alt="Isaac Newton, after Godfrey Kneller's 1689 portrait, printed as a black-and-white halftone" />
     <div class="pitch">
       <h1 id="hero-title">iOS was not built for this phone.</h1>
-      <p>Apple's unmodified iOS userland, booting on a Xiaomi Poco F1. Bring your own IPSW: this page patches it and flashes your phone, all on your computer.</p>
+      <p>Apple's unmodified iOS 18 userland, booting on a Xiaomi Poco F1. Bring your own IPSW: this page patches it and flashes your phone, all on your computer.</p>
       <a class="btn leaf" href="/flash/">
         Patch your IPSW and flash
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M4 10h11M11 5l5 5-5 5" /></svg>

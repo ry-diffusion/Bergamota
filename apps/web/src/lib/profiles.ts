@@ -8,8 +8,8 @@ export interface Profile {
 }
 
 export const PROFILES: Profile[] = [
-  { id: "ios26", device: "iPhone12,1", model: "iPhone 11", version: "26.6.2", build: "23G90" },
   { id: "ios18", device: "iPhone11,8", model: "iPhone XR", version: "18.7.8", build: "22H352" },
+  { id: "ios26", device: "iPhone12,1", model: "iPhone 11", version: "26.6.2", build: "23G90" },
 ];
 
 /** Apple names restore IPSWs <device>_<version>_<build>_Restore.ipsw. */

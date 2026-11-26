@@ -10,7 +10,7 @@ Native macOS SwiftUI app (no web views). The deployment target may be raised to 
 
 ## Users
 
-- **The project's owner, on their own Mac**, while porting iOS 26 to a Poco F1 (SDM845). They watch the phone's state, queue boots, flash partitions, read the kernel log and check metrics, often for hours while the phone reboots in cycles.
+- **The project's owner, on their own Mac**, while porting iOS 18 to a Poco F1 (SDM845). They watch the phone's state, queue boots, flash partitions, read the kernel log and check metrics, often for hours while the phone reboots in cycles.
 - **Agents (Claude sessions) through the CLI** `scripts/bergamota` and the file inbox (`~/Library/Application Support/Bergamota/inbox/`). They enqueue boots, builds and flashes; the app executes them and shows what they are doing. The human mostly watches and approves.
 
 ## Product Purpose

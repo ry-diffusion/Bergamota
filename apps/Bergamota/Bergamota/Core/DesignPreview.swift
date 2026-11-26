@@ -31,13 +31,13 @@ enum DesignPreview {
         var items: [QueueItem] = []
         func item(_ name: String, _ size: Int64, _ st: QueueItem.Status, _ ago: TimeInterval?, flash: String? = nil, out: String = "") -> QueueItem {
             var it = QueueItem(imagePath: "/repo/enxerto/out/\(name)", size: size, status: st, sentAt: ago.map { now.addingTimeInterval(-$0) }, output: out)
-            if let flash { it.userdataImage = "/repo/research/ios26/\(flash)"; it.flashPartition = nil; if name.isEmpty { it.imagePath = "" } }
+            if let flash { it.userdataImage = "/repo/research/ios18/\(flash)"; it.flashPartition = nil; if name.isEmpty { it.imagePath = "" } }
             return it
         }
-        items.append(item("enxerto-boot-ios26full-boot38-wlan-mpss.img", 17_301_504, .failed, 6200, out: "Sending 'boot.img' (16896 KB)  OKAY [ 0.40s]\nBooting  FAILED (remote: 'no response')"))
-        items.append(item("enxerto-boot-ios26full-boot39.img", 17_301_504, .sent, 3900, out: "Sending 'boot.img' (16912 KB)  OKAY [ 0.40s]\nBooting  OKAY [ 0.06s]\nFinished. Total time: 0.465s"))
-        items.append(item("enxerto-boot-ios26full-boot43-wlan-events.img", 22_282_240, .pending, nil))
-        items.append(item("", 0, .pending, nil, flash: "ios26-root-full.simg"))
+        items.append(item("enxerto-boot-ios18full-boot38-wlan-mpss.img", 17_301_504, .failed, 6200, out: "Sending 'boot.img' (16896 KB)  OKAY [ 0.40s]\nBooting  FAILED (remote: 'no response')"))
+        items.append(item("enxerto-boot-ios18full-boot39.img", 17_301_504, .sent, 3900, out: "Sending 'boot.img' (16912 KB)  OKAY [ 0.40s]\nBooting  OKAY [ 0.06s]\nFinished. Total time: 0.465s"))
+        items.append(item("enxerto-boot-ios18full-boot43-wlan-events.img", 22_282_240, .pending, nil))
+        items.append(item("", 0, .pending, nil, flash: "ios18-root-full.simg"))
         app.queue.items = items
         app.queue.armed = scenario == "bergamota"
         app.tools.installed = [InstalledApp(name: "GlassTest.app", recorded: true, apple: false), InstalledApp(name: "BergamotaRun.app", recorded: true, apple: false),
@@ -49,7 +49,7 @@ enum DesignPreview {
                   createdAt: now.addingTimeInterval(-ago), startedAt: now.addingTimeInterval(-ago + 20), updatedAt: done ? now.addingTimeInterval(-ago + 1260) : nil,
                   displayTitle: title, url: nil)
         }
-        app.ci.runs = [run(5, "ios26", "563b095c", "xnu 0251: GPU zap loader resumes an interrupted SCM call", "", 600, done: false),
+        app.ci.runs = [run(5, "ios18", "563b095c", "xnu 0251: GPU zap loader resumes an interrupted SCM call", "", 600, done: false),
                        run(4, "main", "d0c1481a", "Bergamota: SSH accepts the iOS 26 host key too", "success", 7200),
                        run(3, "ios18", "15561f8e", "bt18: HCI over SMD, firmware patch RAM", "failure", 30_000),
                        run(2, "ci-cache", "6c4bba12", "ci: cache the xnu toolchain", "success", 90_000)]

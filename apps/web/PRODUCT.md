@@ -48,7 +48,7 @@ The only way to run iOS's real userland on a non-Apple phone, and an open-source
 
 ## Evidence on Hand
 
-- Real status (README): iOS 18.7.8 boots to SpringBoard and the home screen on all 8 cores; iOS 26 also boots; CPU rendering (GPU work in progress); USB networking with SSH; touch, buttons, battery work. Not working: Wi-Fi, cellular, audio, camera, sensors, SEP/Face ID, GPU acceleration (in progress).
+- Real status (README): iOS 18.7.8 (the target) boots to SpringBoard and the home screen on all 8 cores; iOS 26 also boots and renders on the GPU (Crimson on Turnip), which is being brought to iOS 18; USB networking with SSH; touch, buttons, battery work. Not working: Wi-Fi, cellular, audio, camera, sensors, SEP/Face ID, GPU acceleration (in progress).
 - Screens: `docs/assets/enxerto-boot.png`, `enxerto-fastboot.png`, `enxerto-charge.png`.
 - No user counts, testimonials, press or benchmarks beyond the README's measurements: do not invent any.
 

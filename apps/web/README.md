@@ -10,8 +10,8 @@ Chrome or Edge on a desktop computer talks fastboot to the Poco F1 over **WebUSB
 (`src/lib/fastboot.ts`). Two paths:
 
 - **Patch IPSW + flash** (the default): pick Apple's IPSW, patch it into a root image in the browser, flash it.
-  The IPSW step checks the file against Renegade's profiles (`src/lib/profiles.ts`: ios26 = iOS 26.6.2 23G90
-  for iPhone12,1, ios18 = iOS 18.7.8 22H352 for iPhone11,8). The patch step runs Renegade (Rust, compiled to
+  The IPSW step checks the file against Renegade's profiles (`src/lib/profiles.ts`: ios18 = iOS 18.7.8 22H352
+  for iPhone11,8, the main target; ios26 = iOS 26.6.2 23G90 for iPhone12,1). The patch step runs Renegade (Rust, compiled to
   WebAssembly: `tools/renegade-wasm`, built into `src/patcher/renegade.wasm` by `npm run build:wasm`) in a Web
   Worker: it reads the IPSW with `FileReaderSync` (never loaded whole), decrypts and reads the APFS images,
   and writes the sparse `userdata` image into the browser's private storage (OPFS, about 18 GB; the step checks
