@@ -55,16 +55,16 @@ if [ ! -d "$W/dxb/.git" ]; then
     git -C "$W/dxb" checkout -q FETCH_HEAD
 fi
 cd "$W/dxb"
-# fresh copy of dxb's own files each run, then ours with the bergamota- prefix (same order as CI)
-git checkout -q -- . && rm -f patches/$PSUB/bergamota-*
+# fresh copy of dxb's own files each run, then ours with the zz-bergamota- prefix (same order as CI)
+git checkout -q -- . && rm -f patches/$PSUB/bergamota-* patches/$PSUB/zz-bergamota-*
 rm -rf xnu        # dxb clones a pristine xnu and patches it
-for f in "$SERIES"/*.patch "$SERIES"/*.sh; do cp "$f" "patches/$PSUB/bergamota-$(basename "$f")"; done
+for f in "$SERIES"/*.patch "$SERIES"/*.sh; do cp "$f" "patches/$PSUB/zz-bergamota-$(basename "$f")"; done
 sed -i '' 's/ARCHS="x86_64 arm64e" VALID_ARCHS="x86_64 arm64e"/ARCHS="x86_64 arm64e arm64" VALID_ARCHS="x86_64 arm64e arm64"/' build.sh
 python3 - <<'PY'
 s = open('build.sh').read()
 needle = '                warning "Skipping patch ${PATCH} (already upstream, previously applied, or malformed): ${APPLY_CHECK}"\n'
 assert needle in s, 'build.sh patches() layout changed'
-s = s.replace(needle, needle + '                case "$(basename "${PATCH}")" in [0-9]*|bergamota-*) error "our patch does not apply: ${PATCH}"; exit 1 ;; esac\n')
+s = s.replace(needle, needle + '                case "$(basename "${PATCH}")" in [0-9]*|zz-bergamota-*) error "our patch does not apply: ${PATCH}"; exit 1 ;; esac\n')
 open('build.sh', 'w').write(s)
 PY
 if [ "${USE_KDK:-0}" != 1 ] && [ "$PSUB" = 26.0 ]; then

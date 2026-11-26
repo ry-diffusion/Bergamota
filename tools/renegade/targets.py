@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Renegade target profiles: which iOS build the root is made from. RENEGADE_TARGET selects one (default ios26).
+"""Renegade target profiles: which iOS build the root is made from. RENEGADE_TARGET selects one (default ios18, the target again since 2026-11-26).
   python3 tools/renegade/targets.py [KEY]     prints the current profile, or one value (for the shell scripts)
 
 ios26  iOS 26.6.2 (23G90) for iPhone12,1 (iPhone 11, N104AP): docs/IOS26_FEASIBILITY.md. 26.7.1 is OTA-only
@@ -28,7 +28,7 @@ TARGETS = {
         adt='../ios-beryllium/shim/out/beryllium-hi-3x.adt'),
 }
 
-NAME = os.environ.get('RENEGADE_TARGET', 'ios26')
+NAME = os.environ.get('RENEGADE_TARGET', 'ios18')
 if NAME not in TARGETS:
     sys.exit(f'RENEGADE_TARGET={NAME}: unknown (have {", ".join(TARGETS)})')
 T = dict(TARGETS[NAME], name=NAME)

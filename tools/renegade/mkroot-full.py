@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Renegade root build (`renegade root`): build the FULL iOS root of the Renegade target (targets.py: 26.6.2 iPhone12,1 by default, RENEGADE_TARGET=ios18 for 18.7.8 iPhone11,8) as a flashable HFS+ image for the userdata partition.
+"""Renegade root build (`renegade root`): build the FULL iOS root of the Renegade target (targets.py: 18.7.8 iPhone11,8 by default, RENEGADE_TARGET=ios26 for 26.6.2 iPhone11,8) as a flashable HFS+ image for the userdata partition.
 
   mkroot-full.py [--ipsw-dir DIR] [--out IMG] [--size 20g] [--stages copy,macho,cache,tweaks,seal] [--simg OUT.simg]
 
