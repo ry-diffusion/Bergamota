@@ -3,6 +3,9 @@
 ## Agent handoff / active work (2026-10-15, latest)
 
 ### >>> Chlorophyll on Turnip (Chlorophyll branch `turnip` 6a27a3b, Bergamota branch `claude/chlorophyll-turnip-c432e2`), 2026-10-26: Turnip RUNS on the A630 <<<
+* **2026-11-26 00:30-00:50 (Mac, same goal): vertex shaders audited; ALU estimate.**
+  * `backboardd:IR3_SHADER_DEBUG=vs,fs` over App Library + folder use: 94 vertex shaders, mean 19 instructions (max 47; constant/UBO loads and a few fmads per vertex of a quad): no cost. 77 fragment shaders in that run, mean 126 non-nop instructions, max 1439.
+  * ALU estimate: the A630 is rated ~727 GFLOPS fp32 at 710 MHz (~512 FMA lanes, ~363 G instruction slots a second). One full-screen 828x1792 pass of the 1439-slot glass shader would take ~5.9 ms at peak; u_trace measured ~3.5 ms per full-screen resume pass, i.e. ALU-bound near peak if the glass covers ~60 % of the screen (the pods do). Not a counter measurement (no perf counters on this stack).
 * **2026-11-25 23:50-00:30 (Mac, same goal, flashed boot72): sysmem A/B and the folder misses; both GPU.**
   * **Tile mode A/B** (one reboot each, `bgmtl-bb.env`; `scratchpad/dp/ab.sh`): App Library scrolling GPU sysmem 20.1-20.7 ms a frame vs GMEM 21.1-21.3 (~1 ms, 5 %); page drags sysmem 59 59 57 60 58 65 54 62 / 55 60 58 60 59 60 58 60 vs GMEM 60 57 60 58 60 59 60 / 60 59 60 59 60 59 60 (GMEM steadier). A sysmem-only-for-resume-passes hybrid in Turnip could win at most that ~1 ms, and passes whose shaders read the framebuffer (22 CA shaders) must stay GMEM anyway (`tu_autotune_use_bypass`: `sysmem_single_prim_mode`). Not built; GMEM (empty `bgmtl-bb.env`) kept.
   * **Folder misses:** in animating seconds GPU is ~13 ms a frame on average but the per-second max is 16-23 ms (the blur ramp behind the folder); those frames miss the refresh. CPU side fine: frame age 3 ms, commit-to-submit ~6 ms, encode workers well under a frame. Shadow copies ~1-3 MB a second (client images; small).
