@@ -69,6 +69,11 @@ if [ "${IOS18:-1}" = 1 ]; then
 		"$here/bergamotametrics.c" -o "$out18/bergamotametrics"
 	codesign -s - -f --entitlements "$here/entitlements.plist" "$out18/bergamotametrics"
 	python3 -I "$pacstrip" --sign "$out18/bergamotametrics"
+	# test harness: Auto-Lock (ManagedConfiguration maxInactivity, "never") and SpringBoard's lock state (notify key)
+	b18 autolock autolock.m autolock.entitlements
+	xcrun -sdk iphoneos clang -arch arm64e -mios-version-min=18.0 -O2 -Wall "$here/lockstate.c" -o "$out18/lockstate"
+	codesign -s - -f "$out18/lockstate"
+	python3 -I "$pacstrip" --sign "$out18/lockstate"
 	# sblaunch: SpringBoard's launchd Program when it runs on Crimson (DYLD_INSERT_LIBRARIES, then exec; root_tweaks18.crimson)
 	xcrun -sdk iphoneos clang -arch arm64e -mios-version-min=18.0 -O2 -Wall "$here/sblaunch.c" -o "$out18/sblaunch"
 	codesign -s - -f --entitlements "$here/entitlements.plist" "$out18/sblaunch"

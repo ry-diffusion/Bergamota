@@ -17,7 +17,7 @@ ADT=${2:-$(tg adt)}
 OUT=${3:-$WORK/enxerto-boot-${NAME}full.img}
 # RAM-disk cmdline of docs/IOS18_PORT.md section 9 with rd=md0 -> rd=ufsroot0 ufsrw=1 rootrw=1.
 # ignition_level=1: dyld's libignition looks for the cache in /System/Library/Caches/com.apple.dyld only.
-CMDLINE=${CMDLINE:-"debug=0xc serial=3 cpus=8 keepsyms=1 -noprogress rd=ufsroot0 unentitled_ios_sim_launch=1 ignition_level=1 wdt_test=no_user_checkin ufsrw=1 rootrw=1 launchd_unsecure_cache=1 wdt=-1 bergamotafb_noconsole=1 bergamotafb_hz=60 bergamotafb_vsync=1 bergamotafb_scale=1 bergamotafb_flip=1 bergamotausb=2 bergamotabattery=1 bergamotafb_hw=1 bergamotaarm64e=1 launchd_disable_all_timeouts=1 bergamotacores=0xf1 bergamotagpu=8 bergamotagpuuc=1 bergamotagpufreq=gov bergamotagpuboost=7 bergamotaddrmax=1 ufswait=1"}
+CMDLINE=${CMDLINE:-"debug=0xc serial=3 cpus=8 keepsyms=1 -noprogress rd=ufsroot0 unentitled_ios_sim_launch=1 ignition_level=1 wdt_test=no_user_checkin ufsrw=1 rootrw=1 launchd_unsecure_cache=1 wdt=-1 bergamotafb_noconsole=1 bergamotafb_hz=60 bergamotafb_copyearly=1 bergamotafb_vsync=1 bergamotafb_scale=1 bergamotafb_flip=1 bergamotausb=2 bergamotabattery=1 bergamotafb_hw=1 bergamotaarm64e=1 launchd_disable_all_timeouts=1 bergamotacores=0xf1 bergamotagpu=8 bergamotagpuuc=1 bergamotagpufreq=gov bergamotagpuboost=7 bergamotaddrmax=1 ufswait=1"}
 mkdir -p enxerto/out
 # Apple logo as Enxerto's last frame (docs: tools/mkapplelogo.py): read from the iOS root you built, never
 # committed. APPLE_LOGO=0 skips it (the Bergamota screen stays), APPLE_LOGO_PNG=file uses an extracted PNG.
