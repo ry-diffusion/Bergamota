@@ -74,6 +74,8 @@ if [ "${IOS18:-1}" = 1 ]; then
 	xcrun -sdk iphoneos clang -arch arm64e -mios-version-min=18.0 -O2 -Wall "$here/lockstate.c" -o "$out18/lockstate"
 	codesign -s - -f "$out18/lockstate"
 	python3 -I "$pacstrip" --sign "$out18/lockstate"
+	# bergamotawifijoin: join a network through wifid (MobileWiFi), passphrase on stdin (tools/berga-wifi-test.sh)
+	b18 bergamotawifijoin bergamotawifijoin.m wifijoin.entitlements
 	# sblaunch: SpringBoard's launchd Program when it runs on Crimson (DYLD_INSERT_LIBRARIES, then exec; root_tweaks18.crimson)
 	xcrun -sdk iphoneos clang -arch arm64e -mios-version-min=18.0 -O2 -Wall "$here/sblaunch.c" -o "$out18/sblaunch"
 	codesign -s - -f --entitlements "$here/entitlements.plist" "$out18/sblaunch"
