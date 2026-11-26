@@ -1,5 +1,5 @@
 diff --git a/bsd/dev/bergamota_rpmh.c b/bsd/dev/bergamota_rpmh.c
-index 6ef2a78..fe28817 100644
+index b174c08..fc0faa8 100644
 --- a/bsd/dev/bergamota_rpmh.c
 +++ b/bsd/dev/bergamota_rpmh.c
 @@ -7,6 +7,7 @@
@@ -10,11 +10,12 @@ index 6ef2a78..fe28817 100644
  #include <kern/clock.h>
  #include <machine/machine_routines.h>
  #include "bergamota_board.h"
-@@ -15,5 +16,6 @@ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+@@ -15,6 +16,7 @@ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
  int bergamota_rpmh_vreg_enable(const char *res, unsigned mv);
  int bergamota_rpmh_vreg_set(const char *res, unsigned mv, bool enable);
  int bergamota_rpmh_arc_vote(const char *res, bool max);
 +int bergamota_rpmh_ddr_max(void);
+ int bergamota_rpmh_rfclk_enable(const char *res);
  
  /* Live downstream DT has two positional reg entries, no reg-names. */
 @@ -59,6 +61,7 @@ int bergamota_rpmh_rfclk_enable(const char *res);
@@ -90,7 +91,7 @@ index 6ef2a78..fe28817 100644
 +    "1: vote DDR (MC0) and SH0 to their top level");
  #endif /* ARM64_BOARD_CONFIG_BERGAMOTA */
 diff --git a/iokit/Kernel/arm/BergamotaAdreno.cpp b/iokit/Kernel/arm/BergamotaAdreno.cpp
-index 9aee09b..48d890d 100644
+index 4838e48..cc4af32 100644
 --- a/iokit/Kernel/arm/BergamotaAdreno.cpp
 +++ b/iokit/Kernel/arm/BergamotaAdreno.cpp
 @@ -37,6 +37,7 @@
