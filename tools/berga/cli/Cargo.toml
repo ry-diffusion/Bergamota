@@ -1,0 +1,10 @@
+[package]
+name = "berga"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+description = "berga: manage the Bergamota phone (Poco F1 running iOS) from the command line"
+
+[dependencies]
+berga-core = { path = "../core", features = ["usb"] }
+serde_json = "1"

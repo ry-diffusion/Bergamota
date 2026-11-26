@@ -1,0 +1,10 @@
+[package]
+name = "bergad"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+description = "Phone side of the berga USB protocol: serves /dev/berga (kernel 1037) for requests the kernel forwards"
+
+[dependencies]
+berga-core = { path = "../core" }
+serde_json = "1"

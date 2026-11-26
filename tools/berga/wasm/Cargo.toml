@@ -1,0 +1,13 @@
+[package]
+name = "berga-wasm"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+description = "berga-core for the browser: plain C ABI with JSON in/out (no wasm-bindgen), like tools/renegade-wasm"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+berga-core = { path = "../core" }
+serde_json = "1"

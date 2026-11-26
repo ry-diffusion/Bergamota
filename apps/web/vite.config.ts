@@ -2,7 +2,7 @@ import { defineConfig } from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import { resolve } from "node:path";
 
-// Two pages: the landing page at / and the flasher at /flash/.
+// Three pages: the landing page at /, the flasher at /flash/ and phone management at /manage/.
 export default defineConfig({
   plugins: [svelte()],
   build: {
@@ -13,6 +13,7 @@ export default defineConfig({
       input: {
         landing: resolve(import.meta.dirname, "index.html"),
         flash: resolve(import.meta.dirname, "flash/index.html"),
+        manage: resolve(import.meta.dirname, "manage/index.html"),
       },
     },
   },
