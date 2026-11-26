@@ -864,7 +864,7 @@ MERCURY_BIN = 'System/Library/ExtensionKit/Extensions/MercuryPosterExtension.app
 CRIMSON_TARGETS = (
     (MERCURY_BIN, 'crimson.app.com.apple.MercuryPoster', None),
     ('System/Library/CoreServices/SpringBoard.app/SpringBoard', None, 'crimson.app.com.apple.springboard'),
-    ('usr/libexec/backboardd', None, 'crimson-bb.on'),
+    ('usr/libexec/backboardd', None, ('crimson-bb.on', 'crimson-bb.arm', 'crimson-bb.direct')),   # .direct: no bgl-launch on iOS 18
 )
 
 
@@ -944,7 +944,8 @@ def crimson(root):
     for rel, default_switch, all_switch in CRIMSON_TARGETS:
         if not crimson_link(root, rel):
             continue
-        for sw in (default_switch, all_switch if arm == 'all' else None):
+        extra = (all_switch if isinstance(all_switch, tuple) else (all_switch,)) if arm == 'all' else ()
+        for sw in (default_switch,) + extra:
             if sw and arm != '0':
                 crimson_switch(root, sw, 'RENEGADE_CRIMSON_ARM=' + arm)
                 print('crimson: /private/var/tmp/%s written' % sw)
