@@ -81,7 +81,7 @@ final class AppSettings {
         if !flashToolPath.isEmpty { cands = [(flashToolPath as NSString).expandingTildeInPath] }
         else {
             cands = [repoFile("tools/" + UserdataFlash.toolName)]
-            for sib in ["ios-beryllium-enxerto-flash", "ios-beryllium-ios18", "ios-beryllium-rebrand"] {
+            for sib in ["ios-beryllium-metal", "ios-beryllium-enxerto-flash", "ios-beryllium-ios18", "ios-beryllium-rebrand"] {
                 cands.append(repoURL.deletingLastPathComponent().appendingPathComponent(sib + "/tools/" + UserdataFlash.toolName).path)
             }
         }
