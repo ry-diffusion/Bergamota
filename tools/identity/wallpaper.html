@@ -2,7 +2,7 @@
 <!-- Bergamota lock/home wallpaper (tools/identity/mkwallpaper.sh renders it): the identity of IDENTITY.md at phone size.
      Lime halftone ground, the iOS generation's giant white numerals behind the figure, Newton's halftone portrait
      rising from the bottom edge. The top third stays plain ground: the lock screen's date and clock sit there.
-     Query: ?w=1125&h=2436&n=26 -->
+     Query: ?w=1125&h=2436&n=18 -->
 <html>
 <head>
 <meta charset="utf-8">
@@ -38,7 +38,7 @@ html, body { margin: 0; padding: 0; background: var(--lime); overflow: hidden; }
 </div>
 <script>
 const q = new URLSearchParams(location.search);
-const W = +(q.get('w') || 1125), H = +(q.get('h') || 2436), N = q.get('n') || '26';
+const W = +(q.get('w') || 1125), H = +(q.get('h') || 2436), N = q.get('n') || '18';
 const wall = document.getElementById('wall');
 wall.style.width = W + 'px'; wall.style.height = H + 'px';
 // numerals: as wide as the screen allows, their baseline hidden behind the shoulders

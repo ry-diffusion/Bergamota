@@ -5,7 +5,7 @@
 # tools/identity/out/icon-*.png. The composition itself (groups, fills per appearance, shadows) is the bundle's
 # icon.json, edited by hand or in Icon Composer; this script never rewrites it.
 #   tools/identity/mkicon.sh [CHROME]
-# Layers, front to back: Newton (halftone cutout), Numerals (white "26"; lime in Dark), the ground's dots (hidden in
+# Layers, front to back: Newton (halftone cutout), Numerals (white "18"; lime in Dark), the ground's dots (hidden in
 # Tinted) and a Dark-only background (leaf green gradient). The lime ground is the document fill (Default only).
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)

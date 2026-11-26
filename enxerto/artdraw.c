@@ -4,7 +4,7 @@
 #include "console.h"
 
 #ifndef ENXERTO_IOS
-#define ENXERTO_IOS	26
+#define ENXERTO_IOS	18
 #endif
 
 #define GRID		14	/* ground dot pitch, px */

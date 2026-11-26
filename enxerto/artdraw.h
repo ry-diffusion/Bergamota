@@ -61,5 +61,5 @@ void art_rrect(int x, int y, int w, int h, int r, uint32_t color);	/* rounded re
  * [row0, row1) only. */
 void art_stage_front(int portrait_w, int row0, int row1);
 
-/* The iOS generation the image boots (the giant numerals): ART_NUM_26 unless built with -DENXERTO_IOS=18. */
+/* The iOS generation the image boots (the giant numerals): ART_NUM_18 unless built with -DENXERTO_IOS=26. */
 enum art_image art_ios_numerals(void);

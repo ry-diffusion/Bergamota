@@ -1,11 +1,11 @@
 #!/bin/bash
 # Render the Bergamota wallpaper (wallpaper.html) to a PNG with headless Chrome, like mkidentity.py renders the rest of
 # the identity (the fonts and the portrait load from this directory).
-#   tools/identity/mkwallpaper.sh OUT.png [W H [NUMERALS]]      default 1125 2436 26 (the panel as iOS 26 is presented)
+#   tools/identity/mkwallpaper.sh OUT.png [W H [NUMERALS]]      default 1125 2436 18 (the iOS generation shown)
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 OUT="${1:?usage: mkwallpaper.sh OUT.png [W H [NUMERALS]]}"
-W="${2:-1125}"; H="${3:-2436}"; N="${4:-26}"
+W="${2:-1125}"; H="${3:-2436}"; N="${4:-18}"
 CHROME="${CHROME:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
 PROF="$(mktemp -d)"; trap 'rm -rf "$PROF"' EXIT
 case "$OUT" in /*) ;; *) OUT="$PWD/$OUT" ;; esac

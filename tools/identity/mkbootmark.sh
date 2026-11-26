@@ -1,10 +1,10 @@
 #!/bin/bash
 # Render the boot mark (bootmark.html, 458x154 on black) with headless Chrome: tools/mksplash.py puts it in the logo
 # partition's slots 3, 6 and 8, where the stock image has the Google logo.
-#   tools/identity/mkbootmark.sh [OUT.png [NUMERALS]]      default tools/identity/out/bootmark.png 26
+#   tools/identity/mkbootmark.sh [OUT.png [NUMERALS]]      default tools/identity/out/bootmark.png 18
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
-out=${1:-$here/out/bootmark.png}; n=${2:-26}
+out=${1:-$here/out/bootmark.png}; n=${2:-18}
 chrome=${CHROME:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}
 prof=$(mktemp -d); trap 'rm -rf "$prof"' EXIT
 mkdir -p "$(dirname "$out")"
