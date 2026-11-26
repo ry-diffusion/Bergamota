@@ -5,6 +5,8 @@
  *   sweetwake pages [N]                    swipe to the next home page and back, N times (default 1)
  *   sweetwake awake SECONDS                keep the display on: undim every 10 s for SECONDS, in the background
  *   sweetwake tap X Y | swipe X1 Y1 X2 Y2 [MS] | home | lock
+ *   sweetwake hold X1 Y1 X2 Y2 HOLD_MS [MS]   finger down at X1 Y1 for HOLD_MS, then moved to X2 Y2 over MS, held there
+ *                                          a moment, lifted (long-press drags: an icon onto another makes a folder)
  *   sweetwake drag X1 X2 Y SECONDS [MS [STEP_MS]]  finger down for SECONDS, sweeping X1<->X2 (MS each way, a move every
  *                                          STEP_MS, default 8); run it under fgjob
  * Points in the 414x896 space of the iPhone12,1 userland. Events go into the HID event system like a digitizer's
@@ -212,6 +214,23 @@ main(int argc, char **argv)
 		finger(x, y, false, kIOHIDDigitizerEventRange | kIOHIDDigitizerEventTouch);
 	} else if ((argc == 6 || argc == 7) && !strcmp(argv[1], "swipe")) {
 		swipe(atof(argv[2]), atof(argv[3]), atof(argv[4]), atof(argv[5]), argc == 7 ? atoi(argv[6]) : 300);
+	} else if ((argc == 7 || argc == 8) && !strcmp(argv[1], "hold")) {
+		double x1 = atof(argv[2]), y1 = atof(argv[3]), x2 = atof(argv[4]), y2 = atof(argv[5]);
+		int hold = atoi(argv[6]), ms = argc == 8 ? atoi(argv[7]) : 600, steps = ms / 8 > 2 ? ms / 8 : 2;
+		finger(x1, y1, true, kIOHIDDigitizerEventRange | kIOHIDDigitizerEventTouch);
+		for (int i = 0; i < hold / 8; i++) {   /* a still finger keeps reporting, as a real one does */
+			wait_us(8000);
+			finger(x1, y1, true, kIOHIDDigitizerEventPosition);
+		}
+		for (int i = 1; i <= steps; i++) {
+			wait_us(8000);
+			finger(x1 + (x2 - x1) * i / steps, y1 + (y2 - y1) * i / steps, true, kIOHIDDigitizerEventPosition);
+		}
+		for (int i = 0; i < 1200 / 8; i++) {   /* rest on the target until SpringBoard opens a folder there */
+			wait_us(8000);
+			finger(x2, y2, true, kIOHIDDigitizerEventPosition);
+		}
+		finger(x2, y2, false, kIOHIDDigitizerEventRange | kIOHIDDigitizerEventTouch);
 	} else if (argc >= 6 && argc <= 8 && !strcmp(argv[1], "drag")) {
 		drag(atof(argv[2]), atof(argv[3]), atof(argv[4]), atoi(argv[5]), argc >= 7 ? atoi(argv[6]) : 1000, argc == 8 ? atoi(argv[7]) : 8);
 	} else if (argc == 2 && !strcmp(argv[1], "home")) {
@@ -219,7 +238,7 @@ main(int argc, char **argv)
 	} else if (argc == 2 && !strcmp(argv[1], "lock")) {
 		button(0x0c, 0x30);   /* consumer page, power */
 	} else {
-		fprintf(stderr, "usage: sweetwake wake | unlock | pages [N] | awake SECONDS | tap X Y | swipe X1 Y1 X2 Y2 [MS] | drag X1 X2 Y SECONDS [MS [STEP_MS]] | home | lock\n"
+		fprintf(stderr, "usage: sweetwake wake | unlock | pages [N] | awake SECONDS | tap X Y | swipe X1 Y1 X2 Y2 [MS] | hold X1 Y1 X2 Y2 HOLD_MS [MS] | drag X1 X2 Y SECONDS [MS [STEP_MS]] | home | lock\n"
 		                "       (points, 414x896)\n");
 		return 2;
 	}
