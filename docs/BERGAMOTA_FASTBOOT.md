@@ -11,7 +11,7 @@ Status: compiles; the protocol, sparse, GPT/allowlist, hash and delta-tool end-t
 ## Entry
 `usb_power_up()` runs on every boot (no-op when GDSC + clocks are on). Then fastboot starts when
 - the boot.img cmdline has `bergamota.fastboot=1` (`BERGAMOTA=1 enxerto/build.sh` adds it), or
-- the flag is absent and the ABL ramdisk holds no BERGAMOTAXNU payload (plain `build.sh`).
+- the flag is absent and the ABL ramdisk holds no SWEETXNU payload (plain `build.sh`).
 
 `bergamota.fastboot=0` (`BERGAMOTA=0`) keeps the old loader/diagnostics path. If fastboot cannot start (USB init error, no buffer) the reason is
 shown for 30 s and the old path continues (a payload in the ramdisk still boots). `bergamota.smmu=0` skips the SMMU step (debug).
@@ -54,7 +54,7 @@ Bus reset/disconnect ends all transfers, returns ep0 to SETUP and tells the prot
 **slot-count 0** (the Poco F1 is not A/B), **usb-speed** high/super/full, `getvar:all` (INFO lines + OKAY),
 **`partition-size:<p>`** (`0x<hex bytes>`), **`partition-type:<p>`** (`raw`), `has-slot:<p>` / `is-logical:<p>` (`no`): only for userdata, boot, logo, FAIL for any other name.
 `download:<hex>` (DATA, bulk data, OKAY; > max or 0 -> FAIL). `boot`: the download must be an Android boot.img
-(v0-v4: take the ramdisk) whose ramdisk is a BERGAMOTAXNU payload, or a raw BERGAMOTAXNU payload; `loader_check` validates the header, every file range and every destination
+(v0-v4: take the ramdisk) whose ramdisk is a SWEETXNU payload, or a raw SWEETXNU payload; `loader_check` validates the header, every file range and every destination
 (inside `[phys_base, +mem_size)`) **before** OKAY is sent, then `loader_boot_payload(start, end, 1)` runs with the buffer instead of the ABL initrd (it shows the branded boot screen).
 `reboot` (restart reason 0x77665501, PSCI SYSTEM_RESET, PS_HOLD fallback), `reboot-bootloader` (IMEM 0x146bf65c = 0x77665500: ABL fastboot), `continue` (= reboot); unchanged.
 Everything else (`format`, `set_active`, `flashing`, logical-partition and snapshot commands, unknown `oem` ...) answers FAIL. Link loss drops the session state (download, staged data).

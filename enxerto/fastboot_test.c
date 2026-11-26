@@ -189,7 +189,7 @@ static int resp_starts(int i, const char *s) { return i < n_resp && !strncmp(res
 static uint8_t *make_bergamota(uint64_t size)
 {
 	uint8_t *p = calloc(1, size);
-	memcpy(p, "BERGAMOTAXNU", 8);
+	memcpy(p, "SWEETXNU", 8);
 	for (uint64_t i = 8; i < size; i++)
 		p[i] = (uint8_t)(i * 31 + (i >> 8));
 	return p;
@@ -671,7 +671,7 @@ static void test_sparse_parser(void)
 		memset(&rec, 0, sizeof rec);
 		CHECK(!sparse_apply(img, 48 + 4096, 0, &ops, 0) && rec.raws == 1 && rec.raw_bytes == 4096);
 	}
-	CHECK(!sparse_is((const uint8_t *)"BERGAMOTAXNU", 8));
+	CHECK(!sparse_is((const uint8_t *)"SWEETXNU", 8));
 	free(data);
 }
 
@@ -895,7 +895,7 @@ static void test_flash_protocol(void)
 	/* flash:userdata/boot/logo without a download and with a download dropped by a link loss */
 	setup_storage(0, 0);
 	reset_fake();
-	cmd("flash:userdata"); cmd(dl_cmd(c, 16)); data("BERGAMOTAXNUxxxxxxxx", 16); link_lost(); cmd("flash:boot");
+	cmd("flash:userdata"); cmd(dl_cmd(c, 16)); data("SWEETXNUxxxxxxxx", 16); link_lost(); cmd("flash:boot");
 	fb = run_session(&r);
 	CHECK(resp_starts(0, "FAILno image") && resp_starts(3, "FAILno image") && total_writes() == 0);
 
@@ -1088,7 +1088,7 @@ static void test_flash_protocol(void)
 		CHECK(resp_is(0, "OKAYn=5") && upload_len == 80);
 		/* a download after a hash clears the staged data; upload without staged data fails */
 		reset_fake();
-		cmd("oem hash:logo:0:1000:1000"); cmd("download:00000008"); data("BERGAMOTAXNU", 8); cmd("upload");
+		cmd("oem hash:logo:0:1000:1000"); cmd("download:00000008"); data("SWEETXNU", 8); cmd("upload");
 		fb = run_session(&r);
 		CHECK(resp_is(0, "OKAYn=1") && resp_starts(3, "FAILno staged"));
 		reset_fake();
@@ -1312,7 +1312,7 @@ int main(void)
 	CHECK(boot_calls == 1 && boot_len == 5000 && boot_content_ok);
 	CHECK(!memcmp(dlbuf, raw, 5000));
 
-	/* boot.img v0, v2 and v3 wrappers with a BERGAMOTAXNU ramdisk */
+	/* boot.img v0, v2 and v3 wrappers with a SWEETXNU ramdisk */
 	{
 		uint8_t *rd = make_bergamota(3000);
 		static const struct { int hv; uint32_t page; } cfgs[] = { { 0, 2048 }, { 1, 4096 }, { 2, 4096 }, { 3, 4096 }, { 4, 4096 } };
@@ -1330,7 +1330,7 @@ int main(void)
 		uint8_t bad[3000];
 		memset(bad, 7, sizeof bad);
 		uint8_t *bi = make_bootimg(2, 4096, 100, bad, 3000, &total);
-		CHECK(fb_find_payload(bi, total, &off, &size, &why) == 0 && strstr(why, "not BERGAMOTAXNU"));
+		CHECK(fb_find_payload(bi, total, &off, &size, &why) == 0 && strstr(why, "not SWEETXNU"));
 		free(bi);
 		bi = make_bootimg(2, 4096, 100, rd, 3000, &total);
 		CHECK(fb_find_payload(bi, total - 8192 + 10, &off, &size, &why) == 0 && strstr(why, "truncated"));
@@ -1417,7 +1417,7 @@ int main(void)
 
 	/* a second download replaces the first */
 	reset_fake();
-	cmd("download:00000008"); data("BERGAMOTAXNU", 8); cmd("download:00000009"); data("BERGAMOTAXNUX", 9);
+	cmd("download:00000008"); data("SWEETXNU", 8); cmd("download:00000009"); data("SWEETXNUX", 9);
 	fb = run_session(&r);
 	CHECK(fb.dl_len == 9);
 

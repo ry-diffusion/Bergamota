@@ -83,7 +83,7 @@ static void zero64(uintptr_t dst, uint64_t n)
 
 static int magic_ok(const char *m)
 {
-	static const char want[] = "BERGAMOTAXNU";
+	static const char want[] = "SWEETXNU";
 	for (int i = 0; i < 8; i++)
 		if (m[i] != want[i])
 			return 0;
@@ -116,7 +116,7 @@ const char *loader_check(uintptr_t rd_start, uintptr_t rd_end)
 	if (rd_end < rd_start || size < sizeof(struct payload))
 		return "payload too short";
 	if (!magic_ok(p->magic))
-		return "no BERGAMOTAXNU payload";
+		return "no SWEETXNU payload";
 	if ((p->version != 1 && p->version != 2) || (p->adt_off & 7) || (rd_start & 7))
 		return "bad payload header";
 	const unsigned stride = p->version == 2 ? 40 : 32;
@@ -179,7 +179,7 @@ const char *loader_boot_payload(uintptr_t rd_start, uintptr_t rd_end, int verify
 {
 	const struct payload *p = (const struct payload *)rd_start;
 	if (rd_end < rd_start + 8 || !magic_ok(p->magic))
-		return "no BERGAMOTAXNU payload";
+		return "no SWEETXNU payload";
 	/* A real payload: switch to the branded boot screen (con_* output becomes its log window). */
 	bootui_init();
 	bootui_progress(PM_INITRD, "INITRD FOUND");

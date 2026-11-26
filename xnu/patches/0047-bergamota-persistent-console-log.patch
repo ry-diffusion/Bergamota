@@ -32,7 +32,7 @@
 + * and writable a thread copies new ring blocks to the LAST 4 MiB + 4 KiB of
 + * the partition about once a second (far behind the HFS image at its
 + * start). Device block 0 of that area is a header:
-+ *   "BERGAMOTALOG" | u32 version 1 | u32 ring size | u64 total bytes written
++ *   "SWEETLOG" | u32 version 1 | u32 ring size | u64 total bytes written
 + *   | u64 flush sequence
 + * ring offset of byte n = n % ring size. Read it from a recovery with
 + * tools/bergamota-log-pull.sh. Disabled with boot-arg bergamotalog=0.

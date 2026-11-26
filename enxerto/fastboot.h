@@ -110,10 +110,10 @@ void fb_info(struct fb *fb, const char *text);
 enum fb_result fb_run(struct fb *fb);
 
 /* ---- image helpers (pure; also used by the boot pre-check) ---- */
-#define FB_IMG_BERGAMOTAXNU	1	/* raw BERGAMOTAXNU payload */
-#define FB_IMG_BOOTIMG	2	/* Android boot.img with a BERGAMOTAXNU ramdisk */
+#define FB_IMG_SWEETXNU	1	/* raw SWEETXNU payload */
+#define FB_IMG_BOOTIMG	2	/* Android boot.img with a SWEETXNU ramdisk */
 /*
- * Locate the BERGAMOTAXNU payload: (*off, *size) = its place inside img. Returns the
+ * Locate the SWEETXNU payload: (*off, *size) = its place inside img. Returns the
  * kind (FB_IMG_*), or 0 with a short reason in *why.
  */
 int fb_find_payload(const uint8_t *img, uint64_t len, uint64_t *off, uint64_t *size, const char **why);

@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""Derive a boot image from an existing Enxerto/BERGAMOTAXNU boot image by editing ONLY the kernel command line of its payload
+"""Derive a boot image from an existing Enxerto/SWEETXNU boot image by editing ONLY the kernel command line of its payload
 (kernel, ADT, Enxerto and the Android boot header stay byte-identical; nothing is flashed or booted here).
 
   make-boot-image.py BASE.img OUT.img [--add ARG]... [--del KEY]... [--print]
 
 --del KEY removes every argument KEY or KEY=value, --add ARG appends ARG (replacing an existing KEY=...). The command line
-field is the 608-byte `cmdline` of the payload (tools/mkpayload.py layout, offset 0x48 from the "BERGAMOTAXNU" magic).
+field is the 608-byte `cmdline` of the payload (tools/mkpayload.py layout, offset 0x48 from the "SWEETXNU" magic).
 Examples (docs/GPU_EAGL.md):
   shim-boot-gles-soft.img = shim-boot-ios18-fixvar-dma.img --del bergamotafixvar --add bglrender=soft
   shim-boot-gles-gpu.img  = the gpu-kernel 8d boot image                     --add bglrender=1
 """
 import argparse, sys
 
-MAGIC, CMDLINE, LEN = b'BERGAMOTAXNU', 0x48, 608
+MAGIC, CMDLINE, LEN = b'SWEETXNU', 0x48, 608
 
 
 def main():
@@ -25,7 +25,7 @@ def main():
     img = bytearray(open(a.base, 'rb').read())
     off = img.find(MAGIC)
     if off < 0 or img.find(MAGIC, off + 1) >= 0 and False:
-        sys.exit('no BERGAMOTAXNU payload in ' + a.base)
+        sys.exit('no SWEETXNU payload in ' + a.base)
     cur = bytes(img[off + CMDLINE:off + CMDLINE + LEN]).split(b'\0')[0].decode()
     args = cur.split()
     key = lambda s: s.split('=', 1)[0]

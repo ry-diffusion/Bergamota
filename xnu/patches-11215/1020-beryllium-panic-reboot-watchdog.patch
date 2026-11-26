@@ -273,7 +273,7 @@ index a627530c5..63a383dc8 100644
 +	int error = ufs_read_blocks(base, 1);
 +	if (!error) {
 +		memcpy(&h, bounce, sizeof(h));
-+		if (memcmp(h.magic, "BERGAMOTALOG", 8) == 0 && h.size == BERGAMOTA_LOG_SIZE) {
++		if (memcmp(h.magic, "SWEETLOG", 8) == 0 && h.size == BERGAMOTA_LOG_SIZE) {
 +			len = MIN(h.total, (uint64_t)BERGAMOTA_LOG_PREV);
 +		}
 +	}

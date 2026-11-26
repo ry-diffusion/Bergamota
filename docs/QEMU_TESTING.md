@@ -50,7 +50,7 @@ If dependencies are missing, install them:
    python3 tools/mkadt.py /tmp/qemu.adt --qemu
    ```
 
-2. **Pack the Kernel and ADT into a BERGAMOTAXNU Payload:**
+2. **Pack the Kernel and ADT into a SWEETXNU Payload:**
    ```sh
    python3 tools/mkpayload.py xnu/out/kernel.development.bergamota /tmp/qemu.adt /tmp/payload-qemu.bin \
        --cmdline 'debug=0xc serial=3 cpus=1 keepsyms=1 -enable_kprintf_spam rd=md0'

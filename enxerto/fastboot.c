@@ -723,13 +723,13 @@ static int magic8(const uint8_t *p, const char *m)
 
 int fb_find_payload(const uint8_t *img, uint64_t len, uint64_t *off, uint64_t *size, const char **why)
 {
-	if (len >= 8 && magic8(img, "BERGAMOTAXNU")) {
+	if (len >= 8 && magic8(img, "SWEETXNU")) {
 		*off = 0;
 		*size = len;
-		return FB_IMG_BERGAMOTAXNU;
+		return FB_IMG_SWEETXNU;
 	}
 	if (len < 8 || !magic8(img, "ANDROID!")) {
-		*why = "not a boot.img or BERGAMOTAXNU payload";
+		*why = "not a boot.img or SWEETXNU payload";
 		return 0;
 	}
 	if (len < 48) {
@@ -757,8 +757,8 @@ int fb_find_payload(const uint8_t *img, uint64_t len, uint64_t *off, uint64_t *s
 		*why = "boot.img truncated";
 		return 0;
 	}
-	if (rsz < 8 || !magic8(img + rd_off, "BERGAMOTAXNU")) {
-		*why = "boot.img ramdisk is not BERGAMOTAXNU";
+	if (rsz < 8 || !magic8(img + rd_off, "SWEETXNU")) {
+		*why = "boot.img ramdisk is not SWEETXNU";
 		return 0;
 	}
 	*off = rd_off;

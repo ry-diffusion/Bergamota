@@ -426,7 +426,7 @@ static void p_idle(void *ctx, struct fb *fb)
 	ui_tick();
 }
 
-/* [off, off + size) of the BERGAMOTAXNU payload inside the download, or a reason. */
+/* [off, off + size) of the SWEETXNU payload inside the download, or a reason. */
 static const char *payload_range(const uint8_t *img, uint64_t len, uintptr_t *lo, uintptr_t *hi)
 {
 	uint64_t off = 0, size = 0;
