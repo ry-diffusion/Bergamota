@@ -1,0 +1,9 @@
+Bergamota is MIT-licensed (LICENSE), with these exceptions:
+
+* xnu/: the patches modify Apple's XNU kernel, which is licensed under the
+  Apple Public Source License 2.0 (https://opensource.apple.com/apsl/); the
+  patches and the kernel built from them are distributed under that license.
+* Third-party programs and libraries bundled or built by the tools keep their
+  own licenses (for example tools/berga-tools/LICENSES/).
+* Nothing from Apple's iOS or Qualcomm's firmware is part of this repository;
+  users supply those files themselves.
