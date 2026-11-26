@@ -31,6 +31,13 @@
   | boot 4: fb 60 Hz + cores 0xf1, no tuning | 30 (best 37) | 22 (best 38) | GPU 21 % busy |
   | boot 4 + crimson-{cut,defer,batch,bb-nowait,async-commit,midcut} | **43 (best 51)**, 93-95 % <= 34 ms | **37 (best 49)**, 92 % <= 34 ms | GPU 710 MHz 17 % busy, 0 hangs; warm caches the same (42.9) |
   iOS 26 had 55-60 on page drags with the same method. GPU at 17 % busy: the gap is CPU/pacing (most intervals 17-34 ms). Not yet on iOS 18: crimson-sbkeepicons (an iOS 26 SpringBoard hook), bergamotacores_cpu0=0 (1030), input boost (1031 sysctl), iconservicesagent/widgets on Crimson.
+* **Tuning round 2 (13:50-14:20, observed):**
+  * `crimson-sbkeepicons`: not on iOS 18 ("SBIconListView -setCellVisibility:... not found"; the cost it removed, re-compositing iOS 26's layered icons on the CPU, does not exist on 18). Switch removed.
+  * Synthetic swipes never reach the touch driver's input boost: measure with `sysctlw kern.bergamota_input_boost 1` before each pair (1031).
+  * **Profile** (`bergamotasample`, 4 s during swipes, symbolicated with `research/ios18/dsc` via dsctools/symb.py): SpringBoard 82 % of a CPU; two background threads (~2 cores) are ~100 % in **Biome** (`bm_generateChecksum`, `bm_replace_file`, `copyfile`) with **47.6 % of all samples inside close()**: each home<->App Library transition makes Biome rewrite its bookmark files for its subscribers (dasd appInFocus, searchd, contextstored FocusModes). Idle: 0.1 %. backboardd 47 % (CA display thread). Likely cause: our UFS driver completes writes by polling, so a write-out costs CPU in the caller (not verified in the kernel yet).
+  * Experiment: Biome bookmark dirs read-only -> worse (32.7 fps, SpringBoard still 77 %), reverted.
+  * All 8 cores (no bergamotacores): 29.3 cold / 39.1 warm vs 43 with 0xf1 -> keep 0xf1 (boot 4, flashed).
+  * **Next levers:** interrupt-driven / async UFS write completion (removes the CPU cost of Biome's close/write storm), profile backboardd's display thread (Crimson CPU per frame), bergamotacores_cpu0=0 (1030).
 * **`boot` FLASHED with boot 4** (`research/ios18/enxerto-boot-ios18full-60.img`: fb 60 Hz, bergamotacores=0xf1, GPU governor; mkboot-full.sh default cmdline 491 bytes).
 * bergamotametrics was never installed by `renegade root` (mkroot-full.py did not call it): fixed; installed on the phone by hand.
 * **Next:** `crimson-bb.on` (backboardd/CoreAnimation on Crimson; backboardd already links the inject), then SpringBoard via exec-time injection; port the iOS 26 Crimson SpringBoard hooks to iOS 18; Wi-Fi on iOS 18 (bergamotawlan=5 bergamota80211, check CARD_CAPABILITIES).
