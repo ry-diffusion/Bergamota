@@ -679,10 +679,8 @@ def event_timing(root):
 #
 # All ON by default. Opt out with RENEGADE_NO_<FEATURE>=1 (FEATURE = APPREG, POSTERBOARD, BLUETOOTH, JB, WALLPAPER, BGLRENDER) or the
 # --no-<feature> flags of `renegade root` and `renegade update`, which set the same variables.
-# ON by default for this build: bgmtl() (the Bergamota Metal device linked into MercuryPosterExtension only) and its arming file, and with them the
-# Mercury wallpaper; opt out with RENEGADE_NO_BGMTL=1 (or RENEGADE_BGMTL=0), ship it inert with RENEGADE_BGMTL_ARM=0. RENEGADE_BGMTL_DIR = the three
-# dylibs (default research/bgmtl); without them the feature is skipped with a note and the wallpaper stays Collections 5010.
-# Kill switch on the device: /private/var/tmp/bgmtl.off; the in-process dead-man writes it after two unclean launches.
+# ON by default: crimson() (the Crimson Metal device over Turnip; see its block), and with it the Mercury wallpaper; opt out with
+# RENEGADE_NO_CRIMSON=1. Without the Crimson dylibs the feature is skipped with a note and the wallpaper stays Collections 5010.
 # RENEGADE_DISABLE_CRYPTEXD=1 / --disable-cryptexd, cryptexd(): fallback that removes the
 # crash-looping cryptexd job.
 # Every function is idempotent: `renegade update` runs them again on a finished image.
@@ -696,7 +694,7 @@ REPO = os.path.abspath(os.path.join(HERE, '..', '..'))
 WALLPAPER_COLLECTIONS = 'com.apple.WallpaperKit.CollectionsPoster:5010'
 # The stock iOS 18 wallpaper is Mercury's "fluidity" poster (Metal): provider com.apple.MercuryPoster, descriptor fluidity.two as read back from
 # PosterBoard after the user picked "iOS 18" in Settings (other descriptors of the provider: fluidity.one, fluidity.dynamic). Without a Metal
-# device it is black, so it is only selected when the bgmtl feature installed the Metal device; otherwise WALLPAPER_COLLECTIONS.
+# device it is black, so it is only selected when crimson() armed Mercury; otherwise WALLPAPER_COLLECTIONS.
 WALLPAPER_MERCURY = 'com.apple.MercuryPoster:fluidity.two'
 def wallpaper_poster(metal):
     return os.environ.get('RENEGADE_WALLPAPER_POSTER') or (WALLPAPER_MERCURY if metal else WALLPAPER_COLLECTIONS)
@@ -849,76 +847,106 @@ def posterboard(root):
 
 
 # ---------------------------------------------------------------------------------------------------------------
-# bgmtl (ON by default for this build, see the feature list above): the Bergamota Metal device for the stock iOS 18 wallpaper poster ONLY.
-# gpu/metal/inject (branch metal): bgmtl-inject.dylib + libbgair.dylib + libdrm.2.dylib (arm64e, pacstrip --sign) go to /usr/local/lib/bgmtl and
-# the dylib is linked into MercuryPosterExtension.appex's executable as an extra LC_LOAD_DYLIB (like bergamotafp.dylib into PosterBoard), the binary
-# re-signed ad hoc keeping identifier and entitlements. The dylib is INERT until /private/var/tmp/bgmtl.arm exists, honours the kill switch
-# /private/var/tmp/bgmtl.off and carries its own dead-man (see gpu/metal/inject/bgmtl_inject.m); no other process is touched.
-# Build output directory: RENEGADE_BGMTL_DIR (default research/bgmtl). Undo: delete the three files and restore the extension binary.
-BGMTL_DIR_DEFAULT = os.path.join(REPO, 'research/bgmtl')
-BGMTL_LIB_DIR = '/usr/local/lib/bgmtl'
-BGMTL_INJECT = BGMTL_LIB_DIR + '/bgmtl-inject.dylib'
+# crimson (ON by default, see the feature list above): the Crimson Metal device (Metal over Turnip/Vulkan, repo ry-diffusion/Crimson).
+# Crimson's ios/inject/build.sh, ios/turnip/build-turnip.sh and ios/build.sh give crimson-inject.dylib, libdrm.2.dylib, libturnip.dylib and
+# libcrimson.dylib (arm64e; pacstrip --sign here); they go to /usr/local/lib/crimson. crimson-inject.dylib is linked into each binary of
+# CRIMSON_TARGETS that the image has (extra LC_LOAD_DYLIB, re-signed ad hoc keeping identifier and entitlements). The inject is inert until
+# /private/var/tmp/crimson.arm exists, then a process uses Crimson only with its own switch: crimson.app.<bundle id> (apps, posters,
+# SpringBoard) or crimson-bb.on (backboardd). Kill switches crimson.off / crimson-bb.off; dead-men in the inject.
+# The image arms the inject and Mercury only (RENEGADE_CRIMSON_ARM=0: nothing, =all: also SpringBoard and backboardd): Crimson has not run
+# on iOS 18's CoreAnimation yet, so the system UI is switched on over SSH after a first boot (touch the switch files, respring).
+# RENEGADE_CRIMSON_DIR = the four dylibs (default ../Crimson/target/ios/out-bergamota next to this checkout, else research/crimson).
+CRIMSON_LIB_DIR = '/usr/local/lib/crimson'
+CRIMSON_INJECT = CRIMSON_LIB_DIR + '/crimson-inject.dylib'
+CRIMSON_LIBS = ('crimson-inject.dylib', 'libdrm.2.dylib', 'libturnip.dylib', 'libcrimson.dylib')
 MERCURY_BIN = 'System/Library/ExtensionKit/Extensions/MercuryPosterExtension.appex/MercuryPosterExtension'
+# (binary, switch file armed by default, switch file armed with RENEGADE_CRIMSON_ARM=all)
+CRIMSON_TARGETS = (
+    (MERCURY_BIN, 'crimson.app.com.apple.MercuryPoster', None),
+    ('System/Library/CoreServices/SpringBoard.app/SpringBoard', None, 'crimson.app.com.apple.springboard'),
+    ('usr/libexec/backboardd', None, 'crimson-bb.on'),
+)
 
 
-def bgmtl_arm(root):
-    if os.environ.get('RENEGADE_BGMTL_ARM') != '0':          # ON by default (the user's decision: the image ships Metal Mercury); RENEGADE_BGMTL_ARM=0 leaves it inert
-        arm = os.path.join(root, 'private/var/tmp/bgmtl.arm')
-        os.makedirs(os.path.dirname(arm), exist_ok=True)
-        with open(arm, 'w') as f:
-            f.write('armed by renegade bgmtl (RENEGADE_BGMTL_ARM=0 to ship it inert)\n')
-        print('bgmtl: /private/var/tmp/bgmtl.arm written: Mercury renders through BGMTLDevice at boot (dead-man and kill switch bgmtl.off apply)')
+def crimson_dir():
+    env = os.environ.get('RENEGADE_CRIMSON_DIR')
+    if env:
+        return env
+    sib = os.path.join(REPO, '..', 'Crimson', 'target', 'ios', 'out-bergamota')
+    return sib if os.path.isdir(sib) else os.path.join(REPO, 'research/crimson')
 
 
-def bgmtl(root):
+def crimson_link(root, rel):
+    """Link the inject into one binary of the image; True when it links it (already or now)."""
+    import subprocess, tempfile
+    import pacstrip
+    binp = os.path.join(root, rel)
+    if not os.path.exists(binp):
+        print('crimson: no', rel, 'in the image: skipped')
+        return False
+    if macho_has_dylib(binp, CRIMSON_INJECT):
+        return True
+    mode = os.stat(binp).st_mode & 0o7777
+    tmpd = tempfile.mkdtemp(prefix='renegade-crimson-')
+    try:
+        tmp = os.path.join(tmpd, os.path.basename(rel))
+        shutil.copyfile(binp, tmp)
+        os.chmod(tmp, 0o755)
+        ents, ident = entitlements_of(tmp), pacstrip.cs_identity(tmp)
+        subprocess.run([sys.executable, '-I', ADDLC, tmp, CRIMSON_INJECT], check=True)
+        pacstrip.sign(tmp)
+        if entitlements_of(tmp) != ents or pacstrip.cs_identity(tmp)[:2] != ident[:2]:
+            sys.exit('crimson: entitlements or identifier changed by the re-sign: %s left alone' % rel)
+        if not macho_has_dylib(tmp, CRIMSON_INJECT):
+            sys.exit('crimson: LC_LOAD_DYLIB missing after addlc.py in ' + rel)
+        install_file(tmp, binp, mode)
+    finally:
+        shutil.rmtree(tmpd, ignore_errors=True)
+    print('crimson: %s links %s (re-signed ad hoc as %s, %d entitlements kept)' % (rel, CRIMSON_INJECT, ident[0], len(ents or {})))
+    return True
+
+
+def crimson_switch(root, name, why):
+    path = os.path.join(root, 'private/var/tmp', name)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'w') as f:
+        f.write('armed by renegade crimson (%s)\n' % why)
+    os.chmod(path, 0o644)
+
+
+def crimson(root):
+    """Install Crimson; returns True when Mercury will render through it (the first-boot job then picks the Mercury wallpaper)."""
     import subprocess, tempfile
     sys.path.insert(0, HERE)
-    import pacstrip
-    binp = os.path.join(root, MERCURY_BIN)
-    if not os.path.exists(binp):
-        print('bgmtl: no', MERCURY_BIN, 'in the image: skipped')
+    src = crimson_dir()
+    if not all(os.path.exists(os.path.join(src, n)) for n in CRIMSON_LIBS):
+        print('crimson: %s does not have %s (build Crimson, see above): skipped' % (src, ', '.join(CRIMSON_LIBS)))
+        note_skip('crimson', 'Crimson dylibs not found in ' + src + '; no GPU Metal device, wallpaper stays Collections')
         return False
-    src = os.environ.get('RENEGADE_BGMTL_DIR') or BGMTL_DIR_DEFAULT
-    names = ('bgmtl-inject.dylib', 'libbgair.dylib', 'libdrm.2.dylib')
-    if not all(os.path.exists(os.path.join(src, n)) for n in names):
-        print('bgmtl: %s not built (gpu/metal/build-probe.sh; copy the three dylibs there): skipped, Mercury left alone' % src)
-        note_skip('bgmtl', 'bgmtl dylibs not found in ' + src + '; MercuryPosterExtension left alone')
-        return False
-    for n in names:                                        # first: the binary must never name a missing dylib
-        # signed exactly as the ones on the test phone were (`pacstrip --sign`: PAC stripped, ad hoc), whatever state they were built in
-        sd = tempfile.mkdtemp(prefix='renegade-bgmtl-lib-')
+    for n in CRIMSON_LIBS:                                 # first: no binary may name a missing dylib
+        sd = tempfile.mkdtemp(prefix='renegade-crimson-lib-')
         try:
             tmpl = os.path.join(sd, n)
             shutil.copyfile(os.path.join(src, n), tmpl)
             subprocess.run([sys.executable, '-I', os.path.join(HERE, 'pacstrip.py'), '--sign', tmpl], check=True, stdout=subprocess.DEVNULL)
-            install_file(tmpl, os.path.join(root, BGMTL_LIB_DIR.lstrip('/'), n), 0o755)
+            install_file(tmpl, os.path.join(root, CRIMSON_LIB_DIR.lstrip('/'), n), 0o755)
         finally:
             shutil.rmtree(sd, ignore_errors=True)
-    print('bgmtl: dylibs installed in', BGMTL_LIB_DIR)
-    if macho_has_dylib(binp, BGMTL_INJECT):
-        print('bgmtl: MercuryPosterExtension already links', BGMTL_INJECT)
-        bgmtl_arm(root)
-        return True
-    mode = os.stat(binp).st_mode & 0o7777
-    tmpd = tempfile.mkdtemp(prefix='renegade-bgmtl-')
-    try:
-        tmp = os.path.join(tmpd, 'MercuryPosterExtension')
-        shutil.copyfile(binp, tmp)
-        os.chmod(tmp, 0o755)
-        ents, ident = entitlements_of(tmp), pacstrip.cs_identity(tmp)
-        subprocess.run([sys.executable, '-I', ADDLC, tmp, BGMTL_INJECT], check=True)
-        pacstrip.sign(tmp)
-        if entitlements_of(tmp) != ents or pacstrip.cs_identity(tmp)[:2] != ident[:2]:
-            sys.exit('bgmtl: entitlements or identifier changed by the re-sign: MercuryPosterExtension left alone')
-        if not macho_has_dylib(tmp, BGMTL_INJECT):
-            sys.exit('bgmtl: LC_LOAD_DYLIB missing after addlc.py')
-        install_file(tmp, binp, mode)
-    finally:
-        shutil.rmtree(tmpd, ignore_errors=True)
-    print('bgmtl: MercuryPosterExtension links %s (re-signed ad hoc as %s, %d entitlements kept); inert until /private/var/tmp/bgmtl.arm exists' % (
-        BGMTL_INJECT, ident[0], len(ents or {})))
-    bgmtl_arm(root)
-    return True
+    print('crimson: dylibs installed in', CRIMSON_LIB_DIR, 'from', src)
+    arm = os.environ.get('RENEGADE_CRIMSON_ARM', '1')
+    mercury = False
+    for rel, default_switch, all_switch in CRIMSON_TARGETS:
+        if not crimson_link(root, rel):
+            continue
+        for sw in (default_switch, all_switch if arm == 'all' else None):
+            if sw and arm != '0':
+                crimson_switch(root, sw, 'RENEGADE_CRIMSON_ARM=' + arm)
+                print('crimson: /private/var/tmp/%s written' % sw)
+                mercury = mercury or rel == MERCURY_BIN
+    if arm != '0':
+        crimson_switch(root, 'crimson.arm', 'the inject stays inert without it')
+        print('crimson: /private/var/tmp/crimson.arm written (kill switch crimson.off)')
+    return mercury
 
 
 FIRSTBOOT_LABEL = 'org.bergamota.renegade-firstboot'
@@ -1352,11 +1380,11 @@ def auto(root):
         bluetooth(root)
     if enabled('posterboard'):
         posterboard(root)
-    # Metal Mercury ships by default (RENEGADE_NO_BGMTL=1 / RENEGADE_BGMTL=0 opts out). It goes in FIRST: the dylibs and bgmtl.arm are in the image
-    # before the first-boot job can select the Mercury wallpaper, and so before PosterBoard ever launches Mercury. The wallpaper follows the outcome.
+    # Crimson ships by default (RENEGADE_NO_CRIMSON=1 opts out). It goes in FIRST: the dylibs and switches are in the image before the
+    # first-boot job can select the Mercury wallpaper, and so before PosterBoard ever launches Mercury. The wallpaper follows the outcome.
     metal = False
-    if os.environ.get('RENEGADE_NO_BGMTL') != '1' and os.environ.get('RENEGADE_BGMTL') != '0':
-        metal = bgmtl(root)
+    if os.environ.get('RENEGADE_NO_CRIMSON') != '1':
+        metal = crimson(root)
     firstboot(root, appreg=enabled('appreg'), jb=enabled('jb'), wallpaper=enabled('wallpaper'), metal=metal)
     if enabled('bglrender'):
         bglrender(root)
