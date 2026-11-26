@@ -69,6 +69,10 @@ if [ "${IOS18:-1}" = 1 ]; then
 		"$here/bergamotametrics.c" -o "$out18/bergamotametrics"
 	codesign -s - -f --entitlements "$here/entitlements.plist" "$out18/bergamotametrics"
 	python3 -I "$pacstrip" --sign "$out18/bergamotametrics"
+	# sblaunch: SpringBoard's launchd Program when it runs on Crimson (DYLD_INSERT_LIBRARIES, then exec; root_tweaks18.crimson)
+	xcrun -sdk iphoneos clang -arch arm64e -mios-version-min=18.0 -O2 -Wall "$here/sblaunch.c" -o "$out18/sblaunch"
+	codesign -s - -f --entitlements "$here/entitlements.plist" "$out18/sblaunch"
+	python3 -I "$pacstrip" --sign "$out18/sblaunch"
 	b18 bergamotaposterset bergamotaposterset.m posterset.entitlements
 	# a picture as the lock and home wallpaper through PosterBoard's Photos poster (tools/identity/mkwallpaper.sh)
 	b18 bergamotawallpaper bergamotawallpaper.m posterset.entitlements

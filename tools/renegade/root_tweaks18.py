@@ -912,6 +912,34 @@ def crimson_link(root, rel):
     return True
 
 
+SPRINGBOARD_JOB = '/System/Library/LaunchDaemons/com.apple.SpringBoard.plist'
+SBLAUNCH = '/usr/local/bin/sblaunch'
+# backboardd's tuned Crimson switches from the iOS 26 measurements (NOTES: page drags 55-60 there; 43 fps on iOS 18 boot 4)
+CRIMSON_BB_TUNING = {'crimson-cut': 'on', 'crimson-defer': 'on', 'crimson-batch': 'on', 'crimson-bb-nowait': 'on',
+                     'crimson-async-commit': 'on', 'crimson-midcut': 'always\n40', 'crimson-bb.env': 'TU_DEBUG=sysmem'}
+
+
+def crimson_sblaunch(root):
+    """SpringBoard without load-command slack: its launchd job runs tools/bergamotanet/sblaunch, which sets
+    DYLD_INSERT_LIBRARIES and execs SpringBoard (launchd drops DYLD_* from EnvironmentVariables). True when installed."""
+    src = find_bergamotanet('ios18/sblaunch')
+    lpath = os.path.join(root, 'System/Library/xpc/launchd.plist')
+    if not src or not os.path.exists(lpath):
+        note_skip('crimson SpringBoard (sblaunch)', not_built('tools/bergamotanet/build.sh') if not src else 'no launchd.plist')
+        return False
+    install_file(src, os.path.join(root, SBLAUNCH.lstrip('/')))
+    st = os.stat(lpath)
+    plist = load(lpath)
+    job = plist['LaunchDaemons'].get(SPRINGBOARD_JOB)
+    if job is None:
+        note_skip('crimson SpringBoard (sblaunch)', 'no SpringBoard job in launchd.plist')
+        return False
+    job['Program'] = SBLAUNCH
+    save(lpath, plist, st.st_uid, st.st_gid, st.st_mode & 0o7777)
+    print('crimson: SpringBoard job Program = %s (DYLD_INSERT_LIBRARIES %s, then exec)' % (SBLAUNCH, CRIMSON_INJECT))
+    return True
+
+
 def crimson_switch(root, name, why):
     path = os.path.join(root, 'private/var/tmp', name)
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -942,7 +970,7 @@ def crimson(root):
     arm = os.environ.get('RENEGADE_CRIMSON_ARM', '1')
     mercury = False
     for rel, default_switch, all_switch in CRIMSON_TARGETS:
-        if not crimson_link(root, rel):
+        if not crimson_link(root, rel) and not (rel.endswith('/SpringBoard') and crimson_sblaunch(root)):
             continue
         extra = (all_switch if isinstance(all_switch, tuple) else (all_switch,)) if arm == 'all' else ()
         for sw in (default_switch,) + extra:
@@ -950,6 +978,13 @@ def crimson(root):
                 crimson_switch(root, sw, 'RENEGADE_CRIMSON_ARM=' + arm)
                 print('crimson: /private/var/tmp/%s written' % sw)
                 mercury = mercury or rel == MERCURY_BIN
+    if arm == 'all':
+        for name, text in CRIMSON_BB_TUNING.items():
+            path = os.path.join(root, 'private/var/tmp', name)
+            with open(path, 'w') as f:
+                f.write(text + '\n')
+            os.chmod(path, 0o644)
+        print('crimson: backboardd tuning switches written:', ', '.join(CRIMSON_BB_TUNING))
     if arm != '0':
         crimson_switch(root, 'crimson.arm', 'the inject stays inert without it')
         print('crimson: /private/var/tmp/crimson.arm written (kill switch crimson.off)')

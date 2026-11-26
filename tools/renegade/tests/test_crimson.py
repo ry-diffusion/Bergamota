@@ -32,9 +32,9 @@ class TestCrimsonArm(unittest.TestCase):
         self.assertEqual(self.run_crimson(None), (True, ['crimson.app.com.apple.MercuryPoster', 'crimson.arm']))
 
     def test_all_adds_springboard_and_backboardd(self):
-        self.assertEqual(self.run_crimson('all'), (True, ['crimson-bb.arm', 'crimson-bb.direct', 'crimson-bb.on',
-                                                          'crimson.app.com.apple.MercuryPoster',
-                                                          'crimson.app.com.apple.springboard', 'crimson.arm']))
+        self.assertEqual(self.run_crimson('all'), (True, sorted(
+            ['crimson-bb.arm', 'crimson-bb.direct', 'crimson-bb.on', 'crimson.app.com.apple.MercuryPoster',
+             'crimson.app.com.apple.springboard', 'crimson.arm'] + list(rt.CRIMSON_BB_TUNING))))
 
     def test_zero_installs_inert(self):
         self.assertEqual(self.run_crimson('0'), (False, []))
