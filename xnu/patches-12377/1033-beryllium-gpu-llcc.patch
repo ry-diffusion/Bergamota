@@ -1,0 +1,120 @@
+diff --git a/bsd/dev/sweet_a630.c b/bsd/dev/sweet_a630.c
+index 80d8b31..93c6eed 100644
+--- a/bsd/dev/sweet_a630.c
++++ b/bsd/dev/sweet_a630.c
+@@ -307,6 +307,7 @@ static int a630_mode;
+ /* Boot-args (all off/default unless given; docs/GPU_KERNEL.md "Power") */
+ static uint32_t a630_idle_ms;           /* sweetgpuidle=MS: slumber after this long without a submission (0 = never) */
+ static uint32_t a630_hwcg;              /* sweetgpuhwcg=1: hardware clock gating tables */
++static uint32_t a630_llcc;              /* sweetgpullcc=1 or kern.sweet_gpu_llcc: GPU traffic through the LLCC (slices 12, 11) */
+ static uint32_t a630_ubwc;              /* sweetgpuubwc=1: program the UBWC/bank registers (hbb 15) */
+ static uint32_t a630_stamps;           /* sweetgpustamps=1: CP timestamps around every submission (diagnostic; adds a WFI) */
+ static uint64_t gov_boost_until;        /* mach time until which the interactive boost floor holds */
+@@ -2277,6 +2278,58 @@ gpu_hwcg(void)
+  * no UBWC and no RBBM_SECVID writes (secure registers, nothing here needs
+  * them). a630 has VBIF, not GBIF; gmem is 1 MiB.
+  */
++/*
++ * System cache (LLCC) for the GPU, as Linux's a6xx_llc_activate and llcc-qcom do on sdm845 (and the stock kernel's
++ * kgsl: cache-slice-names "gpu", "gpuhtw"): activate LLCC slices 12 (GPU, 2304 KB) and 11 (GPU page-table walks) through
++ * the broadcast block (cache-controller@1100000, llcc_broadcast_base 0x1300000; TZ owns the slice attributes on sdm845,
++ * the kernel only activates), then tell the GPU its SCIDs in CX_MISC SYSTEM_CACHE_CNTL_1 (0x509e000 + 8) and set
++ * "allocate on read miss, not on write miss" in SYSTEM_CACHE_CNTL_0 (+4). CX is on whenever this runs.
++ */
++#define LLCC_BCAST_PA   0x1300000u
++#define LLCC_BCAST_SIZE 0x50000u
++#define GPU_CX_MISC_PA  0x509e000u
++static bool
++llcc_activate(vm_offset_t b, unsigned sid)
++{
++	uint32_t ctrl = sid * 0x1000u, status = ctrl + 4u;
++	gpu_wr(b, ctrl, (1u << 1) | 1u);        /* opcode ACTIVATE (1 << 1) with the trigger */
++	gpu_wr(b, ctrl, 1u << 1);               /* trigger cleared */
++	bool ok = gpu_poll(b, status, 1u << 1, 0, 100);        /* DEACTIVATE state bit clears */
++	printf("SWEET GPU: LLCC slice %u %s (status %#x)\n", sid, ok ? "active" : "NOT active", gpu_rd(b, status));
++	return ok;
++}
++
++static void
++gpu_llcc_apply(void)
++{
++	static vm_offset_t bcast, cxm;
++	if (!bcast) {
++		bcast = ml_io_map(LLCC_BCAST_PA, LLCC_BCAST_SIZE);
++	}
++	if (!cxm) {
++		cxm = ml_io_map(GPU_CX_MISC_PA, 0x1000);
++	}
++	if (!bcast || !cxm) {
++		printf("SWEET GPU: LLCC: cannot map\n");
++		return;
++	}
++	uint32_t cntl1 = 0;
++	if (llcc_activate(bcast, 12)) {
++		for (unsigned i = 0; i < 5; i++) {
++			cntl1 |= 12u << (5 * i);
++		}
++	}
++	if (llcc_activate(bcast, 11)) {
++		cntl1 |= 11u << 25;
++	}
++	if (!cntl1) {
++		return;
++	}
++	gpu_wr(cxm, 8, cntl1);
++	gpu_wr(cxm, 4, (gpu_rd(cxm, 4) & ~0xfu) | 0x3u);
++	printf("SWEET GPU: LLCC: SYSTEM_CACHE_CNTL_1 %#x CNTL_0 %#x\n", gpu_rd(cxm, 8), gpu_rd(cxm, 4));
++}
++
+ static bool
+ gpu_cp_hw_init(void)
+ {
+@@ -2324,6 +2377,9 @@ gpu_cp_hw_init(void)
+ 	if (a630_hwcg) {
+ 		gpu_hwcg();
+ 	}
++	if (a630_llcc) {
++		gpu_llcc_apply();
++	}
+ 	if (a630_ubwc) {
+ 		/* UBWC 2.0, highest bank bit 15 (field 2), no level-2 swizzle disable, macrotile 4 channels (Linux a6xx_set_ubwc_config) */
+ 		gpu_w(0x8e08, 0x4);             /* RB_NC_MODE_CNTL */
+@@ -3715,6 +3771,28 @@ sweet_gpu_sysctl SYSCTL_HANDLER_ARGS
+ 	return sysctl_handle_string(oidp, buf, sizeof(buf), req);
+ }
+ 
++static int
++sweet_gpu_llcc_sysctl SYSCTL_HANDLER_ARGS
++{
++#pragma unused(arg1, arg2)
++	int v = 0, err = sysctl_handle_int(oidp, &v, 0, req);
++	if (err || req->newptr == USER_ADDR_NULL) {
++		return err;
++	}
++	if (v != 1) {
++		return EINVAL;
++	}
++	sweet_gpu_lock();
++	a630_llcc = 1;
++	if (a630_awake) {
++		gpu_llcc_apply();
++	}
++	sweet_gpu_unlock();
++	return 0;
++}
++SYSCTL_PROC(_kern, OID_AUTO, sweet_gpu_llcc, CTLTYPE_INT | CTLFLAG_WR | CTLFLAG_LOCKED, 0, 0, sweet_gpu_llcc_sysctl, "I",
++    "1: GPU through the system cache (LLCC slices 12, 11)");
++
+ SYSCTL_PROC(_kern, OID_AUTO, sweet_gpu, CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, 0, 0, sweet_gpu_sysctl, "A",
+     "Adreno 630 metrics: key=value line (docs/GPU_KERNEL.md)");
+ 
+@@ -3974,6 +4052,9 @@ sweet_a630_probe(void)
+ 		if (PE_parse_boot_argn("sweetgpuhwcg", &v, sizeof(v))) {
+ 			a630_hwcg = v != 0;
+ 		}
++		if (PE_parse_boot_argn("sweetgpullcc", &v, sizeof(v))) {
++			a630_llcc = v != 0;
++		}
+ 		if (PE_parse_boot_argn("sweetgpuubwc", &v, sizeof(v))) {
+ 			a630_ubwc = v != 0;
+ 		}
