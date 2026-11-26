@@ -1,0 +1,172 @@
+diff --git a/bsd/dev/sweet_a630.c b/bsd/dev/sweet_a630.c
+index 80d8b31..0923fad 100644
+--- a/bsd/dev/sweet_a630.c
++++ b/bsd/dev/sweet_a630.c
+@@ -317,6 +317,8 @@ static uint32_t a630_bw_linux;          /* sweetgpubw=linux: the fixed Linux a63
+ static int a630_gov;                    /* sweetgpufreq=gov */
+ static unsigned a630_level = 1;         /* current GX level (index into gpu_levels) */
+ static unsigned a630_level_max = 7;     /* sweetgpumax=N */
++static uint32_t a630_extreme = 1;       /* Extreme Performance Mode (1035): levels above 710 MHz; sweetgpuextreme=0, kern.sweet_gpu_extreme */
++#define GPU_STOCK_MAX 7                 /* 710 MHz, the A630's rated top */
+ /* Input boost (patch 0217), driven from the touch driver through sweet_input_boost() in sweet_cpufreq.c. */
+ static uint64_t a630_input_until;       /* mach time until which the input floor holds (written lock-free by the hook) */
+ static uint32_t a630_input_level = 4;   /* sweetgpuinput=N: floor while the screen is touched (0 = off); default L4, 520 MHz */
+@@ -1569,14 +1571,25 @@ gpu_hfi_dump(void)
+  * ascending as KGSL orders gmu->gpu_freqs) with the RPMh VLVL of the
+  * Linux sdm845.dtsi OPP table: 257 MHz LOW_SVS 64, 342 SVS 128, 414 SVS_L1 192,
+  * 520 NOM 256, 596 NOM_L1 320, 675 TURBO 384, 710 TURBO_L1 416.
++ * Overclock (1035, Extreme Performance Mode): 800 and 835 MHz as No Gravity kernel's sdm845 v2 table (gpucc
++ * ftbl_gpu_cc_gx_gfx3d_clk_src_sdm845_v2), at TURBO_L1 like its 835 (the gfx.lvl top; NGK runs 710 at NOM_L1 and 800 at
++ * TURBO, we keep 710 and both overclock levels at TURBO_L1). The GMU sets clock and rail from this table.
+  */
+ static const struct {
+ 	uint16_t mhz, vlvl;
+ } gpu_levels[] = {
+ 	{ 0, 0 }, { 257, 64 }, { 342, 128 }, { 414, 192 }, { 520, 256 }, { 596, 320 }, { 675, 384 }, { 710, 416 },
++	{ 800, 416 }, { 835, 416 },
+ };
+ #define GPU_NLEVELS (sizeof(gpu_levels) / sizeof(gpu_levels[0]))
+ 
++/* Highest level the governor and the boosts may use: sweetgpumax, and 710 MHz unless Extreme Performance Mode is on. */
++static unsigned
++gpu_cap(void)
++{
++	return a630_extreme ? a630_level_max : MIN(a630_level_max, (unsigned)GPU_STOCK_MAX);
++}
++
+ static uint32_t gx_votes[MAX_GX_LEVELS], cx_votes[MAX_CX_LEVELS];
+ static uint32_t gx_khz[MAX_GX_LEVELS], cx_khz[MAX_CX_LEVELS];
+ static unsigned gx_levels;
+@@ -3382,11 +3395,11 @@ gpu_resume(void)
+ 	if (a630_gov && a630_boost_level) {
+ 		uint64_t hold;
+ 		nanoseconds_to_absolutetime(400 * NSEC_PER_MSEC, &hold);
+-		a630_level = MAX(a630_level, MIN(a630_boost_level, a630_level_max));
++		a630_level = MAX(a630_level, MIN(a630_boost_level, gpu_cap()));
+ 		gov_boost_until = mach_absolute_time() + hold;
+ 	}
+ 	if (a630_gov && a630_input_level && mach_absolute_time() < a630_input_until) {
+-		a630_level = MAX(a630_level, MIN(a630_input_level, a630_level_max));   /* the vote below applies it */
++		a630_level = MAX(a630_level, MIN(a630_input_level, gpu_cap()));   /* the vote below applies it */
+ 	}
+ 	a630_quiet = a630_resumes >= 2;
+ 	if (a630_resumes < 2) {
+@@ -3531,7 +3544,7 @@ gpu_hfi_start_dcvs(bool gx_on)
+ 	return true;
+ }
+ 
+-static uint64_t gov_win_ns, gov_win_busy_ns, gov_busy_pct, res_ns[8];
++static uint64_t gov_win_ns, gov_win_busy_ns, gov_busy_pct, res_ns[GPU_NLEVELS];
+ static unsigned gov_low_windows, gov_prev_submits, gov_rate;
+ 
+ /*
+@@ -3564,7 +3577,7 @@ sweet_gpu_input_boost(uint64_t now)
+ static unsigned
+ gpu_input_floor(uint64_t now)
+ {
+-	return (a630_gov && a630_input_level && now < a630_input_until) ? MIN(a630_input_level, a630_level_max) : 0;
++	return (a630_gov && a630_input_level && now < a630_input_until) ? MIN(a630_input_level, gpu_cap()) : 0;
+ }
+ 
+ /*
+@@ -3639,7 +3652,7 @@ gpu_gov_tick(uint64_t dt)
+ 	gov_win_ns = gov_win_busy_ns = 0;
+ 	uint64_t now = mach_absolute_time(), hold;
+ 	nanoseconds_to_absolutetime(400 * NSEC_PER_MSEC, &hold);
+-	unsigned cap = a630_level_max;
++	unsigned cap = gpu_cap();
+ 	if (a630_boost_level && gov_rate >= 4) {
+ 		gov_boost_until = now + hold;
+ 	}
+@@ -3694,18 +3707,18 @@ sweet_gpu_sysctl SYSCTL_HANDLER_ARGS
+ 	if (a630_dev.ready) {
+ 		now_in = 0;
+ 	}
+-	for (unsigned i = 0; i < 8; i++) {
++	for (unsigned i = 0; i < GPU_NLEVELS; i++) {
+ 		tot += res_ns[i];
+ 	}
+ 	n = snprintf(buf, sizeof(buf),
+-	    "state=%s level=%u mhz=%u max_level=%u freq=%s busy_pct=%llu clients=%u pids=%s submitted=%u completed=%u "
++	    "state=%s level=%u mhz=%u max_level=%u extreme=%u freq=%s busy_pct=%llu clients=%u pids=%s submitted=%u completed=%u "
+ 	    "suspends=%u resumes=%u recoveries=%u hangs=%u idle_ms=%u hwcg=%u boost_level=%u boosted=%u submits_100ms=%u dcvs_sets=%u dcvs_errors=%u input_level=%u input_ms=%u input_boosts=%u input_boosted=%u input_votes=%u gvm_tables=%u/%u gvm_free_ranges=%u total_ms=%llu res_ms=",
+-	    state, lvl, lvl ? gpu_levels[lvl].mhz : 0, a630_level_max, a630_gov ? "gov" : "fixed", gov_busy_pct, clients, pids,
++	    state, lvl, lvl ? gpu_levels[lvl].mhz : 0, gpu_cap(), a630_extreme, a630_gov ? "gov" : "fixed", gov_busy_pct, clients, pids,
+ 	    a630_dev.seqno, a630_dev.ready && cp_memory ? *(volatile uint32_t *)(cp_memory + SCRATCH_OFF + SCRATCH_FENCE) : 0,
+ 	    a630_suspends, a630_resumes, a630_recoveries, a630_dev.hangs, a630_idle_ms, a630_hwcg, a630_boost_level, (unsigned)(a630_boost_level && mach_absolute_time() < gov_boost_until), gov_rate, a630_level_sets, a630_dcvs_errors,
+ 	    a630_input_level, a630_input_ms, a630_input_events, (unsigned)(a630_input_level && mach_absolute_time() < a630_input_until), a630_input_votes, ptp_used, (unsigned)PTP_PAGES, gvm_nfree, tot / NSEC_PER_MSEC);
+ 	(void)now_in;
+-	for (unsigned i = 0; i < 8 && n > 0 && (size_t)n < sizeof(buf); i++) {
++	for (unsigned i = 0; i < GPU_NLEVELS && n > 0 && (size_t)n < sizeof(buf); i++) {
+ 		if (i) {
+ 			n += snprintf(buf + n, sizeof(buf) - n, ",L%u:%llu", i, res_ns[i] / NSEC_PER_MSEC);
+ 		} else {
+@@ -3715,6 +3728,31 @@ sweet_gpu_sysctl SYSCTL_HANDLER_ARGS
+ 	return sysctl_handle_string(oidp, buf, sizeof(buf), req);
+ }
+ 
++/* kern.sweet_gpu_extreme: 1 = levels up to 835 MHz, 0 = the stock 710 MHz top (bergamotad sets 0 in Low Power Mode). */
++static int
++sweet_gpu_extreme_sysctl SYSCTL_HANDLER_ARGS
++{
++#pragma unused(arg1, arg2)
++	int v = (int)a630_extreme, err = sysctl_handle_int(oidp, &v, 0, req);
++	if (err || req->newptr == USER_ADDR_NULL) {
++		return err;
++	}
++	if (v != 0 && v != 1) {
++		return EINVAL;
++	}
++	sweet_gpu_lock();
++	a630_extreme = (uint32_t)v;
++	if (a630_awake && a630_level > gpu_cap()) {
++		(void)gpu_set_level(gpu_cap());
++	}
++	sweet_gpu_unlock();
++	printf("SWEET GPU: Extreme Performance Mode %s (top level %u, %u MHz)\n", v ? "on" : "off", gpu_cap(),
++	    gpu_levels[gpu_cap()].mhz);
++	return 0;
++}
++SYSCTL_PROC(_kern, OID_AUTO, sweet_gpu_extreme, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, 0, 0, sweet_gpu_extreme_sysctl, "I",
++    "1: GPU levels up to 835 MHz (Extreme Performance Mode), 0: stock 710 MHz top");
++
+ SYSCTL_PROC(_kern, OID_AUTO, sweet_gpu, CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, 0, 0, sweet_gpu_sysctl, "A",
+     "Adreno 630 metrics: key=value line (docs/GPU_KERNEL.md)");
+ 
+@@ -3751,7 +3789,7 @@ a630_pm_thread(void *arg, wait_result_t wr)
+ 		absolutetime_to_nanoseconds(now - last, &dt);
+ 		last = now;
+ 		if (a630_dev.ready && !a630_dev.lost) {
+-			res_ns[a630_awake ? MIN(a630_level, 7u) : 0] += dt;
++			res_ns[a630_awake ? MIN(a630_level, (unsigned)GPU_NLEVELS - 1) : 0] += dt;
+ 			gpu_input_tick(now);                            /* before the governor: its floor includes the input floor */
+ 			if (a630_awake) {
+ 				gpu_gov_tick(dt);                       /* measures always, acts only with sweetgpufreq=gov */
+@@ -3767,14 +3805,14 @@ a630_pm_thread(void *arg, wait_result_t wr)
+ 		}
+ 		if (a630_dev.ready && (a630_gov || a630_idle_ms) && ns_since(summary) >= 30 * NSEC_PER_SEC) {
+ 			uint64_t tot = 1;
+-			for (unsigned i = 0; i < 8; i++) {
++			for (unsigned i = 0; i < GPU_NLEVELS; i++) {
+ 				tot += res_ns[i];
+ 			}
+ 			summary = now;
+-			printf("SWEET GPU: pm: %s level %u busy %llu%% (%u submits/100ms) | time in level (%%): slumber %llu, 257 %llu, 342 %llu, 414 %llu, 520 %llu, 596 %llu, 675 %llu, 710 %llu | suspends %u resumes %u recoveries %u submits %u\n",
++			printf("SWEET GPU: pm: %s level %u busy %llu%% (%u submits/100ms) | time in level (%%): slumber %llu, 257 %llu, 342 %llu, 414 %llu, 520 %llu, 596 %llu, 675 %llu, 710 %llu, 800 %llu, 835 %llu | suspends %u resumes %u recoveries %u submits %u\n",
+ 			    a630_awake ? "on" : "slumber", a630_level, gov_busy_pct, gov_rate, res_ns[0] * 100 / tot, res_ns[1] * 100 / tot, res_ns[2] * 100 / tot,
+ 			    res_ns[3] * 100 / tot, res_ns[4] * 100 / tot, res_ns[5] * 100 / tot, res_ns[6] * 100 / tot, res_ns[7] * 100 / tot,
+-			    a630_suspends, a630_resumes, a630_recoveries, a630_dev.submissions);
++			    res_ns[8] * 100 / tot, res_ns[9] * 100 / tot, a630_suspends, a630_resumes, a630_recoveries, a630_dev.submissions);
+ 		}
+ 		if (a630_hb_s && gcc && ns_since(hb) >= (uint64_t)a630_hb_s * NSEC_PER_SEC) {
+ 			hb = now;
+@@ -3986,6 +4024,9 @@ sweet_a630_probe(void)
+ 		if (PE_parse_boot_argn("sweetgpustamps", &v, sizeof(v))) {
+ 			a630_stamps = v != 0;
+ 		}
++		if (PE_parse_boot_argn("sweetgpuextreme", &v, sizeof(v))) {
++			a630_extreme = v != 0;
++		}
+ 		if (PE_parse_boot_argn("sweetgpuboost", &v, sizeof(v)) && v >= 0) {
+ 			a630_boost_level = (uint32_t)MIN(v, 7);
+ 		}

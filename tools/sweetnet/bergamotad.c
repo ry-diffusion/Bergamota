@@ -8,6 +8,9 @@
  *   rm NAME                   remove the file
  *   respring                  SIGTERM to SpringBoard (backboardd keeps running)
  *   reboot                    /usr/local/bin/sweetreboot normal
+ *   lpm                       "lpm STATE extreme X": iOS Low Power Mode (notify state) and kern.sweet_gpu_extreme
+ * It also keeps the GPU's Extreme Performance Mode (kernel 1035, levels above 710 MHz) in step with iOS Low Power Mode:
+ * on normally, off while Low Power Mode is on (notify "com.apple.system.lowpowermode", polled every 2 s).
  * NAME must be m2v-<lowercase letters, digits, dashes> or bgmtl-bb.env; files live in /private/var/tmp only.
  * Any local process can use it (a test phone): it binds the loopback address and nothing else.
  * Started by launchd: /System/Library/LaunchDaemons/org.sweet.bergamotad.plist. arm64e + pacstrip (tools/sweetnet/build.sh).
@@ -17,6 +20,8 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <netinet/in.h>
+#include <notify.h>
+#include <pthread.h>
 #include <signal.h>
 #include <spawn.h>
 #include <stdio.h>
@@ -131,9 +136,44 @@ reboot_normal(void)
 	return st == 0 ? 0 : -1;
 }
 
+static int lpm_token = -1;
+
+static int
+lpm_state(void)
+{
+	uint64_t st = 0;
+	if (lpm_token < 0 || notify_get_state(lpm_token, &st) != NOTIFY_STATUS_OK)
+		return -1;
+	return st != 0;
+}
+
+/* Extreme Performance Mode follows Low Power Mode: written on every change and once at start (a kernel without 1035 ignores it). */
+static void *
+lpm_watch(void *arg)
+{
+	(void)arg;
+	int last = -2;
+	for (;;) {
+		int lpm = lpm_state();
+		if (lpm >= 0 && lpm != last) {
+			int extreme = !lpm;
+			int r = sysctlbyname("kern.sweet_gpu_extreme", NULL, NULL, &extreme, sizeof(extreme));
+			fprintf(stderr, "bergamotad: Low Power Mode %s -> GPU Extreme Performance Mode %s%s\n", lpm ? "on" : "off",
+			    extreme ? "on" : "off", r ? " (sysctl failed)" : "");
+			last = lpm;
+		}
+		sleep(2);
+	}
+	return NULL;
+}
+
 int
 main(void)
 {
+	pthread_t t;
+	if (notify_register_check("com.apple.system.lowpowermode", &lpm_token) != NOTIFY_STATUS_OK)
+		lpm_token = -1;
+	pthread_create(&t, NULL, lpm_watch, NULL);
 	signal(SIGPIPE, SIG_IGN);
 	int s = socket(AF_INET, SOCK_STREAM, 0), one = 1;
 	setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
@@ -158,6 +198,15 @@ main(void)
 				reply(c, "err empty\n");
 			else if (!strcmp(cmd, "get"))
 				get(c);
+			else if (!strcmp(cmd, "lpm")) {
+				int ex = -1;
+				size_t len = sizeof(ex);
+				char out[64];
+				if (sysctlbyname("kern.sweet_gpu_extreme", &ex, &len, NULL, 0))
+					ex = -1;
+				snprintf(out, sizeof(out), "lpm %d extreme %d\n", lpm_state(), ex);
+				reply(c, out);
+			}
 			else if (!strcmp(cmd, "set") && name && name_ok(name))
 				reply(c, set(name, arg ? arg : "") ? "err write\n" : "ok\n");
 			else if (!strcmp(cmd, "rm") && name && name_ok(name)) {
