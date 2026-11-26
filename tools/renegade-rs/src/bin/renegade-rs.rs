@@ -190,9 +190,9 @@ fn img2simg_consume(raw: &Path, out: &Path) -> Res<renegade::sparse::Img2SimgSta
 /// The root build from an extracted root folder (the IPSW volumes merged: cryptexes first, OS volume on top):
 /// copy-stage layout fixes, owner map, PAC strip of every Mach-O, HFSX image, sparse image.
 fn cmd_root(args: &[String]) -> Res<ExitCode> {
-    let (pos, opts, flags) = split(args, &["--map", "--size", "--name", "--date", "--raw", "--build", "--version", "--board", "--adt-target", "--netcfg", "--sweetreboot"]);
+    let (pos, opts, flags) = split(args, &["--map", "--size", "--name", "--date", "--raw", "--build", "--version", "--board", "--adt-target", "--netcfg", "--bergamotareboot"]);
     let [src, out] = &pos[..] else {
-        return Err("root SRC_DIR OUT.simg --build B --version V [--board N104 --adt-target N104] [--map owners.tsv] [--size 20g] [--raw RAW.img] [--keep-raw] [--no-tweaks] [--no-macho] [--quiet] [--netcfg FILE] [--sweetreboot FILE]".into());
+        return Err("root SRC_DIR OUT.simg --build B --version V [--board N104 --adt-target N104] [--map owners.tsv] [--size 20g] [--raw RAW.img] [--keep-raw] [--no-tweaks] [--no-macho] [--quiet] [--netcfg FILE] [--bergamotareboot FILE]".into());
     };
     let date: u32 = opts.get("--date").map(|d| d.parse()).transpose()?.unwrap_or(0);
     let (mut entries, paths, skipped) = renegade::tree::scan_dir(Path::new(src))?;
@@ -217,7 +217,7 @@ fn cmd_root(args: &[String]) -> Res<ExitCode> {
             adt_target: opts.get("--adt-target").cloned().unwrap_or("N104".into()),
             quiet: flags.iter().any(|f| f == "--quiet"),
             netcfg: read("--netcfg")?,
-            sweetreboot: read("--sweetreboot")?,
+            bergamotareboot: read("--bergamotareboot")?,
             root_display: String::new(),
             ..Default::default()
         };
@@ -300,8 +300,8 @@ fn cmd_plist(args: &[String]) -> Res<ExitCode> {
 /// The ported tweaks on a root folder (what root_tweaks18.py does to the mounted image): prints the same lines,
 /// then the recorded owners ("OWNER path uid gid").
 fn cmd_tweaks(args: &[String]) -> Res<ExitCode> {
-    let (pos, opts, flags) = split(args, &["--build", "--version", "--board", "--adt-target", "--netcfg", "--sweetreboot", "--display", "--tools-dir", "--ssh-key", "--ssh-key-name"]);
-    let [root] = &pos[..] else { return Err("tweaks ROOT_DIR --build B --version V [--board N841 --adt-target D22] [--quiet] [--netcfg FILE] [--sweetreboot FILE] [--display PATH]".into()) };
+    let (pos, opts, flags) = split(args, &["--build", "--version", "--board", "--adt-target", "--netcfg", "--bergamotareboot", "--display", "--tools-dir", "--ssh-key", "--ssh-key-name"]);
+    let [root] = &pos[..] else { return Err("tweaks ROOT_DIR --build B --version V [--board N841 --adt-target D22] [--quiet] [--netcfg FILE] [--bergamotareboot FILE] [--display PATH]".into()) };
     let read = |k: &str| opts.get(k).map(fs::read).transpose();
     let cfg = renegade::tweaks::Config {
         build: opts.get("--build").cloned().ok_or("--build is required")?,
@@ -310,7 +310,7 @@ fn cmd_tweaks(args: &[String]) -> Res<ExitCode> {
         adt_target: opts.get("--adt-target").cloned().unwrap_or("N104".into()),
         quiet: flags.iter().any(|f| f == "--quiet"),
         netcfg: read("--netcfg")?,
-        sweetreboot: read("--sweetreboot")?,
+        bergamotareboot: read("--bergamotareboot")?,
         root_display: opts.get("--display").cloned().unwrap_or(root.clone()),
         tools: opts.get("--tools-dir").map(|d| tools_from_dir(Path::new(d))).transpose()?,
         ssh_key: opts.get("--ssh-key").cloned(),
@@ -1187,7 +1187,7 @@ fn tools_from_dir(dir: &Path) -> Res<renegade::tools::Tools> {
                 todo.push(p);
             } else if p.is_file() {
                 let rel = p.strip_prefix(dir)?.to_string_lossy().into_owned();
-                if ["ssh/", "sweetnet/", "bergamota-gl/"].iter().any(|x| rel.starts_with(x)) {
+                if ["ssh/", "bergamotanet/", "bergamota-gl/"].iter().any(|x| rel.starts_with(x)) {
                     files.insert(rel, fs::read(&p)?);
                 }
             }

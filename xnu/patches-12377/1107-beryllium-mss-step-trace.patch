@@ -9,19 +9,19 @@ index c03ee4c5c2fba56397b740727eaf8ff3e05a52e3..51a75a012091c230a8938a3e069d2abf
 +/*
 + * Boot 32: the console stopped right after the stage-4 banner (USB console and persistent log are
 + * buffered, so the stop may be a few steps later). Every step now logs, flushes the persistent log
-+ * and waits 1.5 s for the USB console; sweetmssstep=N stops after step N (then tears down).
++ * and waits 1.5 s for the USB console; bergamotamssstep=N stops after step N (then tears down).
 + */
 +static int ms_step_max = 99;
 +
 +static bool
 +ms_step(int n, const char *what)
 +{
-+	printf("SWEET MSS: step %d: %s\n", n, what);
-+	sweet_log_sync();
++	printf("BERGAMOTA MSS: step %d: %s\n", n, what);
++	bergamota_log_sync();
 +	wl_sleep(1500);
 +	if (n > ms_step_max) {
-+		printf("SWEET MSS: stopping before step %d (sweetmssstep=%d)\n", n, ms_step_max);
-+		sweet_log_sync();
++		printf("BERGAMOTA MSS: stopping before step %d (bergamotamssstep=%d)\n", n, ms_step_max);
++		bergamota_log_sync();
 +		return false;
 +	}
 +	return true;
@@ -32,24 +32,24 @@ index c03ee4c5c2fba56397b740727eaf8ff3e05a52e3..51a75a012091c230a8938a3e069d2abf
  	uint64_t a[7];
 @@ -1135,6 +1156,7 @@ ms_qmp_open(void)
  	ms.qmp_size = wl_rd(ms.qmp, 0x34);
- 	printf("SWEET MSS: QMP magic %#x version %u mcore mailbox %#x+%#x\n", magic, version, ms.qmp_off,
+ 	printf("BERGAMOTA MSS: QMP magic %#x version %u mcore mailbox %#x+%#x\n", magic, version, ms.qmp_off,
  	    ms.qmp_size);
-+	sweet_log_sync();
++	bergamota_log_sync();
  	if (magic != 0x4d41494cu || version != 1 || ms.qmp_size < 68 || ms.qmp_off + ms.qmp_size > 0x400) {
  		return false;
  	}
 @@ -1350,6 +1372,7 @@ wl_mss(void)
  
- 	(void)PE_parse_boot_argn("sweetmss", &gate, sizeof(gate));
- 	(void)PE_parse_boot_argn("sweetmsskeep", &keep, sizeof(keep));
-+	(void)PE_parse_boot_argn("sweetmssstep", &ms_step_max, sizeof(ms_step_max));
+ 	(void)PE_parse_boot_argn("bergamotamss", &gate, sizeof(gate));
+ 	(void)PE_parse_boot_argn("bergamotamsskeep", &keep, sizeof(keep));
++	(void)PE_parse_boot_argn("bergamotamssstep", &ms_step_max, sizeof(ms_step_max));
  	if (gate != 1) {
- 		printf("SWEET MSS: stage 4 needs sweetmss=1 as well (first TrustZone/hypervisor step): not run\n");
+ 		printf("BERGAMOTA MSS: stage 4 needs bergamotamss=1 as well (first TrustZone/hypervisor step): not run\n");
  		return;
 @@ -1357,6 +1380,9 @@ wl_mss(void)
- 	printf("SWEET MSS: stage 4: power the modem DSP and boot its MBA, stop at \"MBA alive\"%s\n",
- 	    keep ? " (sweetmsskeep=1: leave it running)" : ", then tear down");
- 	sweet_log_sync();
+ 	printf("BERGAMOTA MSS: stage 4: power the modem DSP and boot its MBA, stop at \"MBA alive\"%s\n",
+ 	    keep ? " (bergamotamsskeep=1: leave it running)" : ", then tear down");
+ 	bergamota_log_sync();
 +	if (!ms_step(1, "map MMIO (no access)")) {
 +		return;
 +	}
@@ -57,7 +57,7 @@ index c03ee4c5c2fba56397b740727eaf8ff3e05a52e3..51a75a012091c230a8938a3e069d2abf
  	ms.rmb = ml_io_map(MSS_RMB_PA, 0x1000);
  	ms.aoss = ml_io_map(MSS_AOSS_RESTART_PA, 0x1000);
 @@ -1368,6 +1394,9 @@ wl_mss(void)
- 		printf("SWEET MSS: MMIO mapping failed\n");
+ 		printf("BERGAMOTA MSS: MMIO mapping failed\n");
  		return;
  	}
 +	if (!ms_step(2, "read mba.mbn from the modem partition")) {
@@ -67,7 +67,7 @@ index c03ee4c5c2fba56397b740727eaf8ff3e05a52e3..51a75a012091c230a8938a3e069d2abf
  	if (mba == NULL) {
  		return;
 @@ -1375,9 +1404,15 @@ wl_mss(void)
- 	printf("SWEET MSS: mba.mbn %u bytes read from the modem partition\n", mba_len);
+ 	printf("BERGAMOTA MSS: mba.mbn %u bytes read from the modem partition\n", mba_len);
  
  	/* qcom_q6v5_prepare(): AOSS load_state, then the proxy power domains */
 +	if (!ms_step(3, "AOSS QMP open + load_state on")) {
@@ -80,7 +80,7 @@ index c03ee4c5c2fba56397b740727eaf8ff3e05a52e3..51a75a012091c230a8938a3e069d2abf
 +		goto out;
 +	}
  	for (int i = 0; i < 3; i++) {
- 		if (sweet_rpmh_arc_vote(ms_arc_res[i], true) != 0) {
+ 		if (bergamota_rpmh_arc_vote(ms_arc_res[i], true) != 0) {
  			goto out;
 @@ -1390,6 +1425,9 @@ wl_mss(void)
  		    wl_rd(wl.gcc, 0x8a000), wl_rd(wl.gcc, 0x34004), wl_rd(wl.gcc, 0x38004), wl_rd(wl.gcc, 0x8a004));
@@ -101,7 +101,7 @@ index c03ee4c5c2fba56397b740727eaf8ff3e05a52e3..51a75a012091c230a8938a3e069d2abf
 +	}
  	vm_offset_t mba_va = ml_io_map_wcomb(MSS_MBA_PA, MSS_MBA_SIZE);
  	if (!mba_va) {
- 		printf("SWEET MSS: MBA carve-out mapping failed\n");
+ 		printf("BERGAMOTA MSS: MBA carve-out mapping failed\n");
 @@ -1422,6 +1463,9 @@ wl_mss(void)
  	__asm__ volatile ("dsb sy" ::: "memory");
  	ml_io_unmap(mba_va, MSS_MBA_SIZE);      /* no kernel mapping may exist once the Q6 owns it */

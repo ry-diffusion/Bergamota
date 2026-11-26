@@ -1,6 +1,6 @@
 /*
- * Host test of the kernel PAC emulation (xnu/patches-12377/1019-sweet-pac-emulation.patch,
- * osfmk/arm64/sweet_pacemu.h). Run through check.py, which extracts the header from the
+ * Host test of the kernel PAC emulation (xnu/patches-12377/1019-bergamota-pac-emulation.patch,
+ * osfmk/arm64/bergamota_pacemu.h). Run through check.py, which extracts the header from the
  * patch, assembles forms.s and cross-checks against llvm-objdump and pacstrip.py.
  *
  *   pacemu_test unit             built-in semantic tests
@@ -14,27 +14,27 @@
 #include <string.h>
 #include <time.h>
 
-#include "sweet_pacemu.h"
+#include "bergamota_pacemu.h"
 
 static void
 canonical(uint32_t w, char *buf, size_t n)
 {
-	struct sweet_pac_insn in;
+	struct bergamota_pac_insn in;
 	static const char *const nop_cls[] = {
-		[SWEET_PACC_PAC] = "PAC", [SWEET_PACC_AUT] = "AUT", [SWEET_PACC_XPAC] = "XPAC",
+		[BERGAMOTA_PACC_PAC] = "PAC", [BERGAMOTA_PACC_AUT] = "AUT", [BERGAMOTA_PACC_XPAC] = "XPAC",
 	};
 
-	if (!sweet_pac_decode(w, &in)) {
+	if (!bergamota_pac_decode(w, &in)) {
 		snprintf(buf, n, "NONE");
 		return;
 	}
 	switch (in.op) {
-	case SWEET_PAC_RET:   snprintf(buf, n, "RET"); break;
-	case SWEET_PAC_BR:    snprintf(buf, n, "BR n=%u", in.rn); break;
-	case SWEET_PAC_BLR:   snprintf(buf, n, "BLR n=%u", in.rn); break;
-	case SWEET_PAC_NOP:   snprintf(buf, n, "NOP %s d=%u", nop_cls[in.cls], in.rd); break;
-	case SWEET_PAC_PACGA: snprintf(buf, n, "PACGA d=%u n=%u m=%u", in.rd, in.rn, in.rm); break;
-	case SWEET_PAC_LDR:
+	case BERGAMOTA_PAC_RET:   snprintf(buf, n, "RET"); break;
+	case BERGAMOTA_PAC_BR:    snprintf(buf, n, "BR n=%u", in.rn); break;
+	case BERGAMOTA_PAC_BLR:   snprintf(buf, n, "BLR n=%u", in.rn); break;
+	case BERGAMOTA_PAC_NOP:   snprintf(buf, n, "NOP %s d=%u", nop_cls[in.cls], in.rd); break;
+	case BERGAMOTA_PAC_PACGA: snprintf(buf, n, "PACGA d=%u n=%u m=%u", in.rd, in.rn, in.rm); break;
+	case BERGAMOTA_PAC_LDR:
 		snprintf(buf, n, "LDR t=%u n=%u imm=%d%s", in.rd, in.rn, in.imm, in.writeback ? " wb" : "");
 		break;
 	default:              snprintf(buf, n, "?"); break;
@@ -43,7 +43,7 @@ canonical(uint32_t w, char *buf, size_t n)
 
 /* ---- the fixed machine state shared with check.py ---- */
 static void
-init_state(struct sweet_pac_cpu *c)
+init_state(struct bergamota_pac_cpu *c)
 {
 	for (unsigned i = 0; i < 31; i++) {
 		c->x[i] = 0x0000000100000000ULL + 0x10000ULL * i + 0x40ULL;
@@ -98,95 +98,95 @@ static int failures;
 #define CHECK(cond, ...) do { if (!(cond)) { failures++; printf("FAIL %s:%d: ", __FILE__, __LINE__); \
 	                                     printf(__VA_ARGS__); printf("\n"); } } while (0)
 
-static enum sweet_pac_result
-run(uint32_t w, struct sweet_pac_cpu *c, struct mem *m, uint64_t *fa)
+static enum bergamota_pac_result
+run(uint32_t w, struct bergamota_pac_cpu *c, struct mem *m, uint64_t *fa)
 {
-	return sweet_pac_execute(w, c, load64, m, fa);
+	return bergamota_pac_execute(w, c, load64, m, fa);
 }
 
 static int
 unit(void)
 {
-	struct sweet_pac_cpu c, o;
+	struct bergamota_pac_cpu c, o;
 	struct mem m = { 0 };
 	uint64_t fa = 0;
 
 	/* RETAA/RETAB: PC = LR, nothing else */
 	init_state(&c); o = c;
-	CHECK(run(RETAB, &c, &m, &fa) == SWEET_PAC_DONE && c.pc == o.x[30], "retab");
+	CHECK(run(RETAB, &c, &m, &fa) == BERGAMOTA_PAC_DONE && c.pc == o.x[30], "retab");
 	c.pc = o.pc; CHECK(memcmp(&c, &o, sizeof(c)) == 0, "retab changed registers");
 	init_state(&c);
-	CHECK(run(RETAA, &c, &m, &fa) == SWEET_PAC_DONE && c.pc == o.x[30], "retaa");
+	CHECK(run(RETAA, &c, &m, &fa) == BERGAMOTA_PAC_DONE && c.pc == o.x[30], "retaa");
 
 	/* BRAA/BRABZ: PC = Xn, the modifier is ignored, LR untouched */
 	init_state(&c);
-	CHECK(run(braa(3, 31, 1), &c, &m, &fa) == SWEET_PAC_DONE && c.pc == o.x[3] && c.x[30] == o.x[30], "brab x3, sp");
+	CHECK(run(braa(3, 31, 1), &c, &m, &fa) == BERGAMOTA_PAC_DONE && c.pc == o.x[3] && c.x[30] == o.x[30], "brab x3, sp");
 	init_state(&c);
-	CHECK(run(braaz(30, 1), &c, &m, &fa) == SWEET_PAC_DONE && c.pc == o.x[30], "brabz x30");
+	CHECK(run(braaz(30, 1), &c, &m, &fa) == BERGAMOTA_PAC_DONE && c.pc == o.x[30], "brabz x30");
 	init_state(&c);
-	CHECK(run(braa(31, 2, 0), &c, &m, &fa) == SWEET_PAC_DONE && c.pc == 0, "braa xzr: target 0");
+	CHECK(run(braa(31, 2, 0), &c, &m, &fa) == BERGAMOTA_PAC_DONE && c.pc == 0, "braa xzr: target 0");
 
 	/* BLRAA: LR = PC + 4; BLRAAZ X30 branches to the OLD LR */
 	init_state(&c);
-	CHECK(run(blraa(16, 17, 1), &c, &m, &fa) == SWEET_PAC_DONE && c.pc == o.x[16] && c.x[30] == o.pc + 4 &&
+	CHECK(run(blraa(16, 17, 1), &c, &m, &fa) == BERGAMOTA_PAC_DONE && c.pc == o.x[16] && c.x[30] == o.pc + 4 &&
 	    c.x[16] == o.x[16] && c.x[17] == o.x[17], "blrab x16, x17");
 	init_state(&c);
-	CHECK(run(blraaz(30, 0), &c, &m, &fa) == SWEET_PAC_DONE && c.pc == o.x[30] && c.x[30] == o.pc + 4,
+	CHECK(run(blraaz(30, 0), &c, &m, &fa) == BERGAMOTA_PAC_DONE && c.pc == o.x[30] && c.x[30] == o.pc + 4,
 	    "blraaz x30: pc=%" PRIx64 " lr=%" PRIx64, c.pc, c.x[30]);
 
 	/* Z forms with a non-zero Rm/Rn field are unallocated */
-	CHECK(run(braaz(4, 0) & ~31u, &c, &m, &fa) == SWEET_PAC_UNHANDLED, "braaz with rm=0");
-	CHECK(run(pac(0, 1, 3, 7), &c, &m, &fa) == SWEET_PAC_UNHANDLED, "paciza with rn=3");
+	CHECK(run(braaz(4, 0) & ~31u, &c, &m, &fa) == BERGAMOTA_PAC_UNHANDLED, "braaz with rm=0");
+	CHECK(run(pac(0, 1, 3, 7), &c, &m, &fa) == BERGAMOTA_PAC_UNHANDLED, "paciza with rn=3");
 
 	/* PAC/AUT/XPAC: NOP, the pointer stays plain */
 	for (unsigned opc = 0; opc < 8; opc++) {
 		for (int z = 0; z < 2; z++) {
 			init_state(&c);
-			CHECK(run(pac(opc, z, z ? 31 : 5, 7), &c, &m, &fa) == SWEET_PAC_DONE && c.pc == o.pc + 4,
+			CHECK(run(pac(opc, z, z ? 31 : 5, 7), &c, &m, &fa) == BERGAMOTA_PAC_DONE && c.pc == o.pc + 4,
 			    "pac/aut opc %u z %d", opc, z);
 			c.pc = o.pc; CHECK(memcmp(&c, &o, sizeof(c)) == 0, "pac/aut opc %u z %d changed registers", opc, z);
 		}
 	}
 	init_state(&c);
-	CHECK(run(0xDAC143E0u | 9, &c, &m, &fa) == SWEET_PAC_DONE && c.pc == o.pc + 4 && c.x[9] == o.x[9], "xpaci");
+	CHECK(run(0xDAC143E0u | 9, &c, &m, &fa) == BERGAMOTA_PAC_DONE && c.pc == o.pc + 4 && c.x[9] == o.x[9], "xpaci");
 
 	/* PACGA: pacstrip's EOR Xd, Xn, Xm, ROR #13; independent of the register numbers; SP -> MOV */
 	{
 		const uint64_t a = 0x00007fff12345678ULL, b = 0x0000000102030405ULL;
 		const uint64_t want = a ^ (b >> 13 | b << 51);
 		init_state(&c); c.x[1] = a; c.x[2] = b;
-		CHECK(run(pacga(0, 1, 2), &c, &m, &fa) == SWEET_PAC_DONE && c.x[0] == want && c.pc == o.pc + 4, "pacga x0,x1,x2");
+		CHECK(run(pacga(0, 1, 2), &c, &m, &fa) == BERGAMOTA_PAC_DONE && c.x[0] == want && c.pc == o.pc + 4, "pacga x0,x1,x2");
 		init_state(&c); c.x[20] = a; c.x[4] = b;
-		CHECK(run(pacga(9, 20, 4), &c, &m, &fa) == SWEET_PAC_DONE && c.x[9] == want, "pacga x9,x20,x4 (same value)");
+		CHECK(run(pacga(9, 20, 4), &c, &m, &fa) == BERGAMOTA_PAC_DONE && c.x[9] == want, "pacga x9,x20,x4 (same value)");
 		init_state(&c); c.x[8] = a; c.x[10] = b;
-		CHECK(run(pacga(8, 8, 10), &c, &m, &fa) == SWEET_PAC_DONE && c.x[8] == want, "pacga x8,x8,x10 (chained)");
+		CHECK(run(pacga(8, 8, 10), &c, &m, &fa) == BERGAMOTA_PAC_DONE && c.x[8] == want, "pacga x8,x8,x10 (chained)");
 		init_state(&c); c.x[4] = a;
-		CHECK(run(pacga(3, 4, 31), &c, &m, &fa) == SWEET_PAC_DONE && c.x[3] == a, "pacga x3,x4,sp");
+		CHECK(run(pacga(3, 4, 31), &c, &m, &fa) == BERGAMOTA_PAC_DONE && c.x[3] == a, "pacga x3,x4,sp");
 		init_state(&c); o = c;
-		CHECK(run(pacga(31, 1, 2), &c, &m, &fa) == SWEET_PAC_DONE && c.pc == o.pc + 4, "pacga xzr");
+		CHECK(run(pacga(31, 1, 2), &c, &m, &fa) == BERGAMOTA_PAC_DONE && c.pc == o.pc + 4, "pacga xzr");
 		c.pc = o.pc; CHECK(memcmp(&c, &o, sizeof(c)) == 0, "pacga xzr wrote a register");
 		init_state(&c); c.x[5] = b;
-		CHECK(run(pacga(0, 31, 5), &c, &m, &fa) == SWEET_PAC_DONE && c.x[0] == (b >> 13 | b << 51), "pacga x0,xzr,x5");
+		CHECK(run(pacga(0, 31, 5), &c, &m, &fa) == BERGAMOTA_PAC_DONE && c.x[0] == (b >> 13 | b << 51), "pacga x0,xzr,x5");
 	}
 
 	/* LDRAA/LDRAB: plain and pre-index, SP base, XZR target, Rt == Rn */
 	init_state(&c); o = c;
-	CHECK(run(ldraa(9, 8, 32, 1, 0), &c, &m, &fa) == SWEET_PAC_DONE && c.x[8] == o.x[8] + 32 &&
+	CHECK(run(ldraa(9, 8, 32, 1, 0), &c, &m, &fa) == BERGAMOTA_PAC_DONE && c.x[8] == o.x[8] + 32 &&
 	    c.x[9] == mem_value(o.x[8] + 32) && c.pc == o.pc + 4, "ldraa x9, [x8, #32]!");
 	init_state(&c);
-	CHECK(run(ldraa(2, 31, -4096, 0, 1), &c, &m, &fa) == SWEET_PAC_DONE && c.sp == o.sp &&
+	CHECK(run(ldraa(2, 31, -4096, 0, 1), &c, &m, &fa) == BERGAMOTA_PAC_DONE && c.sp == o.sp &&
 	    c.x[2] == mem_value(o.sp - 4096), "ldrab x2, [sp, #-4096]");
 	init_state(&c);
-	CHECK(run(ldraa(6, 31, 16, 1, 0), &c, &m, &fa) == SWEET_PAC_DONE && c.sp == o.sp + 16 &&
+	CHECK(run(ldraa(6, 31, 16, 1, 0), &c, &m, &fa) == BERGAMOTA_PAC_DONE && c.sp == o.sp + 16 &&
 	    c.x[6] == mem_value(o.sp + 16), "ldraa x6, [sp, #16]!");
 	init_state(&c);
-	CHECK(run(ldraa(7, 7, -256, 1, 1), &c, &m, &fa) == SWEET_PAC_DONE && c.x[7] == mem_value(o.x[7] - 256),
+	CHECK(run(ldraa(7, 7, -256, 1, 1), &c, &m, &fa) == BERGAMOTA_PAC_DONE && c.x[7] == mem_value(o.x[7] - 256),
 	    "ldrab x7, [x7, #-256]! (loaded value wins)");
 	init_state(&c);
-	CHECK(run(ldraa(31, 5, -8, 0, 1), &c, &m, &fa) == SWEET_PAC_DONE && c.pc == o.pc + 4, "ldrab xzr");
+	CHECK(run(ldraa(31, 5, -8, 0, 1), &c, &m, &fa) == BERGAMOTA_PAC_DONE && c.pc == o.pc + 4, "ldrab xzr");
 	c.pc = o.pc; CHECK(memcmp(&c, &o, sizeof(c)) == 0, "ldrab xzr wrote a register");
 	init_state(&c);
-	CHECK(run(ldraa(3, 4, 4088, 1, 0), &c, &m, &fa) == SWEET_PAC_DONE && c.x[4] == o.x[4] + 4088, "ldraa +4088!");
+	CHECK(run(ldraa(3, 4, 4088, 1, 0), &c, &m, &fa) == BERGAMOTA_PAC_DONE && c.x[4] == o.x[4] + 4088, "ldraa +4088!");
 
 	/* cpu->written: exactly the registers the instruction wrote (bit 31 = SP) */
 	{
@@ -219,15 +219,15 @@ unit(void)
 	/* a failing load changes nothing and reports the address */
 	init_state(&c);
 	m = (struct mem){ .fault_lo = o.x[1] + 8, .fault_hi = o.x[1] + 16 };
-	CHECK(run(ldraa(1, 1, 8, 1, 0), &c, &m, &fa) == SWEET_PAC_FAULT && fa == o.x[1] + 8 && m.loads == 1,
+	CHECK(run(ldraa(1, 1, 8, 1, 0), &c, &m, &fa) == BERGAMOTA_PAC_FAULT && fa == o.x[1] + 8 && m.loads == 1,
 	    "ldraa fault: fa=%" PRIx64, fa);
 	CHECK(memcmp(&c, &o, sizeof(c)) == 0, "ldraa fault changed registers");
 
 	/* anything else: untouched */
 	init_state(&c);
-	CHECK(run(0xD65F03C0u, &c, &m, &fa) == SWEET_PAC_UNHANDLED && memcmp(&c, &o, sizeof(c)) == 0, "ret");
-	CHECK(run(0xD503233Fu, &c, &m, &fa) == SWEET_PAC_UNHANDLED, "paciasp is a hint");
-	CHECK(run(0x1E7E0020u, &c, &m, &fa) == SWEET_PAC_UNHANDLED, "fjcvtzs is 0141's");
+	CHECK(run(0xD65F03C0u, &c, &m, &fa) == BERGAMOTA_PAC_UNHANDLED && memcmp(&c, &o, sizeof(c)) == 0, "ret");
+	CHECK(run(0xD503233Fu, &c, &m, &fa) == BERGAMOTA_PAC_UNHANDLED, "paciasp is a hint");
+	CHECK(run(0x1E7E0020u, &c, &m, &fa) == BERGAMOTA_PAC_UNHANDLED, "fjcvtzs is 0141's");
 
 	printf("%s: unit tests, %d failure(s)\n", failures ? "FAIL" : "PASS", failures);
 	return failures != 0;
@@ -242,7 +242,7 @@ bench(void)
 		{ "blrab x8, x9", 0xD73F0D09u }, { "retab", 0xD65F0FFFu }, { "ldraa x9, [x8, #16]!", 0xF8202D09u },
 		{ "pacga x0, x1, x2", 0x9AC23020u },
 	};
-	struct sweet_pac_cpu state, cpu, orig;
+	struct bergamota_pac_cpu state, cpu, orig;
 	struct mem m = { 0 };
 	uint64_t fa = 0, sink = 0;
 	const unsigned n = 20000000;
@@ -303,13 +303,13 @@ main(int argc, char **argv)
 			printf("%08x %s\n", w, out);
 			continue;
 		}
-		struct sweet_pac_cpu c, o;
+		struct bergamota_pac_cpu c, o;
 		struct mem m = { 0 };
 		uint64_t fa = 0;
 		init_state(&c); o = c;
-		enum sweet_pac_result r = run(w, &c, &m, &fa);
-		if (r != SWEET_PAC_DONE) {
-			printf("%08x %s\n", w, r == SWEET_PAC_FAULT ? "FAULT" : "NONE");
+		enum bergamota_pac_result r = run(w, &c, &m, &fa);
+		if (r != BERGAMOTA_PAC_DONE) {
+			printf("%08x %s\n", w, r == BERGAMOTA_PAC_FAULT ? "FAULT" : "NONE");
 			continue;
 		}
 		printf("%08x pc=%" PRIx64, w, c.pc);

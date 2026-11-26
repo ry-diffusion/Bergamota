@@ -1,6 +1,6 @@
 # How iOS 16.7.16 (iPhone X, iPhone10,3 / D22AP) userland talks to its Bluetooth controller, and what our kernel must provide
 
-Goal: expose the Qualcomm WCN3990 (already driven by our kernel over QUP SE6 UART with raw HCI, `sweetwlan=2`)
+Goal: expose the Qualcomm WCN3990 (already driven by our kernel over QUP SE6 UART with raw HCI, `bergamotawlan=2`)
 to the stock `bluetoothd`. Read-only research; nothing was run on the phone.
 
 Tags: **[V]** = verified by me in the artifacts below; **[U]** = unverified (inference, or needs a phone experiment).
@@ -115,7 +115,7 @@ AppleBluetoothDebug kext), and the ADT value is 3 [V]. **Correction for `docs/WI
    - `transport-speed` (u32 baud), optional (default 2.4 Mbaud, env `BT_BAUDRATE` overrides).
    - nice to have: `device_type = bluetooth`, `compatible`, `vendor-id`/`product-id` (sent in Device ID records; bluetoothd logs
      "Sending Device ID with vendor/product/chip"), `supported-profiles`, `coex`.
-   Because `SweetPlatformExpert::createNubs` only publishes `gic` under `arm-io` today, either add `('bluetooth')` to its exclusive
+   Because `BergamotaPlatformExpert::createNubs` only publishes `gic` under `arm-io` today, either add `('bluetooth')` to its exclusive
    list (and add the node to the ADT under `arm-io`) or create the nub from our BT driver. The stock position is
    `/arm-io/uart1/bluetooth`; the parent is irrelevant for userland because the lookups are by name and the properties sit on the node itself.
 2. **A kernel control** named `com.apple.uart.bluetooth` registered with `CTL_FLAG_REG_SOCK_STREAM`, **not** `CTL_FLAG_PRIVILEGED`
@@ -168,7 +168,7 @@ bluetoothd does not itself patch the chip. On start it asks BlueTool over XPC [V
   configured value ("Using override value (%d) for runBlueTool BTResult"); it cannot turn a failure into success, so it is not a bypass [V].
   Failure handling: repeated failures (11 inside 5 s windows) set a "give up" flag; a single failure is surfaced as "Power on failed" [V/U].
 - A defaults/plist route to disable BlueTool does **not** exist in what I read. The workable bypasses, in order of preference:
-  1. **Stub `/usr/sbin/BlueTool`** (we control the root image, `tools/sweet-retweak-image.sh`; unsigned/ad-hoc binaries already run: dropbear,
+  1. **Stub `/usr/sbin/BlueTool`** (we control the root image, `tools/bergamota-retweak-image.sh`; unsigned/ad-hoc binaries already run: dropbear,
      dash, toybox): a tiny C program that registers the Mach service `com.apple.BlueTool` and answers `RunBuiltinScript`/`RunExternalScript`/`RunCommand`
      with `result = 0`. It also keeps the stock binary usable for manual experiments if we install it under another path (`BlueTool.real`).
   2. A `ProductHash.*.script` override (needs `ReleaseType` Internal/Vendor, risky side effects elsewhere; only if the log shows it is already Internal).
@@ -215,7 +215,7 @@ Kernel (new file next to `bsd/dev/beryllium_wlan.c`, registered from the BT stag
 | socket options on that control | `0x40487413` get termios, `0x80487414` set termios (apply `c_ospeed` and `CRTSCTS` to SE6) |
 | devfs nodes | `/dev/uart.bluetooth`, `/dev/cu.bluetooth` (tty-like char devices; may share one cdevsw whose open returns EBUSY while the ctl is connected), `/dev/btwake` (no-op open/close) |
 | optional | `/dev/btpoweroff`, `/dev/btreset` (leave out: BlueTool treats absence as "kernel manages it") |
-| IOKit | registry entry named `bluetooth` with the ADT properties above, published by `SweetPlatformExpert` (add `bluetooth` to the arm-io `createNubs` list) |
+| IOKit | registry entry named `bluetooth` with the ADT properties above, published by `BergamotaPlatformExpert` (add `bluetooth` to the arm-io `createNubs` list) |
 | launchd (bluetoothd job only) | `EnvironmentVariables`: `BT_HCI_TRANSPORT=H4BC:POSIX:com.apple.uart.bluetooth,3000000`, optionally `BT_DEVICE_ADDRESS`, `BT_BAUDRATE=3000000` |
 | BlueTool | stub (2.3, option 1) |
 
@@ -228,7 +228,7 @@ use `launchd_unsecure_cache=1`).
 - RX path: UART -> HCI framing parser in the kernel (type byte 0x02/0x04/0x05 + lengths) -> `ctl_enqueuedata`. Drop/handle QCA in-band-sleep bytes
   (`0xFD` sleep ind, `0xFC` wake ind, `0xFE` wake ack, Linux `hci_qca.c` IBS) **in the kernel**; stray bytes would trigger bluetoothd's
   "unknown packet type received" / "garbage received when searching for new packet identifier" resync paths. Simplest: keep IBS disabled
-  in the NVM/boot sequence (`sweetbt` boot-args from patch 0124) and keep the line awake.
+  in the NVM/boot sequence (`bergamotabt` boot-args from patch 0124) and keep the line awake.
 - TX path: `ctl_send` -> UART with RTS/CTS honoured (`CRTSCTS` set by bluetoothd).
 - Vendor-command shim [U, only if the phone shows a fatal VSC]: parse HCI commands from userland and answer selected OGF 0x3F opcodes locally with a
   Command Complete (status 0x00 or 0x01) instead of forwarding. Make it a small table so it is data, not code.
@@ -265,11 +265,11 @@ use `launchd_unsecure_cache=1`).
 
 Each step is read-only or reversible; stop at the first surprise.
 
-- **E0 (no change): baseline.** Pull the bluetoothd/BlueTool log (`tools/sweet-ios-pull.sh`, subsystem `com.apple.bluetooth`, process bluetoothd) and look for
+- **E0 (no change): baseline.** Pull the bluetoothd/BlueTool log (`tools/bergamota-ios-pull.sh`, subsystem `com.apple.bluetooth`, process bluetoothd) and look for
   "No bluetooth on this device", "No valid serial port found", "Unable to match bluetooth service in device tree". Also `ps`/`launchctl list | grep -i bluetooth`.
   Expected [U]: bluetoothd already exited with status 0.
-- **E1 (kernel/ADT only, no root change): publish `bluetooth` + ctl.** Add the ADT node and the control socket (3.2) to a kernel that still runs the `sweetwlan=2` stage. On the phone, write a 40-line C
-  (or reuse `tools/sweetnet`-style toolchain) test client that does exactly the BlueTool sequence: `socket(32,1,2)`, `CTLIOCGINFO "com.apple.uart.bluetooth"`, `connect`, TIOCSETA 3 Mbaud, write `01 03 0c 00`, read `04 0e 04 01 03 0c 00`. This validates the ctl, flow control, speed and RX with no Apple code in the loop.
+- **E1 (kernel/ADT only, no root change): publish `bluetooth` + ctl.** Add the ADT node and the control socket (3.2) to a kernel that still runs the `bergamotawlan=2` stage. On the phone, write a 40-line C
+  (or reuse `tools/bergamotanet`-style toolchain) test client that does exactly the BlueTool sequence: `socket(32,1,2)`, `CTLIOCGINFO "com.apple.uart.bluetooth"`, `connect`, TIOCSETA 3 Mbaud, write `01 03 0c 00`, read `04 0e 04 01 03 0c 00`. This validates the ctl, flow control, speed and RX with no Apple code in the loop.
 - **E2: stock BlueTool by hand as the second client.** `BT_UART=com.apple.uart.bluetooth BT_BAUDRATE=3000000 /usr/sbin/BlueTool -c 'device -D; hci reset; hci info'`
   (`device -D` opens the control, `hci info` prints manufacturer/LMP version; prerequisites: ADT `bluetooth` node as above). Expect "Radio Manufacturer" = Qualcomm (we already saw 0x001d). If this works, the whole kernel interface is proven against Apple's own H4 reader.
   Also run `BlueTool -c 'power on'` once and confirm it prints nothing harmful and that `/dev/btpoweroff` is absent (no-op path).
@@ -277,7 +277,7 @@ Each step is read-only or reversible; stop at the first surprise.
   `BT_HCI_TRANSPORT=H4BC:POSIX:com.apple.uart.bluetooth,3000000 BT_DEVICE_ADDRESS=02:00:5e:77:b0:01 /usr/sbin/bluetoothd` (as user mobile via `su`/`sudo -u` if available;
   otherwise root first) and watch the log for "HCI Transport is set to ...", "Booting chipset", the BlueTool result, then the first HCI traffic. Without the stub BlueTool the expected failure is result 13/10 ("no firmware for this platform").
 - **E4: BlueTool stub.** Push the stub as `/usr/sbin/BlueTool` (keep the original as `BlueTool.real`), re-run E3. Success looks like "BlueTool finished running boot script" then `HCI_Reset`, `Read_Local_Version`, `Read_BD_ADDR` visible from the kernel's UART trace.
-- **E5: make it persistent.** Add the `EnvironmentVariables` to `com.apple.bluetoothd.plist` via the image retweak flow, reboot, confirm `bluetoothd` stays up; then check the user-visible result: Settings -> Bluetooth toggle responds (`defaults`: set `com.apple.MobileBluetooth.debug` is not needed; use `sweetprefs` only if a pref is found to gate power, [U]).
+- **E5: make it persistent.** Add the `EnvironmentVariables` to `com.apple.bluetoothd.plist` via the image retweak flow, reboot, confirm `bluetoothd` stays up; then check the user-visible result: Settings -> Bluetooth toggle responds (`defaults`: set `com.apple.MobileBluetooth.debug` is not needed; use `bergamotaprefs` only if a pref is found to gate power, [U]).
 - **E6: iterate on VSC failures** with the shim table (3.3), watching bluetoothd crash reports and the unified log; then scan/advertise from the UI.
 - **E7 (later): in-band sleep / low power, `function-bt_wake`, coexistence with Wi-Fi.**
 

@@ -41,7 +41,7 @@ struct IOSInfo: Equatable, Sendable {
     var batteryPercent: Int?
     var isCharging: Bool?
     var powerSource: String?
-    var sweetrebootBergamota: Bool?
+    var bergamotarebootBergamota: Bool?
     var fetched = Date()
 }
 
@@ -94,10 +94,10 @@ final class PhoneMonitor {
     var noRoute = false   // iface has an IP but connects fail with EHOSTUNREACH (maybe Local Network privacy)
     var natForwarding: String?
     var info: IOSInfo?
-    /// Whether the phone's `sweetreboot` lists `bergamota` (kept after iOS goes away; nil = never checked).
-    var sweetrebootBergamota: Bool?
+    /// Whether the phone's `bergamotareboot` lists `bergamota` (kept after iOS goes away; nil = never checked).
+    var bergamotarebootBergamota: Bool?
     var infoError: String?
-    /// Latest `sweetmetrics` sample (iOS up only) and the last ~2 minutes of them for the sparklines.
+    /// Latest `bergamotametrics` sample (iOS up only) and the last ~2 minutes of them for the sparklines.
     var metrics: PhoneMetrics?
     var metricsError: String?
     var metricsHistory = MetricsHistory()
@@ -110,7 +110,7 @@ final class PhoneMonitor {
     @ObservationIgnored private var infoInFlight = false
     @ObservationIgnored private var metricsTask: Task<Void, Never>?
     @ObservationIgnored private var metricsInFlight = false
-    /// `sweetmetrics` is not installed on the phone: ask again only every 15 s.
+    /// `bergamotametrics` is not installed on the phone: ask again only every 15 s.
     @ObservationIgnored private var metricsMissingAt: Date?
     @ObservationIgnored private var lastSig = ""
     @ObservationIgnored private var primed = false
@@ -332,7 +332,7 @@ final class PhoneMonitor {
         infoInFlight = true
         defer { infoInFlight = false }
         let ip = settings.phoneIP
-        let remote = "uname -a; echo '@@BOOT'; sysctl -n kern.boottime 2>/dev/null; echo '@@ETIME'; ps -o etime= -p 1 2>/dev/null; echo '@@NOW'; date +%s; echo '@@PS'; /usr/local/bin/sweetps; echo '@@SRB'; /usr/local/bin/sweetreboot 2>&1 </dev/null"
+        let remote = "uname -a; echo '@@BOOT'; sysctl -n kern.boottime 2>/dev/null; echo '@@ETIME'; ps -o etime= -p 1 2>/dev/null; echo '@@NOW'; date +%s; echo '@@PS'; /usr/local/bin/bergamotaps; echo '@@SRB'; /usr/local/bin/bergamotareboot 2>&1 </dev/null"
         let r = await Shell.run(ssh, Shell.sshOptions + ["root@\(ip)", remote], timeout: 10)
         if r.launchError != nil || r.timedOut || (r.status != 0 && r.stdout.isEmpty) {
             infoError = r.timedOut ? "ssh timed out" : (r.stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -341,10 +341,10 @@ final class PhoneMonitor {
         }
         infoError = nil
         info = Self.parseInfo(r.stdout)
-        if let b = info?.sweetrebootBergamota { sweetrebootBergamota = b }
+        if let b = info?.bergamotarebootBergamota { bergamotarebootBergamota = b }
     }
 
-    /// One `sweetmetrics` run over SSH (read-only, ~0.3 s on the phone). Never blocks the main thread: Shell.run waits off it.
+    /// One `bergamotametrics` run over SSH (read-only, ~0.3 s on the phone). Never blocks the main thread: Shell.run waits off it.
     func refreshMetrics() async {
         guard state == .ios, !metricsInFlight else { return }
         if let at = metricsMissingAt, Date().timeIntervalSince(at) < 15 { return }
@@ -352,21 +352,21 @@ final class PhoneMonitor {
         metricsInFlight = true
         defer { metricsInFlight = false }
         let ip = settings.phoneIP
-        let remote = "/usr/local/bin/sweetmetrics" + (settings.metricsGPUInfo ? " --gpu-info" : "")
+        let remote = "/usr/local/bin/bergamotametrics" + (settings.metricsGPUInfo ? " --gpu-info" : "")
         let r = await Shell.run(ssh, Shell.sshOptions + ["root@\(ip)", remote], timeout: 6)
         guard state == .ios else { return }      // the phone went away while we waited
         if r.launchError != nil || r.timedOut || (r.status != 0 && PhoneMetrics.extractJSON(r.stdout) == nil) {
             let err = r.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
             if r.status == 127 || err.contains("not found") || err.contains("No such file") {
                 metricsMissingAt = Date()
-                metricsError = "sweetmetrics is not on the phone (/usr/local/bin): renegade update, or scp it (docs/BERGAMOTA_METRICS.md)"
+                metricsError = "bergamotametrics is not on the phone (/usr/local/bin): renegade update, or scp it (docs/BERGAMOTA_METRICS.md)"
             } else {
-                metricsError = r.timedOut ? "sweetmetrics timed out" : (err.isEmpty ? "sweetmetrics failed (exit \(r.status))" : err)
+                metricsError = r.timedOut ? "bergamotametrics timed out" : (err.isEmpty ? "bergamotametrics failed (exit \(r.status))" : err)
             }
             return
         }
         guard let m = PhoneMetrics.parse(r.stdout) else {
-            metricsError = "sweetmetrics printed no JSON: " + String(r.stdout.prefix(120))
+            metricsError = "bergamotametrics printed no JSON: " + String(r.stdout.prefix(120))
             return
         }
         metricsMissingAt = nil
@@ -401,8 +401,8 @@ final class PhoneMonitor {
         if let v = psValue("Current Capacity", in: ps), let n = Int(v.replacingOccurrences(of: "+", with: "")) { i.batteryPercent = n }
         if let v = psValue("Is Charging", in: ps) { i.isCharging = ["1", "true", "yes"].contains(v.lowercased()) }
         if let v = psValue("Power Source State", in: ps) { i.powerSource = v }
-        // `sweetreboot` without arguments prints its usage (no side effects); newer builds list `bergamota`.
-        if let u = parts["SRB"], !u.isEmpty { i.sweetrebootBergamota = u.contains("bergamota") }
+        // `bergamotareboot` without arguments prints its usage (no side effects); newer builds list `bergamota`.
+        if let u = parts["SRB"], !u.isEmpty { i.bergamotarebootBergamota = u.contains("bergamota") }
         return i
     }
 

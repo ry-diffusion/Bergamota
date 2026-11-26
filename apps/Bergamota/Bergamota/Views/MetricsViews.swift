@@ -90,18 +90,18 @@ struct PerformanceView: View {
         let mon = model.monitor
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                PageHeader(title: "Performance", subtitle: "sweetmetrics over SSH every ~2 s while iOS is up; the plots hold the last 2 minutes.") {
+                PageHeader(title: "Performance", subtitle: "bergamotametrics over SSH every ~2 s while iOS is up; the plots hold the last 2 minutes.") {
                     if let m = mon.metrics { RendererBadge(r: m.renderer, size: 11) }
                 }
                 if mon.state == .ios { PerformanceModePanel() }
                 if mon.state != .ios {
-                    EmptyStage(title: "Available when iOS is up", text: "The phone is \(mon.state.title.lowercased()). Metrics start with the first sweetmetrics answer over SSH after iOS comes up.", symbol: "gauge.with.dots.needle.0percent")
+                    EmptyStage(title: "Available when iOS is up", text: "The phone is \(mon.state.title.lowercased()). Metrics start with the first bergamotametrics answer over SSH after iOS comes up.", symbol: "gauge.with.dots.needle.0percent")
                 } else if let m = mon.metrics {
                     content(m, mon.metricsHistory)
                 } else if let e = mon.metricsError {
                     Notice(text: e)
                 } else {
-                    HStack { ProgressView().controlSize(.small); Text("Waiting for the first sweetmetrics sample...").foregroundStyle(Color.muted) }
+                    HStack { ProgressView().controlSize(.small); Text("Waiting for the first bergamotametrics sample...").foregroundStyle(Color.muted) }
                 }
             }
             .padding(28)
@@ -168,7 +168,7 @@ struct PerformanceView: View {
                 ForEach(waiting, id: \.self) { Label($0, systemImage: "hourglass").font(.caption).foregroundStyle(Color.muted).lineLimit(1) }
             }
         }
-        Text("sample \(m.fetched.formatted(date: .omitted, time: .standard))  ·  sweetmetrics schema \(m.schema)")
+        Text("sample \(m.fetched.formatted(date: .omitted, time: .standard))  ·  bergamotametrics schema \(m.schema)")
             .font(BFont.mono(10.5)).foregroundStyle(Color.muted)
         if let e = model.monitor.metricsError { Notice(text: e) }
     }
@@ -218,7 +218,7 @@ struct MetricsStrip: View {
                 } else {
                     CPTile(s: s) {
                         CPLabel(text: "Metrics", s: s)
-                        Text(mon.metricsError ?? "waiting for sweetmetrics...").font(BFont.mono(16 * s)).foregroundStyle(Color.amber).lineLimit(2)
+                        Text(mon.metricsError ?? "waiting for bergamotametrics...").font(BFont.mono(16 * s)).foregroundStyle(Color.amber).lineLimit(2)
                     }
                 }
             }

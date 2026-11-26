@@ -142,7 +142,7 @@ Differences that matter on SDM845:
   first milestone (topaz polls).
 * **SMMU:** the WLAN DMA stream is `iommus = <&apps_smmu 0x0040 0x1>` [V dtsi and live DT `0x2f 0x40 0x01`],
   apps_smmu at 0x15000000, 0x80000 [V]. Topaz used an identity context bank for stream 0x1A0; here SID
-  0x40 mask 1 (0x40 and 0x41). The reusable parts are `sweet_smmu.c` plus anonbeat1's trick of re-pointing an
+  0x40 mask 1 (0x40 and 0x41). The reusable parts are `bergamota_smmu.c` plus anonbeat1's trick of re-pointing an
   *existing* matching SMR instead of adding a second one [V survey]. The live DT also says
   `qcom,iommu-dma-addr-pool = <0xa0000000 0x10000000>` and `qcom,iommu-dma = "bypass"`, i.e. Android
   maps WLAN buffers in an IOVA pool; an identity map of our DMA pool is the simple equivalent.
@@ -159,7 +159,7 @@ not paste; I only read the patches and describe them). Reuse estimate 60-70 % of
 | Topaz | Carries over | Changes for SDM845 |
 |---|---|---|
 | 0113 PAS boot | SMEM walk, SMP2P out/in items 428/435, "ipa" answer, `smc()` wrapper with INTERRUPTED resume, pool allocator, mapping rules (WC mapping for modem-shared memory, below 0xF0000000 for TZ/modem) | **Replace PAS with MBA/RMB flow** (1.2). SMEM base 0x86000000, TCSR mutex 0x1f40000, APCS IPC 0x1799000c, MPSS 0x8e400000/0x7800000, MBA 0x96900000. Pool must sit in memory the kernel does not use and the MSS may be given: use a carve-out below 4 GiB, **[U] which RAM is free** (kernel starts at 0x100000000, so 0x80000000..0xf0000000 outside the reserved list is available; pick above 0xb0400000 [V, NOTES: fixed carve-outs end below 0xb0400000] e.g. 0xe0000000 as topaz did). |
-| 0115 firmware from modem_a | read-only partition access through `sweet_ufs` | Partition is `modem` (no A/B suffix) [V GPT names in backup]; topaz hardcodes file extents from a host script (`fwtable_all.py`). **We do not need that: our draft reads FAT16 directly** (bytes/sector 4096, 4 sectors/cluster, 12283 clusters; 8.3 names) [V host test]. Already in the patch (`sweet_ufs_read_part`). |
+| 0115 firmware from modem_a | read-only partition access through `bergamota_ufs` | Partition is `modem` (no A/B suffix) [V GPT names in backup]; topaz hardcodes file extents from a host script (`fwtable_all.py`). **We do not need that: our draft reads FAT16 directly** (bytes/sector 4096, 4 sectors/cluster, 12283 clusters; 8.3 names) [V host test]. Already in the patch (`bergamota_ufs_read_part`). |
 | 0116/0117 split hash | hash segment from its own `.bNN` | Same layout here (hash = ph1, in `modem.b01`, 0x1ce8 bytes) [V]. |
 | 0118 GLINK + QRTR | whole FIFO/intent engine, QRTR HELLO/NEW_SERVER | GLINK doorbell bit 12, SMEM items [U 478-480], remote pid 1, SPI 449 if interrupts are used. |
 | 0121 host services | pd-mapper, tftp, rmtfs state machines, QMI TLV helpers, hyp-assign | Paths: `/readonly/firmware/image/<x>` -> `modem:image/<x>`; rmtfs from `modemst1/2`, `fsc`, `fsg` (same names as topaz uses [V]). The rmtfs shared region lives in our pool. |
@@ -186,7 +186,7 @@ What does not carry over: any 0080-0091 SM6225 board code, the HyperOS firmware 
 * **Power:** `vddio` = `vreg_s4a_1p8` (fixed, always on: do not vote), `vddxo` = `ldoa7` 1.8 V, `vddrf` =
   `ldoa17` 1.304 V, `vddch0` = `ldoa25` 3.3 V (3.300-3.312) [V dtsi]. RPMh VRM resource names in cmd-db:
   `ldoaN`/`smpaN` (PM8998 "a") [U, the probe prints the lookups]. The RPMh client we already have
-  (`sweet_rpmh.c`, ACTIVE TCS vote of ENABLE/VOLTAGE/MODE) generalises: SDM845 apps RSC drv2 at
+  (`bergamota_rpmh.c`, ACTIVE TCS vote of ENABLE/VOLTAGE/MODE) generalises: SDM845 apps RSC drv2 at
   0x179e0000, tcs offset 0xd00, ACTIVE 2 [V dtsi + NOTES]; cmd-db at 0x85fe0000 [V]. Same VRM register offsets
   (voltage 0, enable 4, mode 8) and PMIC4 LDO HPM = 7 [U for PMIC4, V for the offsets in Linux
   rpmh-regulator].
@@ -265,9 +265,9 @@ Options (smallest first):
 
 | Phase | Deliverable | Effort | Risk |
 |---|---|---|---|
-| P0 | `sweetwlan=1` probe on the phone (read-only). Resolves every [U] about clocks, DFS table, SE6 protocol, cmd-db names, SMEM/SMP2P state, SMMU SID 0x40 | 0.5 day to run, patch exists | low: reads only; guarded SE6 reads |
-| P1 | `sweetwlan=3` read-only inventory (modem + bluetooth FAT, MDT vs carve-outs, EFS partitions readable) | 0.5 day | low; READ(10) only, restores root LUN state |
-| P2 | `sweetwlan=2` Bluetooth: rails + UART + pulses + HCI Reset + version. Then firmware download (TLV, ~0.5 k lines), baud change, BD address from persist read-only | P2a 1-2 days, P2b 2-3 days | medium: RPMh active-set votes (rail on) and UART pins; wrong rail = chip damage unlikely at the listed voltages |
+| P0 | `bergamotawlan=1` probe on the phone (read-only). Resolves every [U] about clocks, DFS table, SE6 protocol, cmd-db names, SMEM/SMP2P state, SMMU SID 0x40 | 0.5 day to run, patch exists | low: reads only; guarded SE6 reads |
+| P1 | `bergamotawlan=3` read-only inventory (modem + bluetooth FAT, MDT vs carve-outs, EFS partitions readable) | 0.5 day | low; READ(10) only, restores root LUN state |
+| P2 | `bergamotawlan=2` Bluetooth: rails + UART + pulses + HCI Reset + version. Then firmware download (TLV, ~0.5 k lines), baud change, BD address from persist read-only | P2a 1-2 days, P2b 2-3 days | medium: RPMh active-set votes (rail on) and UART pins; wrong rail = chip damage unlikely at the listed voltages |
 | P3 | MSS groundwork: free pool, hyp-assign, MBA load + RMB handshake **without** MPSS (stop at "MBA alive", read PBL/MBA status) | 3-5 days | **high**: first TZ/hypervisor-mediated action; run only with a persistent log and recovery path |
 | P4 | MPSS auth+load, SMP2P ready, GLINK/QRTR, pd-mapper/tftp/rmtfs (reads only), WLFW to mission | 8-12 days (porting topaz 0113-0124 with the changes of section 2) | high: modem firmware faults, WDOG/SSR loops, SMMU faults reset the SoC |
 | P5 | WLAN radio: SMMU context, CE, HTC, WMI, HTT, passive scan (= topaz 0123/0125/0126) | 5-7 days | medium-high |
@@ -282,13 +282,13 @@ Hazards, explicitly:
 * **Do not reset or restart the modem repeatedly**; a cold start per boot only (topaz refuses to touch a
   modem whose SMP2P item 435 already exists; the probe prints whether it does).
 * **Rails:** only the five allow-listed LDOs (`ldoa5/7/17/23/25`) can be voted by the new helper; s4a is never
-  voted; stage 2 restores them off afterwards (`sweetwlankeep=1` leaves them).
+  voted; stage 2 restores them off afterwards (`bergamotawlankeep=1` leaves them).
 * **RPMh:** the existing client quarantines a TCS after an uncertain transaction; do not remove that.
 * **Possible hangs:** reading QDSP6/RMB before reset (not done), reading WLAN membase 0x18800000 before WLFW
   mission mode (topaz: "a register read hangs the bus"), SE6 registers with gated clocks (guarded in the
   probe), apps_smmu global faults on DMA without a context bank (hypervisor resets the SoC), TZ calls that
   never return INTERRUPTED loops (cap the resume loop as topaz does, 100000).
-* **Cache coherency:** 0102's `sweet_dma_sync_va()` must wrap CPU writes/reads of every buffer the modem or
+* **Cache coherency:** 0102's `bergamota_dma_sync_va()` must wrap CPU writes/reads of every buffer the modem or
   WCN3990 DMA touches unless the mapping is Normal-NC (topaz maps modem-shared memory write-combined).
 * **Bricking:** none of the steps writes flash. The worst realistic outcome is a SoC reset (watchdog) or a
   hang that needs Power+VolDown; recover with the usual `fastboot boot`. A persistent log keeps the trail.
@@ -310,22 +310,22 @@ Host test of the draft's FAT16/ELF code on `backup/modem.img` [V]:
 ## 7. The draft patch (research/wifi-draft/0104-beryllium-wlan-bt.patch)
 
 Base `research/bt102/xnu`; `git apply --check` clean; `xnu-cc.py` clean for `bsd/dev/beryllium_wlan.c`,
-`sweet_ufs.c`, `sweet_rpmh.c`; object files define the new symbols and reference only existing ones.
-Default behaviour is unchanged: without `sweetwlan=` nothing is mapped, logged or started, and the hook does
+`bergamota_ufs.c`, `bergamota_rpmh.c`; object files define the new symbols and reference only existing ones.
+Default behaviour is unchanged: without `bergamotawlan=` nothing is mapped, logged or started, and the hook does
 nothing on the sweet board.
 
 | Boot-arg | Stage |
 |---|---|
-| `sweetwlan=1` | probe: GCC CBCRs (SE clocks, MSS clocks), S6 DFS table, TLMM gpio45-48, SE6 firmware protocol/FIFO params (only if its clocks are on), cmd-db lookups for `smpa4 ldoa5 ldoa7 ldoa17 ldoa23 ldoa25`, SMEM table + apps<->modem item list, TCSR mutex 3, apps_smmu SMR/S2CR for SID 0x40 and 0x740 |
-| `sweetwlan=2` | probe + Bluetooth: clocks, pins, RPMh rails, polled UART, power pulses, HCI Reset, Read Local Version, QCA version request, power-off pulse; rails are never voted off (0118) |
-| `sweetwlan=3` | probe + read-only inventory: partitions, FAT16 walk, MDT table vs carve-outs |
-| `sweetwlandelay=S` | seconds to wait (default 90) |
-| `sweetwlankeep=1` | obsolete since 0118 (rails always stay on) |
-| `sweetwlanskippll=1` | 0118: do not stop when GPLL0 decodes off 600/300 MHz |
+| `bergamotawlan=1` | probe: GCC CBCRs (SE clocks, MSS clocks), S6 DFS table, TLMM gpio45-48, SE6 firmware protocol/FIFO params (only if its clocks are on), cmd-db lookups for `smpa4 ldoa5 ldoa7 ldoa17 ldoa23 ldoa25`, SMEM table + apps<->modem item list, TCSR mutex 3, apps_smmu SMR/S2CR for SID 0x40 and 0x740 |
+| `bergamotawlan=2` | probe + Bluetooth: clocks, pins, RPMh rails, polled UART, power pulses, HCI Reset, Read Local Version, QCA version request, power-off pulse; rails are never voted off (0118) |
+| `bergamotawlan=3` | probe + read-only inventory: partitions, FAT16 walk, MDT table vs carve-outs |
+| `bergamotawlandelay=S` | seconds to wait (default 90) |
+| `bergamotawlankeep=1` | obsolete since 0118 (rails always stay on) |
+| `bergamotawlanskippll=1` | 0118: do not stop when GPLL0 decodes off 600/300 MHz |
 
-Code changes: `bsd/dev/sweet_rpmh.c` (board-selected SDM845 RSC/cmd-db, `sweet_rpmh_lookup`,
-`sweet_rpmh_vreg_set` with an allow list, ENABLE-only disable), `bsd/dev/sweet_ufs.c`
-(`sweet_ufs_part_size`, `sweet_ufs_read_part`, hook), new `bsd/dev/beryllium_wlan.c`, `bsd/conf/files`.
+Code changes: `bsd/dev/bergamota_rpmh.c` (board-selected SDM845 RSC/cmd-db, `bergamota_rpmh_lookup`,
+`bergamota_rpmh_vreg_set` with an allow list, ENABLE-only disable), `bsd/dev/bergamota_ufs.c`
+(`bergamota_ufs_part_size`, `bergamota_ufs_read_part`, hook), new `bsd/dev/beryllium_wlan.c`, `bsd/conf/files`.
 
 Known weaknesses of the draft (all [U], by design for a first run):
 * RPMh: the existing client assumes cmd-db version 1 and the PMIC LDO HPM mode 7; the SDM845 values are not
@@ -339,16 +339,16 @@ Known weaknesses of the draft (all [U], by design for a first run):
 
 Base `research/bt117/xnu` (0001-0117); `git apply --check` clean on a fresh copy; `xnu-cc.py` clean for
 `bsd/dev/beryllium_wlan.c` with a real object (no new undefined symbols). Not run on the phone.
-Boot 0116hw (sweetwlan=2) showed the three rail votes completing, the GCC 0x5200c votes bringing wrap0
+Boot 0116hw (bergamotawlan=2) showed the three rail votes completing, the GCC 0x5200c votes bringing wrap0
 m_ahb/s_ahb/s6 on, then the abort: S6 RCG cmd=0x80000000 cfg=0x100000 (XO, HW_CLK_CTRL set), DFS-ENABLE
 0x8020 (bit 0 clear = DFS off), all 8 DFS levels zero, TLMM gpio45-48 still function 0.
 
-What changed (all inside `sweetwlan=2`, every line logged with `SWEET WLAN:`):
+What changed (all inside `bergamotawlan=2`, every line logged with `BERGAMOTA WLAN:`):
 
 1. **GPLL0 check** (`wl_gpll0_check`): the ftbl rates assume GPLL0 600 MHz / GPLL0_OUT_EVEN 300 MHz. Reads
    PLL_MODE 0x0 (lock bit 31), L 0x4, FRAC 0x38, USER_CTL 0xc (post-div [11:8]: 0/1/3/7 = /1/2/4/8; Fabia
    regs from clk-alpha-pll.c [U: offsets from memory, the raw values are printed]). Stops when unlocked or
-   off by more than 0.1 %. `sweetwlanskippll=1` skips the rate check (not the lock check).
+   off by more than 0.1 %. `bergamotawlanskippll=1` skips the rate check (not the lock check).
 2. **S6 RCG, non-DFS path** (`wl_rcg_*`, RCG 0x17754: CMD +0, CFG +4, M +8, N +0xc, D +0x10, DFS +0x14).
    Following clk-rcg2.c `__clk_rcg2_configure` / `update_config`: M = m, N = ~(n-m), D = ~n (16 bit), CFG =
    src<<8 | hid | dual-edge (2<<12) when n and m != n (HW_CLK_CTRL bit 20 cleared like Linux), each written with
@@ -379,29 +379,29 @@ What changed (all inside `sweetwlan=2`, every line logged with `SWEET WLAN:`):
    SE_IRQ_EN was OR-ed with 0xf (also enabling DMA TX/RX irqs); `geni_se_io_set_mode` sets only GENI_M/S and
    clears DMA_TX/RX, now done; SE_CLK_SEL was set to a DFS level, now 0; RX polling never acked S_IRQ status
    or re-armed the read command after S_CMD_DONE, now done as in `qcom_geni_serial_isr`.
-6. **Rails are never voted off**: the `sweetwlankeep=0` off path and the final "rails off" are removed
+6. **Rails are never voted off**: the `bergamotawlankeep=0` off path and the final "rails off" are removed
    (the qca_power_off 2400-baud pulse is still sent, rails stay on). Bail-outs after the rail votes end with
    the same restore sequence (SE clk regs, RCG, pins, clock votes) and "rails left on".
 
 Expected log lines on a good run (order):
 ```
-SWEET WLAN: GPLL0 mode 0x... (lock 1) L 31 frac 0x4000 user-ctl 0x... -> main 600000000 Hz, even (post-div 2) 300000000 Hz
-SWEET WLAN: GPLL0 600 MHz / GPLL0_OUT_EVEN 300 MHz confirmed
-SWEET WLAN: S6 RCG saved: cmd 0x... cfg 0x100000 m ... n ... d ...
-SWEET WLAN: TLMM gpio45 (CTS): was 0x... -> func 1 pull 1 drive 2 mA   (x4)
-SWEET WLAN: write TLMM+0x2d000 <- 0x..., read back 0x... (mask 0x1ff) ok
-SWEET WLAN: QUP wrapper0 HW version 0x... -> UART oversampling 32|16
-SWEET WLAN: baud plan 2400 / 115200 / 3000000 / 3200000: ftbl row ... exact
-SWEET WLAN: rail ldoa7 1800 mV -> 0 (x3)
-SWEET WLAN: S6 RCG -> 7372800 Hz: src 6 hid 1 m 384 n 15625 cfg 0x2601
-SWEET WLAN: write GCC+0x1775c <- 0x00000180 ... ok / +0x17760 <- 0x0000c476 / +0x17764 <- 0x0000c2f6 / +0x17758 <- ... ok
-SWEET WLAN: RCG CMD 0x... -> UPDATE set ..., cleared after N polls
-SWEET WLAN: UART 2400 baud: S6 root 7372800 Hz (ftbl row 0), GENI divider 96, oversampling 32
-SWEET WLAN: UART 115200 baud: ... GENI divider 2 ...
-SWEET WLAN: after power-on pulse: N stray RX bytes / HCI Reset event / Read Local Version / QCA patch version
-SWEET WLAN: rails left on (3 of 3 voted by this stage)
-SWEET WLAN: restoring the original S6 RCG config ... S6 RCG restore ok
-SWEET WLAN: write TLMM(restore)+... ; SWEET WLAN: bluetooth stage done
+BERGAMOTA WLAN: GPLL0 mode 0x... (lock 1) L 31 frac 0x4000 user-ctl 0x... -> main 600000000 Hz, even (post-div 2) 300000000 Hz
+BERGAMOTA WLAN: GPLL0 600 MHz / GPLL0_OUT_EVEN 300 MHz confirmed
+BERGAMOTA WLAN: S6 RCG saved: cmd 0x... cfg 0x100000 m ... n ... d ...
+BERGAMOTA WLAN: TLMM gpio45 (CTS): was 0x... -> func 1 pull 1 drive 2 mA   (x4)
+BERGAMOTA WLAN: write TLMM+0x2d000 <- 0x..., read back 0x... (mask 0x1ff) ok
+BERGAMOTA WLAN: QUP wrapper0 HW version 0x... -> UART oversampling 32|16
+BERGAMOTA WLAN: baud plan 2400 / 115200 / 3000000 / 3200000: ftbl row ... exact
+BERGAMOTA WLAN: rail ldoa7 1800 mV -> 0 (x3)
+BERGAMOTA WLAN: S6 RCG -> 7372800 Hz: src 6 hid 1 m 384 n 15625 cfg 0x2601
+BERGAMOTA WLAN: write GCC+0x1775c <- 0x00000180 ... ok / +0x17760 <- 0x0000c476 / +0x17764 <- 0x0000c2f6 / +0x17758 <- ... ok
+BERGAMOTA WLAN: RCG CMD 0x... -> UPDATE set ..., cleared after N polls
+BERGAMOTA WLAN: UART 2400 baud: S6 root 7372800 Hz (ftbl row 0), GENI divider 96, oversampling 32
+BERGAMOTA WLAN: UART 115200 baud: ... GENI divider 2 ...
+BERGAMOTA WLAN: after power-on pulse: N stray RX bytes / HCI Reset event / Read Local Version / QCA patch version
+BERGAMOTA WLAN: rails left on (3 of 3 voted by this stage)
+BERGAMOTA WLAN: restoring the original S6 RCG config ... S6 RCG restore ok
+BERGAMOTA WLAN: write TLMM(restore)+... ; BERGAMOTA WLAN: bluetooth stage done
 ```
 Failure lines (all end in the restore sequence, never a rail-off): `GPLL0 is not locked`, `GPLL0 is not 600 MHz /
 even 300 MHz`, `S6 RCG is in DFS mode`, `MISMATCH` on any read-back, `RCG UPDATE did not clear`,
@@ -413,15 +413,15 @@ pulse timing.
 ## 7c. Patch 0130: WCN3990 rampatch + NVM download, baud change (xnu/patches/0130-beryllium-bt-firmware.patch)
 
 Base `research/bt118/xnu` (0001-0118); `git apply --check` clean on a fresh copy, `xnu-cc.py` clean for
-`bsd/dev/beryllium_wlan.c` (object built; the new undefined symbols `sweet_a630_fw_get` / `sweet_a630_fw_put` are
-defined in `bsd/dev/sweet_a630.c`). Not run on the phone. Only `beryllium_wlan.c` changes; the files are read
-with the GPU's vnode reader (`sweet_a630_fw_get(NULL, name, ...)` from `/usr/standalone/firmware/sweet/`, 256 KiB
+`bsd/dev/beryllium_wlan.c` (object built; the new undefined symbols `bergamota_a630_fw_get` / `bergamota_a630_fw_put` are
+defined in `bsd/dev/bergamota_a630.c`). Not run on the phone. Only `beryllium_wlan.c` changes; the files are read
+with the GPU's vnode reader (`bergamota_a630_fw_get(NULL, name, ...)` from `/usr/standalone/firmware/bergamota/`, 256 KiB
 limit), so the stage (about 90 s after boot) needs the root fs.
 
-Gate: `sweetwlan=2`; `sweetbtfw=1` (default) downloads when the files exist, `sweetbtfw=0` stops after the
-version queries (the 0118 behaviour). Other boot-args: `sweetbtbaud` (default 3000000; 3200000 also has an exact
-S6 rate and a QCA code), `sweetbtfast=1` (Linux order: baud change first, download at the operating speed;
-default 0: download at 115200, about 20 s), `sweetbtibs=1` (Linux NVM edits, see below), `sweetbtpoweroff=1`
+Gate: `bergamotawlan=2`; `bergamotabtfw=1` (default) downloads when the files exist, `bergamotabtfw=0` stops after the
+version queries (the 0118 behaviour). Other boot-args: `bergamotabtbaud` (default 3000000; 3200000 also has an exact
+S6 rate and a QCA code), `bergamotabtfast=1` (Linux order: baud change first, download at the operating speed;
+default 0: download at 115200, about 20 s), `bergamotabtibs=1` (Linux NVM edits, see below), `bergamotabtpoweroff=1`
 (send the 2400 baud 0xC0 power-off pulse at the end; default: the controller stays powered). Rails are still
 never voted off.
 
@@ -449,8 +449,8 @@ Protocol (btqca.c / hci_qca.c, WCN3990 path), H4 over the UART:
    `data[1]` = baud code (enum qca_baudrate: 115200 = 0, 921600 = 10, 3000000 = 0x0e, 3200000 = 0x11); deep-sleep
    tag 27: `data[0] |= 1`. Linux does that because it implements IBS; we do not, and a controller that sleeps needs
    the 0xfd/0xfc/0xfe wake protocol, so by default the stage **clears** 0x80 on tag 17 and the sleep bit on tag 27
-   (`sweetbtibs=1` restores the Linux bits). The baud tag is the speed in effect during the download (115200 by
-   default, the operating speed with `sweetbtfast=1`).
+   (`bergamotabtibs=1` restores the Linux bits). The baud tag is the speed in effect during the download (115200 by
+   default, the operating speed with `bergamotabtfast=1`).
    Finding on the Android crnv21.bin: its entries (`{id, len, reserve1, reserve2, data[len]}`) start at file
    offset 8, not 4, because there is one more header word (0x000dfb02) after `type_len`; Linux's walker, which
    starts at offset 4, would not find tags 17/27 in this file. The stage tries both start offsets and takes the
@@ -467,32 +467,32 @@ Protocol (btqca.c / hci_qca.c, WCN3990 path), H4 over the UART:
 
 Expected log lines on a good run (after the existing 0118 lines):
 ```
-SWEET WLAN: BT fw QCA patch version (...): product ID 0x0000000a, patch version 0x0001, ROM version 0x0201, SoC ID 0x40010214 -> soc_ver 0x02140201, rom_ver 0x21
-SWEET WLAN: BT fw: btqca.c names for WCN3990 soc_ver 0x02140201: qca/crbtfw21.tlv, qca/crnv21.bin (same as the Android files)
-SWEET WLAN: BT fw: loaded crbtfw21.tlv (222988 bytes) / loaded crnv21.bin (4591 bytes)
-SWEET WLAN: BT fw patch: TLV type 1 length 222984 (file 222988), ... download_mode 3, product 0x000a, rom_build 0x0201, patch_version 0x0002, entry 0x209e4
-SWEET WLAN: BT fw NVM: TLV type 4 length 4587 (file 4591) / tags start at offset 8 ... / 44 tags ... HCI tag 17 at 43, deep sleep tag 27 at 133
-SWEET WLAN: BT fw NVM: HCI tag: data[0] 0x82 -> 0x02 (IBS off), data[1] (baud) 0x01 -> 0x00 / deep sleep tag: data[0] 0x01 -> 0 (deep sleep off)
-SWEET WLAN: BT fw patch: 222988 bytes in 918 segments of 243, download_mode 3 (only the last segment is acknowledged)
-SWEET WLAN: BT fw patch: segment 92/918 (10%), 22356/222988 bytes   ... every 10 % ... (100%)
-SWEET WLAN: BT fw patch: download complete, last segment acknowledged (0 command complete, 0 other events along the way)
-SWEET WLAN: BT fw NVM: 4591 bytes in 19 segments of 243, download_mode 0 (vendor event per segment) ... download complete
-SWEET WLAN: HCI Reset event after download: 0e 04 01 03 0c 00
-SWEET WLAN: BT fw QCA version after download: ... patch version 0x0002 ...
-SWEET WLAN: BT fw: EDL_SET_BAUDRATE_CMD 0xfc48 code 0xe (3000000 baud), host 115200 -> 3000000 baud
-SWEET WLAN: UART 3000000 baud: S6 root 96000000 Hz (ftbl row ...), GENI divider 1, oversampling 32
-SWEET WLAN: HCI Read Local Version (at new baud): HCI version ... manufacturer 0x001d ...
-SWEET WLAN: BT fw: controller answers at 3000000 baud
-SWEET WLAN: BT fw BD_ADDR xx:xx:xx:xx:xx:xx
-SWEET WLAN: BT fw setup complete (patch + NVM downloaded, controller up at the operating baud)
-SWEET WLAN: BT controller left powered (no power-off pulse; sweetbtpoweroff=1 sends it)
+BERGAMOTA WLAN: BT fw QCA patch version (...): product ID 0x0000000a, patch version 0x0001, ROM version 0x0201, SoC ID 0x40010214 -> soc_ver 0x02140201, rom_ver 0x21
+BERGAMOTA WLAN: BT fw: btqca.c names for WCN3990 soc_ver 0x02140201: qca/crbtfw21.tlv, qca/crnv21.bin (same as the Android files)
+BERGAMOTA WLAN: BT fw: loaded crbtfw21.tlv (222988 bytes) / loaded crnv21.bin (4591 bytes)
+BERGAMOTA WLAN: BT fw patch: TLV type 1 length 222984 (file 222988), ... download_mode 3, product 0x000a, rom_build 0x0201, patch_version 0x0002, entry 0x209e4
+BERGAMOTA WLAN: BT fw NVM: TLV type 4 length 4587 (file 4591) / tags start at offset 8 ... / 44 tags ... HCI tag 17 at 43, deep sleep tag 27 at 133
+BERGAMOTA WLAN: BT fw NVM: HCI tag: data[0] 0x82 -> 0x02 (IBS off), data[1] (baud) 0x01 -> 0x00 / deep sleep tag: data[0] 0x01 -> 0 (deep sleep off)
+BERGAMOTA WLAN: BT fw patch: 222988 bytes in 918 segments of 243, download_mode 3 (only the last segment is acknowledged)
+BERGAMOTA WLAN: BT fw patch: segment 92/918 (10%), 22356/222988 bytes   ... every 10 % ... (100%)
+BERGAMOTA WLAN: BT fw patch: download complete, last segment acknowledged (0 command complete, 0 other events along the way)
+BERGAMOTA WLAN: BT fw NVM: 4591 bytes in 19 segments of 243, download_mode 0 (vendor event per segment) ... download complete
+BERGAMOTA WLAN: HCI Reset event after download: 0e 04 01 03 0c 00
+BERGAMOTA WLAN: BT fw QCA version after download: ... patch version 0x0002 ...
+BERGAMOTA WLAN: BT fw: EDL_SET_BAUDRATE_CMD 0xfc48 code 0xe (3000000 baud), host 115200 -> 3000000 baud
+BERGAMOTA WLAN: UART 3000000 baud: S6 root 96000000 Hz (ftbl row ...), GENI divider 1, oversampling 32
+BERGAMOTA WLAN: HCI Read Local Version (at new baud): HCI version ... manufacturer 0x001d ...
+BERGAMOTA WLAN: BT fw: controller answers at 3000000 baud
+BERGAMOTA WLAN: BT fw BD_ADDR xx:xx:xx:xx:xx:xx
+BERGAMOTA WLAN: BT fw setup complete (patch + NVM downloaded, controller up at the operating baud)
+BERGAMOTA WLAN: BT controller left powered (no power-off pulse; bergamotabtpoweroff=1 sends it)
 ```
 Failure lines: `BT fw patch|NVM: segment N/M: no vendor event | TLV with invalid response or error status | TX
 failed`, `download FAILED after N/M segments`, `HCI Reset after download: no event`, `controller does not answer
 at N baud`, `firmware files not available: no download`. Every failure ends in the normal restore sequence
 (clocks, RCG, pins); rails stay on. Likely first-boot problems: no vendor event after the last patch segment
-(try `sweetbtfast=1`, or the NVM baud tag semantics: Android's file carries code 1 where Linux's table says 57600,
-so the tag may not mean what the table says [U]); no answer after the baud change (try `sweetbtbaud=3200000`).
+(try `bergamotabtfast=1`, or the NVM baud tag semantics: Android's file carries code 1 where Linux's table says 57600,
+so the tag may not mean what the table says [U]); no answer after the baud change (try `bergamotabtbaud=3200000`).
 
 ## 8. Sources
 

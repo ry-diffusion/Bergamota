@@ -8,7 +8,7 @@
 #   bergamota orangefox on|off
 #   bergamota install IPA [--wait]
 #   bergamota upload [--dest photos|/phone/folder] FILE... [--wait]
-#   bergamota reboot fastboot|bergamota|recovery [--wait]     (iOS up; SSH sweetreboot; fastboot = ABL, bergamota = Bergamota fastboot)
+#   bergamota reboot fastboot|bergamota|recovery [--wait]     (iOS up; SSH bergamotareboot; fastboot = ABL, bergamota = Bergamota fastboot)
 #   bergamota enter-bergamota [--wait]     (ABL fastboot -> Bergamota fastboot: fastboot boot bergamota-fastboot.img)
 #   bergamota metrics [--json]     (live phone metrics from status.json phone.metrics: CPU clusters, GPU, renderer, battery)
 #   bergamota status
@@ -188,7 +188,7 @@ metrics)
 import json, sys, datetime
 d = json.load(open(sys.argv[1])); p = d["phone"]; m = p.get("metrics")
 if not m:
-    print("no metrics: " + (p.get("metricsError") or f"phone state is {p['state']} (metrics need iOS up and /usr/local/bin/sweetmetrics on the phone)"))
+    print("no metrics: " + (p.get("metricsError") or f"phone state is {p['state']} (metrics need iOS up and /usr/local/bin/bergamotametrics on the phone)"))
     sys.exit(1)
 if sys.argv[2] == "--json":
     print(json.dumps(m, indent=2)); sys.exit(0)
@@ -206,7 +206,7 @@ for c in cpu.get("clusters", []):
 if cpu.get("loadPct"): print("          per-CPU load " + " ".join(f"{x:.0f}" for x in cpu["loadPct"]))
 g = m.get("gpu", {})
 mhz = g.get("mhz")
-print(f"gpu       {g.get('state','?'):8}  " + (f"level {g.get('level')}/{g.get('levels')}  " if g.get("level") is not None else "") + ("level/MHz/busy not reported (waiting on kern.sweet_gpu)" if mhz is None and g.get("busyPct") is None else f"{khz(None if mhz is None else mhz*1000)}  busy {pct(g.get('busyPct'))}") + f"  clients {g.get('clients',0)}")
+print(f"gpu       {g.get('state','?'):8}  " + (f"level {g.get('level')}/{g.get('levels')}  " if g.get("level") is not None else "") + ("level/MHz/busy not reported (waiting on kern.bergamota_gpu)" if mhz is None and g.get("busyPct") is None else f"{khz(None if mhz is None else mhz*1000)}  busy {pct(g.get('busyPct'))}") + f"  clients {g.get('clients',0)}")
 r = m.get("renderer", {})
 print(f"renderer  {r.get('label')}  (requested {r.get('requested')} by {r.get('requestedBy')}, injected {r.get('injected')}, backboardd GPU client {'yes' if r.get('gpuClientOpen') else 'no'})")
 b = m.get("battery", {})

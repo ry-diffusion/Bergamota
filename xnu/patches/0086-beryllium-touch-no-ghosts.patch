@@ -1,5 +1,5 @@
---- a/bsd/dev/sweet_touch.c
-+++ b/bsd/dev/sweet_touch.c
+--- a/bsd/dev/bergamota_touch.c
++++ b/bsd/dev/bergamota_touch.c
 @@ -690,7 +690,7 @@
  		unsigned px = ((unsigned)p[1] << 4) | (p[3] >> 4);
  		unsigned py = ((unsigned)p[2] << 4) | (p[3] & 15u);

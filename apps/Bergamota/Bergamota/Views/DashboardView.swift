@@ -30,7 +30,7 @@ struct DashboardView: View {
         case .recovery: "OrangeFox / recovery over adb (\(model.monitor.adbSerial ?? "?"))."
         case .android: "Android is up over adb (\(model.monitor.adbSerial ?? "?"))."
         case .iosBooting:
-            if !model.monitor.ifaceHasIP { "USB Ethernet is present but has no IP. Run tools/sweet-usbnet.sh (sudo) to assign 192.168.7.1." }
+            if !model.monitor.ifaceHasIP { "USB Ethernet is present but has no IP. Run tools/bergamota-usbnet.sh (sudo) to assign 192.168.7.1." }
             else if model.monitor.noRoute { "USB Ethernet is up but connections fail with 'No route to host'. If the phone is up, allow Bergamota under System Settings > Privacy & Security > Local Network." }
             else { "USB Ethernet is up but SSH is not answering yet." }
         case .ios: "iOS is up: ping and SSH answer."
@@ -66,7 +66,7 @@ struct DashboardView: View {
                             Row(k: "IP forwarding", v: m.natForwarding.map { $0 == "1" ? "on (NAT shared)" : "off" } ?? "unknown", ok: m.natForwarding == "1")
                             Row(k: "Phone MAC", v: PhoneMonitor.usbMAC)
                             Row(k: "Log listener", v: model.logs.listening ? "udp/5140" : (model.logs.listenError ?? "stopped"), ok: model.logs.listening)
-                            Text("Enable NAT with tools/sweet-mac-nat.sh (needs sudo).").font(.caption).foregroundStyle(Color.muted).padding(.top, 4)
+                            Text("Enable NAT with tools/bergamota-mac-nat.sh (needs sudo).").font(.caption).foregroundStyle(Color.muted).padding(.top, 4)
                         }
                     }
                 }
@@ -139,7 +139,7 @@ struct DashboardView: View {
                 Task { let r = await model.tools.rebootIOS(to: "bergamota"); rebootResult = (r.0, r.1) }
             }
         } message: {
-            Text("Runs /usr/local/bin/sweetreboot bergamota over SSH. iOS is shut down immediately; needs kernel patch 0140, an Enxerto that handles the BERG reboot reason, and the updated tool on the phone (README).")
+            Text("Runs /usr/local/bin/bergamotareboot bergamota over SSH. iOS is shut down immediately; needs kernel patch 0140, an Enxerto that handles the BERG reboot reason, and the updated tool on the phone (README).")
         }
         .confirmationDialog("Boot Bergamota fastboot from ABL?", isPresented: $confirmEnterBergamota, titleVisibility: .visible) {
             Button("Enter Bergamota fastboot", role: .destructive) {
@@ -153,7 +153,7 @@ struct DashboardView: View {
                 Task { let r = await model.tools.rebootIOS(to: "fastboot"); rebootResult = (r.0, r.1) }
             }
         } message: {
-            Text("Runs /usr/local/bin/sweetreboot fastboot over SSH. iOS is shut down immediately; needs kernel patch 0137 and the tool on the phone (README).")
+            Text("Runs /usr/local/bin/bergamotareboot fastboot over SSH. iOS is shut down immediately; needs kernel patch 0137 and the tool on the phone (README).")
         }
     }
 }

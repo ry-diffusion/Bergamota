@@ -1,15 +1,15 @@
-diff --git a/bsd/dev/sweet_a630.c b/bsd/dev/sweet_a630.c
+diff --git a/bsd/dev/bergamota_a630.c b/bsd/dev/bergamota_a630.c
 index 80d8b31..206ed48 100644
---- a/bsd/dev/sweet_a630.c
-+++ b/bsd/dev/sweet_a630.c
+--- a/bsd/dev/bergamota_a630.c
++++ b/bsd/dev/bergamota_a630.c
 @@ -307,6 +307,8 @@ static int a630_mode;
  /* Boot-args (all off/default unless given; docs/GPU_KERNEL.md "Power") */
- static uint32_t a630_idle_ms;           /* sweetgpuidle=MS: slumber after this long without a submission (0 = never) */
- static uint32_t a630_hwcg;              /* sweetgpuhwcg=1: hardware clock gating tables */
-+static uint32_t a630_llcc;              /* sweetgpullcc=1 or kern.sweet_gpu_llcc: GPU traffic through the LLCC (slices 12, 11) */
-+static uint32_t a630_llcc_diag;         /* read kern.sweet_gpu_llcc: [31] tried [30] s12 ok [29] s11 ok [28] cx written, [15:8] s12 status, [7:0] s11 status */
- static uint32_t a630_ubwc;              /* sweetgpuubwc=1: program the UBWC/bank registers (hbb 15) */
- static uint32_t a630_stamps;           /* sweetgpustamps=1: CP timestamps around every submission (diagnostic; adds a WFI) */
+ static uint32_t a630_idle_ms;           /* bergamotagpuidle=MS: slumber after this long without a submission (0 = never) */
+ static uint32_t a630_hwcg;              /* bergamotagpuhwcg=1: hardware clock gating tables */
++static uint32_t a630_llcc;              /* bergamotagpullcc=1 or kern.bergamota_gpu_llcc: GPU traffic through the LLCC (slices 12, 11) */
++static uint32_t a630_llcc_diag;         /* read kern.bergamota_gpu_llcc: [31] tried [30] s12 ok [29] s11 ok [28] cx written, [15:8] s12 status, [7:0] s11 status */
+ static uint32_t a630_ubwc;              /* bergamotagpuubwc=1: program the UBWC/bank registers (hbb 15) */
+ static uint32_t a630_stamps;           /* bergamotagpustamps=1: CP timestamps around every submission (diagnostic; adds a WFI) */
  static uint64_t gov_boost_until;        /* mach time until which the interactive boost floor holds */
 @@ -2277,6 +2279,63 @@ gpu_hwcg(void)
   * no UBWC and no RBBM_SECVID writes (secure registers, nothing here needs
@@ -32,7 +32,7 @@ index 80d8b31..206ed48 100644
 +	gpu_wr(b, ctrl, (1u << 1) | 1u);        /* opcode ACTIVATE (1 << 1) with the trigger */
 +	gpu_wr(b, ctrl, 1u << 1);               /* trigger cleared */
 +	bool ok = gpu_poll(b, status, 1u << 1, 0, 100);        /* DEACTIVATE state bit clears */
-+	printf("SWEET GPU: LLCC slice %u %s (status %#x)\n", sid, ok ? "active" : "NOT active", gpu_rd(b, status));
++	printf("BERGAMOTA GPU: LLCC slice %u %s (status %#x)\n", sid, ok ? "active" : "NOT active", gpu_rd(b, status));
 +	return ok;
 +}
 +
@@ -47,7 +47,7 @@ index 80d8b31..206ed48 100644
 +		cxm = ml_io_map(GPU_CX_MISC_PA, 0x1000);
 +	}
 +	if (!bcast || !cxm) {
-+		printf("SWEET GPU: LLCC: cannot map\n");
++		printf("BERGAMOTA GPU: LLCC: cannot map\n");
 +		return;
 +	}
 +	uint32_t cntl1 = 0;
@@ -69,7 +69,7 @@ index 80d8b31..206ed48 100644
 +	a630_llcc_diag |= 1u << 28;
 +	gpu_wr(cxm, 8, cntl1);
 +	gpu_wr(cxm, 4, (gpu_rd(cxm, 4) & ~0xfu) | 0x3u);
-+	printf("SWEET GPU: LLCC: SYSTEM_CACHE_CNTL_1 %#x CNTL_0 %#x\n", gpu_rd(cxm, 8), gpu_rd(cxm, 4));
++	printf("BERGAMOTA GPU: LLCC: SYSTEM_CACHE_CNTL_1 %#x CNTL_0 %#x\n", gpu_rd(cxm, 8), gpu_rd(cxm, 4));
 +}
 +
  static bool
@@ -85,12 +85,12 @@ index 80d8b31..206ed48 100644
  	if (a630_ubwc) {
  		/* UBWC 2.0, highest bank bit 15 (field 2), no level-2 swizzle disable, macrotile 4 channels (Linux a6xx_set_ubwc_config) */
  		gpu_w(0x8e08, 0x4);             /* RB_NC_MODE_CNTL */
-@@ -3715,6 +3777,32 @@ sweet_gpu_sysctl SYSCTL_HANDLER_ARGS
+@@ -3715,6 +3777,32 @@ bergamota_gpu_sysctl SYSCTL_HANDLER_ARGS
  	return sysctl_handle_string(oidp, buf, sizeof(buf), req);
  }
  
 +static int
-+sweet_gpu_llcc_sysctl SYSCTL_HANDLER_ARGS
++bergamota_gpu_llcc_sysctl SYSCTL_HANDLER_ARGS
 +{
 +#pragma unused(arg1, arg2)
 +	int v = (int)a630_llcc_diag, err = sysctl_handle_int(oidp, &v, 0, req);
@@ -100,7 +100,7 @@ index 80d8b31..206ed48 100644
 +	if (v != 1 && v != 2) {
 +		return EINVAL;
 +	}
-+	sweet_gpu_lock();
++	bergamota_gpu_lock();
 +	if (a630_awake && v == 1 && !gpu_cp_idle_now()) {
 +		err = EBUSY;
 +	} else {
@@ -109,22 +109,22 @@ index 80d8b31..206ed48 100644
 +			gpu_llcc_apply();
 +		}
 +	}
-+	sweet_gpu_unlock();
++	bergamota_gpu_unlock();
 +	return err;
 +}
-+SYSCTL_PROC(_kern, OID_AUTO, sweet_gpu_llcc, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, 0, 0, sweet_gpu_llcc_sysctl, "I",
++SYSCTL_PROC(_kern, OID_AUTO, bergamota_gpu_llcc, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, 0, 0, bergamota_gpu_llcc_sysctl, "I",
 +    "1: GPU through the system cache (LLCC slices 12, 11; CP idle), 2: activate the slices only; read: diagnostics");
 +
- SYSCTL_PROC(_kern, OID_AUTO, sweet_gpu, CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, 0, 0, sweet_gpu_sysctl, "A",
+ SYSCTL_PROC(_kern, OID_AUTO, bergamota_gpu, CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, 0, 0, bergamota_gpu_sysctl, "A",
      "Adreno 630 metrics: key=value line (docs/GPU_KERNEL.md)");
  
-@@ -3974,6 +4062,9 @@ sweet_a630_probe(void)
- 		if (PE_parse_boot_argn("sweetgpuhwcg", &v, sizeof(v))) {
+@@ -3974,6 +4062,9 @@ bergamota_a630_probe(void)
+ 		if (PE_parse_boot_argn("bergamotagpuhwcg", &v, sizeof(v))) {
  			a630_hwcg = v != 0;
  		}
-+		if (PE_parse_boot_argn("sweetgpullcc", &v, sizeof(v))) {
++		if (PE_parse_boot_argn("bergamotagpullcc", &v, sizeof(v))) {
 +			a630_llcc = v != 0;
 +		}
- 		if (PE_parse_boot_argn("sweetgpuubwc", &v, sizeof(v))) {
+ 		if (PE_parse_boot_argn("bergamotagpuubwc", &v, sizeof(v))) {
  			a630_ubwc = v != 0;
  		}

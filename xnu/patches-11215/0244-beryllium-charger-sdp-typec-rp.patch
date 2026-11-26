@@ -1,6 +1,6 @@
-diff --git a/bsd/dev/sweet_charger.c b/bsd/dev/sweet_charger.c
---- a/bsd/dev/sweet_charger.c
-+++ b/bsd/dev/sweet_charger.c
+diff --git a/bsd/dev/bergamota_charger.c b/bsd/dev/bergamota_charger.c
+--- a/bsd/dev/bergamota_charger.c
++++ b/bsd/dev/bergamota_charger.c
 @@ -94,6 +94,7 @@
  #define SC_ICL_CDP_MA           1500u
  #define SC_ICL_HVDCP_MA         1500u

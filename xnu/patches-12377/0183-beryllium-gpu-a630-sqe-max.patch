@@ -1,7 +1,7 @@
-diff --git a/bsd/dev/sweet_a630.c b/bsd/dev/sweet_a630.c
+diff --git a/bsd/dev/bergamota_a630.c b/bsd/dev/bergamota_a630.c
 index 6b7854607d116223315940b2cb30e5fcabdf38f3..615dbdfa0cb4ae5f99297623f53c1b2b050dbc89 100644
---- a/bsd/dev/sweet_a630.c
-+++ b/bsd/dev/sweet_a630.c
+--- a/bsd/dev/bergamota_a630.c
++++ b/bsd/dev/bergamota_a630.c
 @@ -1780,17 +1780,17 @@ gpu_gx_slumber(void)
  #define RING_OFF                0x04000u
  #define RING_SIZE               0x8000u

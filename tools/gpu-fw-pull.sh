@@ -4,7 +4,7 @@
 # The phone must be in OrangeFox recovery with adb (root shell). Nothing is ever written to a
 # partition: block devices are mounted `ro,noload` (no journal replay) or only read with dd.
 # Files go to research/gpu-fw/ (git-ignored):
-#   a630_zap.mdt a630_zap.b00 .b01 .b02 ...   (required for sweetgpu=6..8; signed per device)
+#   a630_zap.mdt a630_zap.b00 .b01 .b02 ...   (required for bergamotagpu=6..8; signed per device)
 #   a630_gmu.bin a630_sqe.fw                   (if present; otherwise ../ios-beryllium/research/gpu-fw/dl has them)
 # Then:  tools/gpu-fw-push.sh -d research/gpu-fw -z research/gpu-fw   (phone booted into iOS with SSH)
 set -eu

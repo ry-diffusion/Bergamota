@@ -196,7 +196,7 @@ static void rgba_to_surface(const uint8_t *src, uint32_t w, uint32_t h, IOSurfac
         // writing the render server's result into them doubled and smeared every label on the phone
         static int alias_on = -1;
         if (alias_on < 0) { const char *e = getenv("BGL_ALIAS"); alias_on = e && e[0] == '1'; }
-        if (alias_on && osm_sweet_surface_alias(IOSurfaceGetID(s), &ab, &abpr, &aw, &ah)) { dst = ab; bpr = abpr; via_alias = YES; }
+        if (alias_on && osm_bergamota_surface_alias(IOSurfaceGetID(s), &ab, &abpr, &aw, &ah)) { dst = ab; bpr = abpr; via_alias = YES; }
         else {
             if (lk == KERN_SUCCESS) IOSurfaceUnlock(s, 0, NULL);
             EAGL_DEBUG("CPU sync skipped: surface %u is not mapped writable here (no kernel alias)\n", IOSurfaceGetID(s));
@@ -214,7 +214,7 @@ static void rgba_to_surface(const uint8_t *src, uint32_t w, uint32_t h, IOSurfac
             dp[x] = (p & 0xff00ff00u) | (r << 16) | b | (opaque ? 0xff000000u : 0);
         }
     }
-    if (via_alias) osm_sweet_alias_sync(IOSurfaceGetID(s));
+    if (via_alias) osm_bergamota_alias_sync(IOSurfaceGetID(s));
     if (lk == KERN_SUCCESS) IOSurfaceUnlock(s, 0, NULL);
 }
 
@@ -348,7 +348,7 @@ static double g_ps_direct_ms; static int g_ps_direct_n;
 static double g_ps_flush_ms, g_ps_cpu_ms; static int g_ps_cpu_n, g_ps_syncs, g_ps_skipped;
 static void pipe_stats_report(void) {
     static double last[8], last_flush, last_cpu, last_t; static int last_cpu_n, last_syncs;
-    double st[8]; osm_sweet_stats(st, 8);
+    double st[8]; osm_bergamota_stats(st, 8);
     double now = now_ms(), dn = g_ps_syncs - last_syncs; if (dn < 1) return;
     fprintf(stderr, "EAGL(shim): PIPE %d syncs in %.0f ms (%.1f ms/sync): glFlush %.2f | gpu blits %.0f refused %.0f | render-wait %.2f enqueue %.2f copy-wait %.2f bo_sync %.2f lookup %.2f | cpu copies %d %.2f ms (per sync) | direct display syncs %d %.2f ms each | display copies skipped (clean) %d | draws marking an attachment %u, other draws %u\n",
             (int)dn, now - last_t, (now - last_t) / dn, (g_ps_flush_ms - last_flush) / dn, st[0] - last[0], st[6] - last[6],
@@ -389,7 +389,7 @@ static void sync_att(EAGLContext *c, int i) {
     Attach *a = &p->att[i];
         a->dirty = 0;
         if (a->direct) {
-            double td = g_debug ? now_ms() : 0; osm_sweet_direct_sync(IOSurfaceGetID(a->surf)); if (g_debug) { g_ps_direct_ms += now_ms() - td; g_ps_direct_n++; }
+            double td = g_debug ? now_ms() : 0; osm_bergamota_direct_sync(IOSurfaceGetID(a->surf)); if (g_debug) { g_ps_direct_ms += now_ms() - td; g_ps_direct_n++; }
             if (g_debug_frames) verify_direct(c, a);
             return;
         }
@@ -397,7 +397,7 @@ static void sync_att(EAGLContext *c, int i) {
         // Hardware path: the GPU copies the image into the surface (no readback); GL rows are bottom-up, `inverted` means the surface wants them as they are.
         double t_start = g_debug ? now_ms() : 0;
         BOOL flip = a->kind ? a->inverted : !a->inverted;      // target-form attach (the render server): YES = rows flipped, NO = as GL has them (seen on the phone: NO + flip drew the UI upside down)
-        if (osm_sweet_active() && osm_sweet_blit(a->name, isTex, IOSurfaceGetID(a->surf), flip, NO)) {
+        if (osm_bergamota_active() && osm_bergamota_blit(a->name, isTex, IOSurfaceGetID(a->surf), flip, NO)) {
             if (g_debug) { frame_stats(a, t_start, now_ms(), 1); maybe_dump(c, i, isTex, (uint32_t)IOSurfaceGetWidth(a->surf), (uint32_t)IOSurfaceGetHeight(a->surf), YES); }
             return;
         }
@@ -536,7 +536,7 @@ static void h_BindTexture(GLenum target, GLuint name) {
     }
     pthread_mutex_unlock(&g_live_lock);
     if (!hit) return;
-    if (e.wrapped) { osm_sweet_wrap_sync(IOSurfaceGetID(e.surf)); return; }     // GPU samples the memory itself: only clean the producer's cache lines
+    if (e.wrapped) { osm_bergamota_wrap_sync(IOSurfaceGetID(e.surf)); return; }     // GPU samples the memory itself: only clean the producer's cache lines
     g_reupload = 1;
     [c texImageIOSurface:e.surf target:GL_TEXTURE_2D internalFormat:e.ifmt width:e.w height:e.h format:e.fmt type:e.type plane:e.plane invert:e.invert];
     g_reupload = 0; g_live_reuploads++;
@@ -554,7 +554,7 @@ static void h_DeleteTextures(GLsizei n, const GLuint *t) {
         if (g_dirty_track && a->dirty && big) sync_att(c, k);
         // The texture is going away: its attachment must too. A stale entry kept copying a deleted (empty) texture over a live display surface
         // every flush (surface black after CoreAnimation tore down its buffers: display sleep/wake, app switches).
-        osm_sweet_forget(IOSurfaceGetID(a->surf)); CFRelease(a->surf);
+        osm_bergamota_forget(IOSurfaceGetID(a->surf)); CFRelease(a->surf);
         c->_private->att[k] = c->_private->att[--c->_private->natt];
         k--;
     }
@@ -687,9 +687,9 @@ static void eagl_install_hooks(void) {
         if (cur_ctx() == self) [EAGLContext setCurrentContext:nil];
         for (int i = 0; i < p->nbinds; i++) {
             [p->binds[i].drawable release];
-            for (int k = 0; k < POOL_N; k++) if (p->binds[i].pool[k]) { osm_sweet_forget(IOSurfaceGetID(p->binds[i].pool[k])); CFRelease(p->binds[i].pool[k]); }
+            for (int k = 0; k < POOL_N; k++) if (p->binds[i].pool[k]) { osm_bergamota_forget(IOSurfaceGetID(p->binds[i].pool[k])); CFRelease(p->binds[i].pool[k]); }
         }
-        for (int i = 0; i < p->natt; i++) if (p->att[i].surf) { osm_sweet_forget(IOSurfaceGetID(p->att[i].surf)); CFRelease(p->att[i].surf); }
+        for (int i = 0; i < p->natt; i++) if (p->att[i].surf) { osm_bergamota_forget(IOSurfaceGetID(p->att[i].surf)); CFRelease(p->att[i].surf); }
         if (p->sg) {
             struct _EAGLSharegroupPrivate *g = p->sg->_private;
             pthread_mutex_lock(&g->lock);
@@ -759,7 +759,7 @@ static DrawBind *find_bind(struct _EAGLContextPrivate *p, GLuint rb) {
         glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, 0, 0);
         if (b) {
             [b->drawable release]; b->drawable = nil;
-            for (int k = 0; k < POOL_N; k++) if (b->pool[k]) { osm_sweet_forget(IOSurfaceGetID(b->pool[k])); CFRelease(b->pool[k]); b->pool[k] = NULL; }
+            for (int k = 0; k < POOL_N; k++) if (b->pool[k]) { osm_bergamota_forget(IOSurfaceGetID(b->pool[k])); CFRelease(b->pool[k]); b->pool[k] = NULL; }
             *b = p->binds[--p->nbinds];
         }
         return YES;
@@ -786,7 +786,7 @@ static DrawBind *find_bind(struct _EAGLContextPrivate *p, GLuint rb) {
     }
     if (b->drawable != d) { [b->drawable release]; b->drawable = [d retain]; }
     if (b->w != w || b->h != h) {
-        for (int k = 0; k < POOL_N; k++) if (b->pool[k]) { osm_sweet_forget(IOSurfaceGetID(b->pool[k])); CFRelease(b->pool[k]); b->pool[k] = NULL; }
+        for (int k = 0; k < POOL_N; k++) if (b->pool[k]) { osm_bergamota_forget(IOSurfaceGetID(b->pool[k])); CFRelease(b->pool[k]); b->pool[k] = NULL; }
     }
     b->w = w; b->h = h; b->fmt = fmt;
     EAGL_DEBUG("renderbuffer %d <- drawable %ux%u\n", rb, w, h);
@@ -806,7 +806,7 @@ static DrawBind *find_bind(struct _EAGLContextPrivate *p, GLuint rb) {
     if (!s) s = b->pool[b->next] = make_surface(b->w, b->h);
     b->next = (b->next + 1) % POOL_N;
     if (!s) return NO;
-    if (!(osm_sweet_active() && osm_sweet_blit((unsigned)rb, 0, IOSurfaceGetID(s), 1, opaque))) {     // CPU fallback (softpipe, or a surface the GPU cannot use)
+    if (!(osm_bergamota_active() && osm_bergamota_blit((unsigned)rb, 0, IOSurfaceGetID(s), 1, opaque))) {     // CPU fallback (softpipe, or a surface the GPU cannot use)
         uint32_t w, h;
         uint8_t *buf = read_image(self, rb, NO, 0, 0, &w, &h);
         if (!buf) return NO;
@@ -843,7 +843,7 @@ static DrawBind *find_bind(struct _EAGLContextPrivate *p, GLuint rb) {
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-            if (g_direct && !inverted && osm_sweet_active() && IOSurfaceGetPixelFormat(surface) == 'BGRA' && osm_sweet_attach_direct(name, IOSurfaceGetID(surface))) direct = YES;
+            if (g_direct && !inverted && osm_bergamota_active() && IOSurfaceGetPixelFormat(surface) == 'BGRA' && osm_bergamota_attach_direct(name, IOSurfaceGetID(surface))) direct = YES;
             // keep what the surface already shows: CoreAnimation redraws only the damaged part of a swap-chain buffer
             else if (IOSurfaceGetPixelFormat(surface) == 'BGRA')
                 [self texImageIOSurface:surface target:GL_TEXTURE_2D internalFormat:GL_RGBA width:w height:h format:GL_BGRA_EXT type:GL_UNSIGNED_BYTE plane:0 invert:!inverted];   // same row order as the sync
@@ -853,13 +853,13 @@ static DrawBind *find_bind(struct _EAGLContextPrivate *p, GLuint rb) {
     int idx = -1;
     for (int i = 0; i < p->natt; i++) if (p->att[i].name == name && p->att[i].kind == kind) idx = i;
     if (!surface) {                                     // detach
-        if (idx >= 0) { osm_sweet_forget(IOSurfaceGetID(p->att[idx].surf)); CFRelease(p->att[idx].surf); p->att[idx] = p->att[--p->natt]; update_cur_target(self); }
+        if (idx >= 0) { osm_bergamota_forget(IOSurfaceGetID(p->att[idx].surf)); CFRelease(p->att[idx].surf); p->att[idx] = p->att[--p->natt]; update_cur_target(self); }
         return YES;
     }
     if (idx < 0) {
         if (p->natt >= MAX_BIND) return NO;
         idx = p->natt++;
-    } else { osm_sweet_forget(IOSurfaceGetID(p->att[idx].surf)); CFRelease(p->att[idx].surf); }
+    } else { osm_bergamota_forget(IOSurfaceGetID(p->att[idx].surf)); CFRelease(p->att[idx].surf); }
     p->att[idx].name = name; p->att[idx].kind = kind; p->att[idx].surf = (IOSurfaceRef)CFRetain(surface); p->att[idx].inverted = inverted; p->att[idx].dirty = 1; p->att[idx].direct = direct;
     // CoreAnimation attaches a NEW texture to the same display surface every frame; the earlier textures keep older pixels. Syncing them all wrote
     // those stale images over the surface in array order (the flicker, the black wallpaper): only the latest attachment of a surface is valid.
@@ -929,12 +929,12 @@ static DrawBind *find_bind(struct _EAGLContextPrivate *p, GLuint rb) {
     if (w * bpp > bpr) do { EAGL_DEBUG("texImageIOSurface: refused (reason 5) surface %u fourcc %08x planes %zu\n", ioSurface ? IOSurfaceGetID(ioSurface) : 0, ioSurface ? (unsigned)IOSurfaceGetPixelFormat(ioSurface) : 0, ioSurface ? IOSurfaceGetPlaneCount(ioSurface) : (size_t)0); return NO; } while (0);
     BOOL bgra8 = (format == GL_BGRA_EXT && type == 0x1401);                  // swizzled to RGBA below (portable across ES implementations)
     // Zero-copy sampling (opt-in): kind of the GL upload that the GPU can sample straight from the surface memory (A8, L8, LA8, RGBA8, BGRA8, RGBA16F)
-    if (g_wrapsample && !g_nowrap && !g_reupload && (GLenum)target == GL_TEXTURE_2D && !planar && osm_sweet_active()) {
+    if (g_wrapsample && !g_nowrap && !g_reupload && (GLenum)target == GL_TEXTURE_2D && !planar && osm_bergamota_active()) {
         int kind = 0;
         if (type == 0x1401) kind = format == 0x1906 ? 1 : format == 0x1909 ? 2 : format == 0x190a ? 3 : format == 0x1908 ? 4 : format == GL_BGRA_EXT ? 5 : 0;
         else if ((type == 0x140b || type == 0x8d61) && format == 0x1908) kind = 6;
         GLint wb = 0; glGetIntegerv(GL_TEXTURE_BINDING_2D, &wb);
-        if (kind && wb && osm_sweet_wrap_texture((unsigned)wb, IOSurfaceGetID(ioSurface), kind, w, h)) {
+        if (kind && wb && osm_bergamota_wrap_texture((unsigned)wb, IOSurfaceGetID(ioSurface), kind, w, h)) {
             pthread_mutex_lock(&g_live_lock);
             int k = -1; for (int i = 0; i < g_nlive; i++) if (g_live[i].ctx == self && g_live[i].name == (GLuint)wb) { k = i; break; }
             if (k < 0 && g_nlive < MAX_LIVE) { k = g_nlive++; memset(&g_live[k], 0, sizeof g_live[k]); }

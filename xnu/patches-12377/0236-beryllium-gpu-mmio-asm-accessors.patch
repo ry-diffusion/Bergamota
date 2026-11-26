@@ -1,7 +1,7 @@
-diff --git a/bsd/dev/sweet_a630.c b/bsd/dev/sweet_a630.c
+diff --git a/bsd/dev/bergamota_a630.c b/bsd/dev/bergamota_a630.c
 index b1b6da2d465b43650c82c06cabd783f5f61bf8d7..20b05a4ab017407924d24b8897d4ab7ef7d7eab4 100644
---- a/bsd/dev/sweet_a630.c
-+++ b/bsd/dev/sweet_a630.c
+--- a/bsd/dev/bergamota_a630.c
++++ b/bsd/dev/bergamota_a630.c
 @@ -327,20 +327,27 @@ static int a630_pm_chan;                /* the PM thread's sleep channel; the ho
  static void *gmu_fw;                    /* kept for warm re-boots (stage 8 only) */
  static size_t gmu_fw_size;

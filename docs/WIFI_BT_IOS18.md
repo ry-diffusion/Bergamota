@@ -9,13 +9,13 @@ Tags: **[V]** seen on the phone or in a file, **[U]** inference.
 
 * Kernel: Heartwood xnu-11215 with the whole BT series compiled in (0104 probe, 0117/0118 rails and UART clock,
   0124 firmware download, 0125/0128 in-band sleep, 0132/0133 post-NVM fixes, 0136 `com.apple.uart.bluetooth`
-  kernel control) [V strings in the payload]. All of it is off unless `sweetwlan=2 sweetbt=1`, and the boot-args of
+  kernel control) [V strings in the payload]. All of it is off unless `bergamotawlan=2 bergamotabt=1`, and the boot-args of
   `local-0236.img` had neither [V payload cmdline], so the WCN3990 was never powered.
 * ADT: `beryllium-hi-3x-gpufwz.adt` (the GPU-firmware ADT every current image uses) has **no `/arm-io/bluetooth`**:
   `adt-gpufw.py` was run on an ADT made before the rebrand dropped and bt18 restored the node [V].
 * Root: `/usr/sbin/BlueTool` is the stub, `BlueTool.orig` kept, `/usr/local/bin/hcitest` present, bluetoothd's
   launchd job has `BT_HCI_TRANSPORT=H4BC:POSIX:com.apple.uart.bluetooth,3000000` [V]. No BT firmware under
-  `/usr/standalone/firmware/sweet/` (the directory did not exist) [V].
+  `/usr/standalone/firmware/bergamota/` (the directory did not exist) [V].
 * bluetoothd (unified log): `bluetooth: Unable to match bluetooth service in device tree`, `Not a valid MAC address
   (all 00s)`, `exited due to exit(0), ran for 98ms`, respawned every 10 s by its LaunchEvents [V]. With no
   bluetoothd, Control Center's Bluetooth module shows Off and cannot be turned on.
@@ -33,9 +33,9 @@ kernel control registered, `hcitest` got HCI Reset / Read Local Version (Qualcom
 | # | Why it failed | Fix |
 |---|---|---|
 | 1 | No `/arm-io/bluetooth` in the GPU ADT, so bluetoothd exits 0 ("Unable to match bluetooth service") | `tools/adt-bluetooth.py IN OUT` adds mkadt's `bluetooth_node` (local-mac-address 02:00:5e:77:b0:01, transport-encoding 3, transport-speed 3000000) to any ADT; `beryllium-hi-3x-gpufwz-bt.adt` = gpufwz + node |
-| 2 | Boot-args never enabled the BT stage | `sweetwlan=2 sweetbt=1 sweetbtfast=1 sweetbtibs=1 sweetwlandelay=30` (the iOS 16 working set: baud change before the download, Linux IBS bits; stage 30 s after boot instead of 90). The payload cmdline field is 608 bytes; the full line is 601 |
-| 3 | No firmware where the stage reads it | `crbtfw21.tlv` (177060 B) + `crnv21.bin` (4587 B), the linux-firmware pair that worked on iOS 16, copied to `/usr/standalone/firmware/sweet/` on the phone (not in git; the root builder should add them, see 2.3) |
-| 4 | **Keychain adds fail for everyone**: securityd's `aks_wrap_key` (AppleKeyStore selector 10, inputs {handle 0, class}, 32-byte key in, class + 40-byte wrapped key out) returned `kIOReturnUnsupported` from our stand-in (`SWEET AKS: securityd sel 10 ... -> 0xe00002c7` on every boot). bluetoothd's `readRootKeys` (0x100711600) stores its LE Identity/Encryption roots and Cloud keys as keychain items (service `BluetoothGlobal`, helper 0x10034e594 -> 0x10034bf9c); when a SecItemAdd fails it logs "LeSecurityManager hit a keychain problem" (0x10071204c) and gives up, which is the abort the bt18 notes saw | xnu **0238** `sweet-aks-key-wrap`: selectors 10/11 implemented. "Wrapped" = 8-byte header {'SWAK', class} + the key; unwrap accepts only that header. Not protection (no SEP, no passcode: item keys are readable on disk), but items now round-trip |
+| 2 | Boot-args never enabled the BT stage | `bergamotawlan=2 bergamotabt=1 bergamotabtfast=1 bergamotabtibs=1 bergamotawlandelay=30` (the iOS 16 working set: baud change before the download, Linux IBS bits; stage 30 s after boot instead of 90). The payload cmdline field is 608 bytes; the full line is 601 |
+| 3 | No firmware where the stage reads it | `crbtfw21.tlv` (177060 B) + `crnv21.bin` (4587 B), the linux-firmware pair that worked on iOS 16, copied to `/usr/standalone/firmware/bergamota/` on the phone (not in git; the root builder should add them, see 2.3) |
+| 4 | **Keychain adds fail for everyone**: securityd's `aks_wrap_key` (AppleKeyStore selector 10, inputs {handle 0, class}, 32-byte key in, class + 40-byte wrapped key out) returned `kIOReturnUnsupported` from our stand-in (`BERGAMOTA AKS: securityd sel 10 ... -> 0xe00002c7` on every boot). bluetoothd's `readRootKeys` (0x100711600) stores its LE Identity/Encryption roots and Cloud keys as keychain items (service `BluetoothGlobal`, helper 0x10034e594 -> 0x10034bf9c); when a SecItemAdd fails it logs "LeSecurityManager hit a keychain problem" (0x10071204c) and gives up, which is the abort the bt18 notes saw | xnu **0238** `bergamota-aks-key-wrap`: selectors 10/11 implemented. "Wrapped" = 8-byte header {'SWAK', class} + the key; unwrap accepts only that header. Not protection (no SEP, no passcode: item keys are readable on disk), but items now round-trip |
 
 ### 2.2 Boots
 
@@ -50,10 +50,10 @@ kernel control registered, `hcitest` got HCI Reset / Read Local Version (Qualcom
   * bluetoothd (run by hand with `OS_ACTIVITY_DT_MODE=YES`): `bluetooth: Got local-mac-address: 02:00:5e:77:b0:01`,
     `Searching for transport: "H4BC"` / driver `POSIX`, then `Failed to add attributes to keychain for device Identity
     Root with result -25291` (errSecNotAvailable), `Failed to set new identity root!`, `Bluetooth error - restarting
-    { reason=130 }`. The kernel log shows `SWEET AKS: securityd sel 10 ... -> 0xe00002c7` at the same time. It never
+    { reason=130 }`. The kernel log shows `BERGAMOTA AKS: securityd sel 10 ... -> 0xe00002c7` at the same time. It never
     reaches the transport open, so fix 4 (0238) is the next step, as predicted from the disassembly.
 * `bt-0238ci.img` = CI run 40132191870 kernel (develop 3f7dfdf + 0238) + same ADT and cmdline, flashed 21:10 UTC.
-  Result [V]: `SWEET AKS: securityd sel 10 ... -> 0x0` (74x) and `sel 11 ... -> 0x0` (254x): keychain works;
+  Result [V]: `BERGAMOTA AKS: securityd sel 10 ... -> 0x0` (74x) and `sel 11 ... -> 0x0` (254x): keychain works;
   bluetoothd finds its keychain items, asks the BlueTool stub ("BlueTool finished running boot script" / "init
   script"), connects to `com.apple.uart.bluetooth` (termios 3000000, cflag 0x38b00) and runs the HCI init: Reset,
   Read Local Version/Commands/Features/BD_ADDR, LE features, event masks, Write SSP/LE Host Supported, LE buffer
@@ -63,20 +63,20 @@ kernel control registered, `hcitest` got HCI Reset / Read Local Version (Qualcom
   BT)_WAKE signal` (no /dev/btwake), TCC "Unable to construct an identity" (root run), WiFiManager lookup failures.
 * Fix 5, xnu **0239** `bt-hci-compat`: a Command Complete with status 0x01 (Unknown HCI Command) for a standard
   (non-vendor) opcode is rewritten to success in the kernel, and every rewrite / other error status is logged
-  (`SWEET BT: compat: opcode ...`), so one boot lists all missing commands. `sweetbtcompat=0` turns it off.
+  (`BERGAMOTA BT: compat: opcode ...`), so one boot lists all missing commands. `bergamotabtcompat=0` turns it off.
   [U] that 0x0c5b is answered with 0x01 (the 64-line trace budget ended before it); the log line settles it.
   The phone was handed back to the GPU session (local-0240-gpublit) after this boot.
 * `bt-0239ci.img` (built, **not flashed**: the phone is charging): CI run 40133752064 = develop 5692744 (0237 GPU
-  page tables, 0240 GPU scan-out copy) + 0238 + 0239, ADT gpufwz-bt, boot-args of local-0240 (`sweetfb_scancopy=2`)
-  + the BT set. What to look for: `SWEET BT: compat: opcode ...` lines, then whether bluetoothd logs `Bluetooth
+  page tables, 0240 GPU scan-out copy) + 0238 + 0239, ADT gpufwz-bt, boot-args of local-0240 (`bergamotafb_scancopy=2`)
+  + the BT set. What to look for: `BERGAMOTA BT: compat: opcode ...` lines, then whether bluetoothd logs `Bluetooth
   server started` with the stack up (`fStackStarted:1`) and stays running; then the Control Center toggle.
 
 ### 2.3 Still to do for Bluetooth
 
 * Root builder: done in root_tweaks18 `bluetooth()`: `RENEGADE_BT_FW=DIR` (a directory with the linux-firmware
-  `crbtfw21.tlv`/`crnv21.bin`; Qualcomm firmware, never in git) installs them in `/usr/standalone/firmware/sweet/`.
-* After the transport is up: watch bluetoothd for the BlueTool XPC result, the HCI init sequence in the `SWEET BT:`
-  trace (`sweetbtlog`, 64 lines), and Apple vendor commands the Qualcomm controller rejects (docs/BT_IOS_TRANSPORT.md 3.3).
+  `crbtfw21.tlv`/`crnv21.bin`; Qualcomm firmware, never in git) installs them in `/usr/standalone/firmware/bergamota/`.
+* After the transport is up: watch bluetoothd for the BlueTool XPC result, the HCI init sequence in the `BERGAMOTA BT:`
+  trace (`bergamotabtlog`, 64 lines), and Apple vendor commands the Qualcomm controller rejects (docs/BT_IOS_TRANSPORT.md 3.3).
 
 ## 3. Wi-Fi: blocker
 
@@ -101,7 +101,7 @@ There is no Wi-Fi driver of any kind yet, at either end:
 
 Neither half is a signing or hardware-access problem: the modem firmware in the phone's `modem` partition is the
 phone's own signed image and is loaded by the modem's MBA, not by us, and the registers are reachable. The blocker
-is the size of the two missing drivers. **Next step:** phase P0/P1 of `WIFI_BT_PLAN.md` on xnu-11215 (`sweetwlan=1`
+is the size of the two missing drivers. **Next step:** phase P0/P1 of `WIFI_BT_PLAN.md` on xnu-11215 (`bergamotawlan=1`
 and `=3`, read-only probe and modem-partition inventory; 0104 already carries them), then P3 (MBA load, stop at
 "MBA alive") as its own gated patch, with the user present for the first run.
 
@@ -116,7 +116,7 @@ Reporting) clear. The earlier [U] guess (controller answers 0x01) was wrong.
 Fix, 0239 reworked (compile-checked with `tools/xnu-cc.py` on the run 40133752064 build tree): a small table
 `bt_local_cmds` {opcode, mask octet, bit}; the kernel sets those bits in the Read Local Supported Commands reply
 (0x1002) and answers the commands itself with Command Complete / success, without sending them to the WCN3990
-(`SWEET BT: compat: opcode 0x0c5b answered by the kernel`). The unknown-command rewrite and the error-status log
+(`BERGAMOTA BT: compat: opcode 0x0c5b answered by the kernel`). The unknown-command rewrite and the error-status log
 stay, so the next missing command shows up in one boot either way.
 
 ### 2.5 Boot combo2-0240b-bt0239v2 (0237 + 0240 + 0238 + 0239 v2, 2026-10-24)
@@ -130,10 +130,10 @@ Triggered Fault", ~10 s after launch, crash reports in `.../osanalytics/Diagnost
 thread `com.apple.bluetooth.root`, Stack_Init (0x1001491c4) -> stack init (0x1001bf5e0) -> fatal handler -> abort.
 launchd respawns it.
 
-Fix, 0239 v3: `sweetbtcompat=2` (default) also turns 0x01 answers to vendor (OGF 0x3f) commands into success. The
+Fix, 0239 v3: `bergamotabtcompat=2` (default) also turns 0x01 answers to vendor (OGF 0x3f) commands into success. The
 reply then carries no return parameters; `_BCM_SubOpcodeChecker` (0x100035580, used for 0xfce9/0xfd23) returns true
 on an empty reply, so at least those pass. [U] whether every one of them tolerates an empty reply.
-Not done: the unified log of this boot (`sweetlog` returns nothing after the clock jump), so the stack's own
+Not done: the unified log of this boot (`bergamotalog` returns nothing after the clock jump), so the stack's own
 "restarting { reason=... }" line for this failure was not read; the crash report has no reason string.
 
 ### 2.6 Boot combo5-0243-bt0239v3 (develop through 0243 + 0238 + 0239 v3, 2026-10-24)
@@ -164,7 +164,7 @@ answer at all. launchd's copies live 15-60 s each for the same reason.
 
 Fix, 0239 v5 (compile-checked): a command watchdog. A command sent to the controller with no Command Complete /
 Status within 800 ms is answered by the kernel with success (first parameter byte + zeros) and logged
-(`SWEET BT: compat: opcode ... not answered by the controller within 800 ms`).
+(`BERGAMOTA BT: compat: opcode ... not answered by the controller within 800 ms`).
 
 ### 2.8 Boot combo7 (0239 v5, 2026-10-24): correction to 2.7, sub-opcode byte
 
@@ -203,8 +203,8 @@ watchdog never fired. **User-checked on the phone: Settings -> Bluetooth shows n
 | Piece | Where |
 |---|---|
 | `/arm-io/bluetooth` ADT node (local-mac-address, transport-encoding 3, transport-speed 3000000) | `tools/adt-bluetooth.py` on the GPU ADT -> `beryllium-hi-3x-gpufwz-bt.adt` |
-| Boot-args `sweetwlan=2 sweetbt=1 sweetbtfast=1 sweetbtibs=1 sweetwlandelay=30` | boot image cmdline (601 of 608 bytes with the current set) |
-| WCN3990 firmware `crbtfw21.tlv` / `crnv21.bin` (linux-firmware) in `/usr/standalone/firmware/sweet/` | root: `RENEGADE_BT_FW=DIR` (root_tweaks18 `bluetooth()`); on this phone copied by hand |
+| Boot-args `bergamotawlan=2 bergamotabt=1 bergamotabtfast=1 bergamotabtibs=1 bergamotawlandelay=30` | boot image cmdline (601 of 608 bytes with the current set) |
+| WCN3990 firmware `crbtfw21.tlv` / `crnv21.bin` (linux-firmware) in `/usr/standalone/firmware/bergamota/` | root: `RENEGADE_BT_FW=DIR` (root_tweaks18 `bluetooth()`); on this phone copied by hand |
 | bluetoothd `BT_HCI_TRANSPORT=H4BC:POSIX:com.apple.uart.bluetooth,3000000`, BlueTool stub | root (already in renegade root, bt18) |
 | Kernel transport, firmware download, IBS: 0104-0136 | xnu/patches-11215 |
 | Keychain: AKS key wrap/unwrap | **0238** |
@@ -212,7 +212,7 @@ watchdog never fired. **User-checked on the phone: Settings -> Bluetooth shows n
 
 Open points: classic pairing/connections and audio not tested; the vendor features answered as "success" do
 nothing (Apple's LE offloads, multi-advertising instances); `/dev/btwake` absent (logged, harmless); the 64-line
-HCI trace budget (`sweetbtlog`) is too small to see a whole session.
+HCI trace budget (`bergamotabtlog`) is too small to see a whole session.
 
 ### 2.12 "Connect" drops at once: Skywalk privileges (0250)
 
@@ -222,10 +222,10 @@ the device), 11 crashes `SIGSEGV KERN_INVALID_ADDRESS at 0x0` on queue `com.appl
 Skywalk Path"). The audio pipe constructor (0x100539b10) registers a user-pipe nexus "com.apple.bluetooth.AudioPipe"
 and opens a channel on it without checking errors; the kernel had logged `SK[5]: __nexus_register bluetoothd:
 nxprov_create: 1` = EPERM: `PRIV_SKYWALK_REGISTER_USER_PIPE` is checked with priv_check_cred, and our Sandbox
-stand-in (sweet_amfi.c) grants only PRIV_WORK_INTERVAL (its denial log is capped at 64 entries, so this one was never
+stand-in (bergamota_amfi.c) grants only PRIV_WORK_INTERVAL (its denial log is capped at 64 entries, so this one was never
 printed).
 
-Fix, xnu **0250** `sweet-sandbox-skywalk-privileges` (compile-checked, applies on the series): the Skywalk privileges
+Fix, xnu **0250** `bergamota-sandbox-skywalk-privileges` (compile-checked, applies on the series): the Skywalk privileges
 12000-12011 are granted to a process holding the matching `com.apple.private.skywalk.*` entitlement
 (IOCurrentTaskHasEntitlement), as AMFI does. bluetoothd has register-user-pipe. [U] whether the audio path then works
 end to end (A2DP over the WCN3990, the audio HAL side of the channel).

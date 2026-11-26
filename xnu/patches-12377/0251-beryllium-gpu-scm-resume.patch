@@ -3,8 +3,8 @@ x1..x5, x6 = the continuation token TZ returned, x7 = 0. It re-sent the register
 so an interrupted PAS call would have handed TZ whatever it left in x1..x5. Latent: no interrupted call has been seen.
 Found by the Wi-Fi session's review against Linux; its ms_scm_call (xnu-12377 1106) does it this way.
 
---- a/bsd/dev/sweet_a630_pas.c
-+++ b/bsd/dev/sweet_a630_pas.c
+--- a/bsd/dev/bergamota_a630_pas.c
++++ b/bsd/dev/bergamota_a630_pas.c
 @@ -73,13 +73,19 @@
  	register uint64_t x4 __asm__("x4") = r->a[4];
  	register uint64_t x5 __asm__("x5") = r->a[5];
@@ -37,5 +37,5 @@ Found by the Wi-Fi session's review against Linux; its ms_scm_call (xnu-12377 11
 +			out->a[0] = SCM_INTERRUPTED;
 +			out->a[6] = token;
  			if (resume == SCM_RESUME_LIMIT) {
- 				printf("SWEET GPU: SCM interrupted call did not complete; no further calls\n");
+ 				printf("BERGAMOTA GPU: SCM interrupted call did not complete; no further calls\n");
  				return false;

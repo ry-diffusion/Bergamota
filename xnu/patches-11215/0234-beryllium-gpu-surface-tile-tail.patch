@@ -1,6 +1,6 @@
-diff --git a/iokit/Kernel/arm/SweetAdreno.cpp b/iokit/Kernel/arm/SweetAdreno.cpp
---- a/iokit/Kernel/arm/SweetAdreno.cpp
-+++ b/iokit/Kernel/arm/SweetAdreno.cpp
+diff --git a/iokit/Kernel/arm/BergamotaAdreno.cpp b/iokit/Kernel/arm/BergamotaAdreno.cpp
+--- a/iokit/Kernel/arm/BergamotaAdreno.cpp
++++ b/iokit/Kernel/arm/BergamotaAdreno.cpp
 @@ -86,7 +86,8 @@
  	uint8_t                  *kva;          /* kernel alias (write-combined for GEM_NEW BOs) */
  	uint64_t                  size;
@@ -14,19 +14,19 @@ diff --git a/iokit/Kernel/arm/SweetAdreno.cpp b/iokit/Kernel/arm/SweetAdreno.cpp
 @@ -120,7 +121,7 @@
  	IOReturn copyIn(uint64_t addr, void *dst, size_t len);
  	bool waitFence(uint32_t fence, uint64_t ns);
- 	void releaseGem(struct sweet_gem *g);
--	IOReturn mapGem(struct sweet_gem *g, uint32_t flags, uint32_t *handle, uint64_t setIova);
-+	IOReturn mapGem(struct sweet_gem *g, uint32_t flags, uint32_t *handle, uint64_t setIova, uint64_t tail = 0);
+ 	void releaseGem(struct bergamota_gem *g);
+-	IOReturn mapGem(struct bergamota_gem *g, uint32_t flags, uint32_t *handle, uint64_t setIova);
++	IOReturn mapGem(struct bergamota_gem *g, uint32_t flags, uint32_t *handle, uint64_t setIova, uint64_t tail = 0);
  
- 	IOReturn gemNew(struct sweet_msm_gem_new *r);
- 	IOReturn gemInfo(struct sweet_msm_gem_info *r);
+ 	IOReturn gemNew(struct bergamota_msm_gem_new *r);
+ 	IOReturn gemInfo(struct bergamota_msm_gem_info *r);
 @@ -401,7 +402,7 @@
  			g->surface->retain();
  		}
  	} else if (g->iova != IOVA_UNSET) {
--		sweet_gpu_vm_unmap(g->iova, g->size);
-+		sweet_gpu_vm_unmap(g->iova, g->size + g->tail);
- 		sweet_gpu_iova_free(g->iova, g->vaLen);
+-		bergamota_gpu_vm_unmap(g->iova, g->size);
++		bergamota_gpu_vm_unmap(g->iova, g->size + g->tail);
+ 		bergamota_gpu_iova_free(g->iova, g->vaLen);
  	}
  	if (g->alias != NULL) {
 @@ -427,22 +428,77 @@
@@ -47,7 +47,7 @@ diff --git a/iokit/Kernel/arm/SweetAdreno.cpp b/iokit/Kernel/arm/SweetAdreno.cpp
 +static addr64_t gScratchPA;
 +
 +static bool
-+sweet_gpu_scratch(void)
++bergamota_gpu_scratch(void)
 +{
 +	if (gScratchPA != 0) {
 +		return true;
@@ -71,7 +71,7 @@ diff --git a/iokit/Kernel/arm/SweetAdreno.cpp b/iokit/Kernel/arm/SweetAdreno.cpp
 +
 +/* Bytes past size a surface's tiles may write: rows rounded up to 32, for every plane (0 when nothing sticks out). */
 +static uint64_t
-+sweet_surface_tail(const SweetSurface *s, uint64_t offset, uint64_t size)
++bergamota_surface_tail(const BergamotaSurface *s, uint64_t offset, uint64_t size)
 +{
 +	uint64_t need = 0;
 +	if (s->planeCount == 0) {
@@ -89,36 +89,36 @@ diff --git a/iokit/Kernel/arm/SweetAdreno.cpp b/iokit/Kernel/arm/SweetAdreno.cpp
  
  /* Enter the pages of g->md into the GPU address space and give out a handle (lock held). */
  IOReturn
--SweetAdrenoUserClient::mapGem(struct sweet_gem *slot, uint32_t flags, uint32_t *handle, uint64_t setIova)
-+SweetAdrenoUserClient::mapGem(struct sweet_gem *slot, uint32_t flags, uint32_t *handle, uint64_t setIova, uint64_t tail)
+-BergamotaAdrenoUserClient::mapGem(struct bergamota_gem *slot, uint32_t flags, uint32_t *handle, uint64_t setIova)
++BergamotaAdrenoUserClient::mapGem(struct bergamota_gem *slot, uint32_t flags, uint32_t *handle, uint64_t setIova, uint64_t tail)
  {
  	uint64_t iova, taken, size = slot->size;
- 	bool ro = (flags & SWEET_MSM_BO_GPU_READONLY) != 0;
+ 	bool ro = (flags & BERGAMOTA_MSM_BO_GPU_READONLY) != 0;
  
 +	if (tail != 0 && (setIova != 0 || gScratchPA == 0)) {
 +		tail = 0;
 +	}
  	if (setIova != 0) {
- 		if (!sweet_gpu_iova_reserve(setIova, size)) {
+ 		if (!bergamota_gpu_iova_reserve(setIova, size)) {
  			return kIOReturnNoSpace;
  		}
  		iova = setIova;
  		taken = size;
--	} else if (!sweet_gpu_iova_alloc(size, &iova, &taken)) {
-+	} else if (!sweet_gpu_iova_alloc(size + tail, &iova, &taken)) {
- 		IOLog("SWEET GPU: no GPU address space for %llu bytes\n", size);
+-	} else if (!bergamota_gpu_iova_alloc(size, &iova, &taken)) {
++	} else if (!bergamota_gpu_iova_alloc(size + tail, &iova, &taken)) {
+ 		IOLog("BERGAMOTA GPU: no GPU address space for %llu bytes\n", size);
  		return kIOReturnNoSpace;
  	}
 @@ -454,6 +510,9 @@
  		addr64_t pa = slot->md->getPhysicalSegment(mapped, &length, kIOMemoryMapperNone);
- 		ok = pa != 0 && (pa & (GPU_PAGE - 1)) == 0 && sweet_gpu_vm_map(iova + mapped, pa, ro);
+ 		ok = pa != 0 && (pa & (GPU_PAGE - 1)) == 0 && bergamota_gpu_vm_map(iova + mapped, pa, ro);
  	}
 +	for (uint64_t t = 0; t < tail && ok; t += GPU_PAGE, mapped += GPU_PAGE) {
-+		ok = sweet_gpu_vm_map(iova + size + t, gScratchPA, false);
++		ok = bergamota_gpu_vm_map(iova + size + t, gScratchPA, false);
 +	}
- 	sweet_gpu_vm_flush();
+ 	bergamota_gpu_vm_flush();
  	if (!ok) {
- 		sweet_gpu_vm_unmap(iova, mapped);
+ 		bergamota_gpu_vm_unmap(iova, mapped);
 @@ -463,6 +522,7 @@
  	}
  	slot->iova = iova;
@@ -131,17 +131,17 @@ diff --git a/iokit/Kernel/arm/SweetAdreno.cpp b/iokit/Kernel/arm/SweetAdreno.cpp
  		s->release();
  		return kIOReturnBadArgument;
  	}
-+	(void)sweet_gpu_scratch();      /* 0234: allocated outside the GPU lock, once */
- 	sweet_gpu_lock();
++	(void)bergamota_gpu_scratch();      /* 0234: allocated outside the GPU lock, once */
+ 	bergamota_gpu_lock();
  	ret = kIOReturnNoResources;
- 	if (!sweet_gpu_ready()) {
+ 	if (!bergamota_gpu_ready()) {
 @@ -1019,7 +1080,8 @@
  				uintptr_t ka = s->kernelAddress();      /* of the first pixel (+wrapDelta): the BO starts at the page */
  				g->kva = ka != 0 ? (uint8_t *)(ka - (wrapped ? s->wrapDelta : 0)) : NULL;
  				g->size = size;
--				ret = mapGem(g, wrapped ? SWEET_MSM_BO_GPU_READONLY : 0, &r->handle, 0);
-+				ret = mapGem(g, wrapped ? SWEET_MSM_BO_GPU_READONLY : 0, &r->handle, 0,
-+				    wrapped ? 0 : sweet_surface_tail(s, r->offset, size));
+-				ret = mapGem(g, wrapped ? BERGAMOTA_MSM_BO_GPU_READONLY : 0, &r->handle, 0);
++				ret = mapGem(g, wrapped ? BERGAMOTA_MSM_BO_GPU_READONLY : 0, &r->handle, 0,
++				    wrapped ? 0 : bergamota_surface_tail(s, r->offset, size));
  				if (ret != kIOReturnSuccess) {
  					g->md->release();
  					bzero(g, sizeof(*g));

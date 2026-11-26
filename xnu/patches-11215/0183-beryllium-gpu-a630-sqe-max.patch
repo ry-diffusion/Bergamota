@@ -1,6 +1,6 @@
-diff --git a/bsd/dev/sweet_a630.c b/bsd/dev/sweet_a630.c
---- a/bsd/dev/sweet_a630.c
-+++ b/bsd/dev/sweet_a630.c
+diff --git a/bsd/dev/bergamota_a630.c b/bsd/dev/bergamota_a630.c
+--- a/bsd/dev/bergamota_a630.c
++++ b/bsd/dev/bergamota_a630.c
 @@ -1780,17 +1780,17 @@
  #define RING_OFF                0x04000u
  #define RING_SIZE               0x8000u

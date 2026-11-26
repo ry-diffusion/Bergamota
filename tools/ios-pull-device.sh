@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# Runs on the phone in OrangeFox (pushed by tools/sweet-ios-pull.sh).
+# Runs on the phone in OrangeFox (pushed by tools/bergamota-ios-pull.sh).
 # Copies HFS+ paths of the iOS root out of a block device with hfsdump
 # (read-only), recursively, into OUT on the recovery's tmpfs.
 #   ios-pull-device.sh DEV OUT PATH...

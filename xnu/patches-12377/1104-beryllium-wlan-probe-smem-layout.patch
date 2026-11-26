@@ -21,5 +21,5 @@ index fb25b5716956206834be43520cb091f7b0bd1211..2ee8e565c4bfc011d374156cc0bd4ce4
 +			/* struct smem_partition_header: magic, host0/host1, size, offset_free_uncached @12 */
 +			uint32_t free_u = smem_u32(offset + 12), pos = offset + 32;
  			unsigned items = 0;
- 			printf("SWEET WLAN: apps<->modem partition: free-uncached %#x\n", free_u);
+ 			printf("BERGAMOTA WLAN: apps<->modem partition: free-uncached %#x\n", free_u);
  			while (pos + 16 <= offset + free_u && pos + 16 < WL_SMEM_SIZE && items < 16) {

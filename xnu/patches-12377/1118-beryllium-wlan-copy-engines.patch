@@ -2,11 +2,11 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 --- a/bsd/dev/beryllium_wlan.c
 +++ b/bsd/dev/beryllium_wlan.c
 @@ -62,6 +62,7 @@
- extern int sweet_ufs_read_part(const char *name, uint64_t off, void *dst, uint64_t len);
- extern int sweet_ufs_part_size(const char *name, uint8_t *lun, uint64_t *bytes);
- extern int sweet_rpmh_vreg_set(const char *res, unsigned mv, bool enable);
-+extern int sweet_smmu_map_sid(unsigned sid);
- extern int sweet_rpmh_lookup(const char *res, uint32_t *address);
+ extern int bergamota_ufs_read_part(const char *name, uint64_t off, void *dst, uint64_t len);
+ extern int bergamota_ufs_part_size(const char *name, uint8_t *lun, uint64_t *bytes);
+ extern int bergamota_rpmh_vreg_set(const char *res, unsigned mv, bool enable);
++extern int bergamota_smmu_map_sid(unsigned sid);
+ extern int bergamota_rpmh_lookup(const char *res, uint32_t *address);
  void beryllium_wlan_init(void);
  /* bsd/dev/beryllium_bt_hci.c: the kernel control the iOS userland talks to */
 @@ -2206,7 +2207,7 @@
@@ -36,7 +36,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
  }
  
 +/*
-+ * ---- data path (sweetce=1, after FW READY): ath10k snoc.c ath10k_snoc_hif_power_up() + hif_start(). The WLAN DMA
++ * ---- data path (bergamotace=1, after FW READY): ath10k snoc.c ath10k_snoc_hif_power_up() + hif_start(). The WLAN DMA
 + * streams (iommus = <&apps_smmu 0x40 0x1>) get the shared identity-mapping SMMU bank first (an unmatched stream faults
 + * and resets the SoC), then WLAN_CFG (the target CE, service and shadow tables of snoc.c), WLAN_MODE mission, and
 + * only after the mode-ON response the copy engines (the CE block is powered by then, as in Linux): read indices in
@@ -123,8 +123,8 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +static bool
 +wce_prepare(void)
 +{
-+	int e0 = sweet_smmu_map_sid(0x40), e1 = sweet_smmu_map_sid(0x41);
-+	printf("SWEET IPC: wce: apps_smmu WLAN streams 0x40 -> %d, 0x41 -> %d (0 = identity bank)\n", e0, e1);
++	int e0 = bergamota_smmu_map_sid(0x40), e1 = bergamota_smmu_map_sid(0x41);
++	printf("BERGAMOTA IPC: wce: apps_smmu WLAN streams 0x40 -> %d, 0x41 -> %d (0 = identity bank)\n", e0, e1);
 +	if (e0 || e1) {
 +		return false;
 +	}
@@ -132,7 +132,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		wce.pool = ml_io_map_unmappable(WCE_POOL_PA, WCE_POOL_LEN, VM_WIMG_WCOMB);
 +	}
 +	if (!wce.pool) {
-+		printf("SWEET IPC: wce: DMA pool mapping failed\n");
++		printf("BERGAMOTA IPC: wce: DMA pool mapping failed\n");
 +		return false;
 +	}
 +	bzero((void *)wce.pool, WCE_POOL_LEN);
@@ -198,8 +198,8 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	}
 +	vm_offset_t m = wce.regs;
 +	/* the first access to the CE block: a NoC timeout here would freeze the SoC (as it would in Linux) */
-+	printf("SWEET IPC: wce: mode on: first access to the CE registers at %#llx\n", WCE_MEMBASE_PA + WCE_BASE(0));
-+	sweet_log_sync();
++	printf("BERGAMOTA IPC: wce: mode on: first access to the CE registers at %#llx\n", WCE_MEMBASE_PA + WCE_BASE(0));
++	bergamota_log_sync();
 +	wl_sleep(200);
 +	wl_wr(m, WCE_RRI_LOW, (uint32_t)WCE_POOL_PA);
 +	wl_wr(m, WCE_RRI_HIGH, (uint32_t)(WCE_POOL_PA >> 32) & CE_ADDR_HI);
@@ -238,7 +238,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			wce.wr[r] = wr;
 +			wl_wr(m, b + CE_DST_WR_IDX, wr);
 +		}
-+		printf("SWEET IPC: wce: CE%u %s ring %u entries at %#llx: sw %u wr %u, ctrl1 %#x\n", wce_ring[r].ce,
++		printf("BERGAMOTA IPC: wce: CE%u %s ring %u entries at %#llx: sw %u wr %u, ctrl1 %#x\n", wce_ring[r].ce,
 +		    wce_ring[r].src ? "source" : "destination", n, pa, wce.sw[r], wce.wr[r], wl_rd(m, b + CE_CTRL1));
 +	}
 +	wce.rings = true;
@@ -257,7 +257,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			hl += (uint32_t)snprintf(hex + hl, sizeof(hex) - hl, "%02x ", p[i]);
 +		}
 +		wce.logged++;
-+		printf("SWEET IPC: wce: CE%u message %u bytes: %s\n", ce, len, hex);
++		printf("BERGAMOTA IPC: wce: CE%u message %u bytes: %s\n", ce, len, hex);
 +	}
 +	if (len < 8 + 8) {
 +		return;
@@ -270,7 +270,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		memcpy(&wce.credit_size, p + 12, 2);
 +		wce.max_ep = p[14];
 +		wce.htc_version = hlen >= 12 && len >= 20 ? p[16] : 0xff;  /* ath10k_htc_ready_extended */
-+		printf("SWEET IPC: wce: HTC READY: %u credits of %u bytes, %u endpoints, HTC version %u: the WCN3990 "
++		printf("BERGAMOTA IPC: wce: HTC READY: %u credits of %u bytes, %u endpoints, HTC version %u: the WCN3990 "
 +		    "talks to the host\n", wce.credits, wce.credit_size, wce.max_ep, wce.htc_version);
 +		ipc_note(" wce HTC-READY %u x %u ep %u v %u;", wce.credits, wce.credit_size, wce.max_ep, wce.htc_version);
 +		wf.state = WS_HTC_READY;
@@ -310,7 +310,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	}
 +}
 +
-+/* FW READY reached: with sweetce=1 continue into the data path (SMMU + pool, then WLAN_CFG) */
++/* FW READY reached: with bergamotace=1 continue into the data path (SMMU + pool, then WLAN_CFG) */
 +static void
 +wf_data_path(void)
 +{
@@ -341,7 +341,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		ipc_flush();
 +		wl_sleep(1);
 +	}
-+	printf("SWEET IPC: wce: mode off %s\n", wce.mode_sent ? "NOT confirmed" : "confirmed");
++	printf("BERGAMOTA IPC: wce: mode off %s\n", wce.mode_sent ? "NOT confirmed" : "confirmed");
 +}
 +
 +static void
@@ -358,7 +358,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +				wf_data_path();
  			}
  		} else {
- 			printf("SWEET IPC: wlfw: indication %#x (%u bytes)\n", msg, len);
+ 			printf("BERGAMOTA IPC: wlfw: indication %#x (%u bytes)\n", msg, len);
 @@ -3967,8 +4279,39 @@
  		} else {
  			wf.state = wf.fw_ready ? WS_READY : WS_WAIT_FW_READY;
@@ -369,7 +369,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
  		}
  		break;
 +	case WF_WLAN_CFG:
-+		printf("SWEET IPC: wce: wlan-cfg result %u error %u\n", res, err);
++		printf("BERGAMOTA IPC: wce: wlan-cfg result %u error %u\n", res, err);
 +		ipc_note(" wce cfg %u/%u;", res, err);
 +		if (res) {
 +			wf_fail("wlan-cfg rejected", err);
@@ -378,7 +378,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		}
 +		break;
 +	case WF_WLAN_MODE:
-+		printf("SWEET IPC: wce: wlan-mode %s result %u error %u\n", wf.state == WS_MODE_OFF ? "off" : "mission", res, err);
++		printf("BERGAMOTA IPC: wce: wlan-mode %s result %u error %u\n", wf.state == WS_MODE_OFF ? "off" : "mission", res, err);
 +		ipc_note(" wce mode %s %u/%u;", wf.state == WS_MODE_OFF ? "off" : "on", res, err);
 +		if (wf.state == WS_MODE_OFF) {
 +			wce.mode_on = res != 0;
@@ -440,10 +440,10 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
  static void
 @@ -4166,6 +4521,9 @@
  	int wlfw = 0;
- 	(void)PE_parse_boot_argn("sweetwlfw", &wlfw, sizeof(wlfw));
+ 	(void)PE_parse_boot_argn("bergamotawlfw", &wlfw, sizeof(wlfw));
  	ipc.wlfw = wlfw == 1;
 +	int ce = 0;
-+	(void)PE_parse_boot_argn("sweetce", &ce, sizeof(ce));
++	(void)PE_parse_boot_argn("bergamotace", &ce, sizeof(ce));
 +	ipc.ce = ipc.wlfw && ce == 1;
  	memset(&wf, 0, sizeof(wf));
  	if (ipc.wlfw && !wf_rails()) {
@@ -453,7 +453,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
  	    ipc.hello_seen ? "seen" : "not seen", ipc.rx_pkts, ipc.tx_pkts, ipc.reads, ipc.read_bytes, ipc.writes,
  	    ipc.write_bytes, ipc.pdm_reqs, ipc.wlfw_seen ? "up" : "not seen");
 +	if (ipc.ce) {
-+		printf("SWEET IPC: wce: %u target messages, HTC %s (%u credits of %u bytes, %u endpoints)\n", wce.msgs,
++		printf("BERGAMOTA IPC: wce: %u target messages, HTC %s (%u credits of %u bytes, %u endpoints)\n", wce.msgs,
 +		    wce.credits ? "READY" : "not seen", wce.credits, wce.credit_size, wce.max_ep);
 +	}
 +	if (alive) {
@@ -462,5 +462,5 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		wce.rings = false;
 +	}
  	if (ipc.wlfw) {
- 		printf("SWEET IPC: wlfw client: %s; chip %#x board %#x soc %#x fw %#x, %s %u bytes in %u segments\n",
+ 		printf("BERGAMOTA IPC: wlfw client: %s; chip %#x board %#x soc %#x fw %#x, %s %u bytes in %u segments\n",
  		    wf_state_name[wf.state], wf.chip_id, wf.board_id, wf.soc_id, wf.fw_version, wf.bdf_name[0] ? wf.bdf_name : "no bdf",

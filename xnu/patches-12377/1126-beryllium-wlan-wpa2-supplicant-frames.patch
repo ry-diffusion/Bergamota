@@ -2,26 +2,26 @@ diff --git a/bsd/conf/files b/bsd/conf/files
 --- a/bsd/conf/files
 +++ b/bsd/conf/files
 @@ -119,6 +119,8 @@
- bsd/dev/sweet_a630_pas.c			standard
+ bsd/dev/bergamota_a630_pas.c			standard
  bsd/dev/beryllium_wlan.c		standard
- bsd/dev/sweet_80211.c			standard
-+bsd/dev/sweet_wpa.c			standard
-+bsd/dev/sweet_wlan_frames.c		standard
+ bsd/dev/bergamota_80211.c			standard
++bsd/dev/bergamota_wpa.c			standard
++bsd/dev/bergamota_wlan_frames.c		standard
  bsd/dev/beryllium_bt_hci.c		standard
  bsd/dev/mem.c				standard
  bsd/dev/munge.c 			optional config_requires_u32_munging
-diff --git a/bsd/dev/sweet_wlan_frames.c b/bsd/dev/sweet_wlan_frames.c
+diff --git a/bsd/dev/bergamota_wlan_frames.c b/bsd/dev/bergamota_wlan_frames.c
 new file mode 100644
 --- /dev/null
-+++ b/bsd/dev/sweet_wlan_frames.c
++++ b/bsd/dev/bergamota_wlan_frames.c
 @@ -0,0 +1,315 @@
 +/*
-+ * SWEET: 802.11 frames of the WCN3990 station, built and parsed on the host. docs/WIFI_IOS26_PHASE2.md WL3.
++ * BERGAMOTA: 802.11 frames of the WCN3990 station, built and parsed on the host. docs/WIFI_IOS26_PHASE2.md WL3.
 + * Contents follow what mac80211 sends for a client (mlme.c ieee80211_send_assoc): capability ESS (+ privacy,
 + * short preamble / short slot time on 2.4 GHz when the AP has them), listen interval, SSID, the rates both sides
 + * support (no basic bits), RSN, HT Capabilities, WMM information element.
 + */
-+#if !defined(KERNEL) || defined(ARM64_BOARD_CONFIG_SWEET)
++#if !defined(KERNEL) || defined(ARM64_BOARD_CONFIG_BERGAMOTA)
 +#ifdef KERNEL
 +#include <sys/param.h>
 +#include <sys/systm.h>
@@ -31,7 +31,7 @@ new file mode 100644
 +#include <strings.h>
 +#include <errno.h>
 +#endif
-+#include "sweet_wlan_frames.h"
++#include "bergamota_wlan_frames.h"
 +
 +const uint8_t *
 +swf_ie_find(const uint8_t *ies, size_t len, uint8_t id)
@@ -329,19 +329,19 @@ new file mode 100644
 +	bcopy(f + hl + SWF_SNAP_LEN, o + SWF_ETH_HLEN, pl);
 +	return SWF_ETH_HLEN + pl;
 +}
-+#endif /* !KERNEL || ARM64_BOARD_CONFIG_SWEET */
-diff --git a/bsd/dev/sweet_wlan_frames.h b/bsd/dev/sweet_wlan_frames.h
++#endif /* !KERNEL || ARM64_BOARD_CONFIG_BERGAMOTA */
+diff --git a/bsd/dev/bergamota_wlan_frames.h b/bsd/dev/bergamota_wlan_frames.h
 new file mode 100644
 --- /dev/null
-+++ b/bsd/dev/sweet_wlan_frames.h
++++ b/bsd/dev/bergamota_wlan_frames.h
 @@ -0,0 +1,75 @@
 +/*
-+ * SWEET: 802.11 frames the WCN3990 station builds and parses on the host (docs/WIFI_IOS26_PHASE2.md WL3/WL4):
++ * BERGAMOTA: 802.11 frames the WCN3990 station builds and parses on the host (docs/WIFI_IOS26_PHASE2.md WL3/WL4):
 + * open-system authentication, (re)association, deauthentication, and the 802.3 <-> native-wifi conversion of
 + * the data path. Pure functions, no hardware; tested on the Mac.
 + */
-+#ifndef _SWEET_WLAN_FRAMES_H_
-+#define _SWEET_WLAN_FRAMES_H_
++#ifndef _BERGAMOTA_WLAN_FRAMES_H_
++#define _BERGAMOTA_WLAN_FRAMES_H_
 +
 +#include <stdint.h>
 +#include <stddef.h>
@@ -369,7 +369,7 @@ new file mode 100644
 +	uint16_t mhz;
 +	const uint8_t *ap_ies;          /* the AP's beacon / probe response elements */
 +	size_t   ap_ies_len;
-+	const uint8_t *rsn_ie;          /* our RSN element (sweet_wpa_build_ie), NULL for an open network */
++	const uint8_t *rsn_ie;          /* our RSN element (bergamota_wpa_build_ie), NULL for an open network */
 +	size_t   rsn_ie_len;
 +	int      ht;                    /* offer HT (20 MHz, 2 streams) when the AP has an HT Capabilities element */
 +};
@@ -409,14 +409,14 @@ new file mode 100644
 +size_t swf_eth_to_nwifi(const uint8_t *eth, size_t len, const uint8_t bssid[6], uint8_t *out, size_t max);
 +size_t swf_nwifi_to_eth(const uint8_t *f, size_t len, uint8_t *out, size_t max);
 +
-+#endif /* _SWEET_WLAN_FRAMES_H_ */
-diff --git a/bsd/dev/sweet_wpa.c b/bsd/dev/sweet_wpa.c
++#endif /* _BERGAMOTA_WLAN_FRAMES_H_ */
+diff --git a/bsd/dev/bergamota_wpa.c b/bsd/dev/bergamota_wpa.c
 new file mode 100644
 --- /dev/null
-+++ b/bsd/dev/sweet_wpa.c
++++ b/bsd/dev/bergamota_wpa.c
 @@ -0,0 +1,583 @@
 +/*
-+ * SWEET: a minimal WPA2-Personal supplicant for the WCN3990 station. docs/WIFI_IOS26_PHASE2.md WL4.
++ * BERGAMOTA: a minimal WPA2-Personal supplicant for the WCN3990 station. docs/WIFI_IOS26_PHASE2.md WL4.
 + *
 + * IEEE 802.11-2020 12.7: EAPOL-Key frames, the 4-way handshake (12.7.6) and the group key handshake (12.7.7)
 + * for AKM 00-0f-ac:2 (PSK) with key descriptor version 2 (HMAC-SHA1-128 MIC, AES key wrap). The PTK is
@@ -425,7 +425,7 @@ new file mode 100644
 + * room (replay counter set only by MIC-verified frames, key length 0 in messages 2 and 4, message 4 sent before
 + * the PTK is installed).
 + */
-+#if !defined(KERNEL) || defined(ARM64_BOARD_CONFIG_SWEET)
++#if !defined(KERNEL) || defined(ARM64_BOARD_CONFIG_BERGAMOTA)
 +#ifdef KERNEL
 +#include <sys/param.h>
 +#include <sys/systm.h>
@@ -433,9 +433,9 @@ new file mode 100644
 +#include <libkern/crypto/sha1.h>
 +#include <libkern/crypto/aes.h>
 +#else
-+#include "sweet_wpa_host.h"     /* the Mac harness: the same SHA-1 / AES API over CommonCrypto */
++#include "bergamota_wpa_host.h"     /* the Mac harness: the same SHA-1 / AES API over CommonCrypto */
 +#endif
-+#include "sweet_wpa.h"
++#include "bergamota_wpa.h"
 +
 +/* EAPOL header (4) + EAPOL-Key descriptor fixed part (95) */
 +#define EK_HDR          4
@@ -505,7 +505,7 @@ new file mode 100644
 +/* ---- primitives ---- */
 +
 +void
-+sweet_wpa_hmac_sha1(const uint8_t *key, size_t key_len, const uint8_t *d1, size_t l1,
++bergamota_wpa_hmac_sha1(const uint8_t *key, size_t key_len, const uint8_t *d1, size_t l1,
 +    const uint8_t *d2, size_t l2, uint8_t out[20])
 +{
 +	SHA1_CTX c;
@@ -545,7 +545,7 @@ new file mode 100644
 +
 +/* 802.11-2020 12.7.1.2: PRF-n(K, A, B) = first n bits of HMAC-SHA1(K, A | 0 | B | i), i = 0, 1, ... */
 +void
-+sweet_wpa_prf(const uint8_t *key, size_t key_len, const char *label, const uint8_t *data, size_t data_len,
++bergamota_wpa_prf(const uint8_t *key, size_t key_len, const char *label, const uint8_t *data, size_t data_len,
 +    uint8_t *out, size_t out_len)
 +{
 +	uint8_t buf[128], h[20];
@@ -562,7 +562,7 @@ new file mode 100644
 +	for (uint8_t i = 0; out_len; i++) {
 +		size_t take = out_len < 20 ? out_len : 20;
 +		buf[n - 1] = i;
-+		sweet_wpa_hmac_sha1(key, key_len, buf, n, NULL, 0, h);
++		bergamota_wpa_hmac_sha1(key, key_len, buf, n, NULL, 0, h);
 +		bcopy(h, out, take);
 +		out += take;
 +		out_len -= take;
@@ -573,7 +573,7 @@ new file mode 100644
 +
 +/* RFC 3394 key unwrap with a 128-bit KEK; out gets in_len - 8 bytes. 0, or EBADMSG on a bad length/IV */
 +int
-+sweet_wpa_aes_unwrap(const uint8_t kek[16], const uint8_t *in, size_t in_len, uint8_t *out)
++bergamota_wpa_aes_unwrap(const uint8_t kek[16], const uint8_t *in, size_t in_len, uint8_t *out)
 +{
 +	aes_decrypt_ctx ctx;
 +	uint8_t a[8], b[16], o[16];
@@ -614,7 +614,7 @@ new file mode 100644
 +}
 +
 +int
-+sweet_wpa_pmk_from_passphrase(const char *pass, size_t pass_len, const uint8_t *ssid, size_t ssid_len, uint8_t pmk[32])
++bergamota_wpa_pmk_from_passphrase(const char *pass, size_t pass_len, const uint8_t *ssid, size_t ssid_len, uint8_t pmk[32])
 +{
 +	uint8_t salt[36], u[20], t[20];
 +
@@ -627,10 +627,10 @@ new file mode 100644
 +		salt[ssid_len + 1] = 0;
 +		salt[ssid_len + 2] = 0;
 +		salt[ssid_len + 3] = blk;
-+		sweet_wpa_hmac_sha1((const uint8_t *)pass, pass_len, salt, ssid_len + 4, NULL, 0, u);
++		bergamota_wpa_hmac_sha1((const uint8_t *)pass, pass_len, salt, ssid_len + 4, NULL, 0, u);
 +		bcopy(u, t, 20);
 +		for (int it = 1; it < 4096; it++) {
-+			sweet_wpa_hmac_sha1((const uint8_t *)pass, pass_len, u, 20, NULL, 0, u);
++			bergamota_wpa_hmac_sha1((const uint8_t *)pass, pass_len, u, 20, NULL, 0, u);
 +			for (int k = 0; k < 20; k++) {
 +				t[k] ^= u[k];
 +			}
@@ -645,7 +645,7 @@ new file mode 100644
 +/* ---- RSN element ---- */
 +
 +size_t
-+sweet_wpa_build_ie(const uint8_t *ie, size_t len, uint8_t *out, size_t out_max, uint32_t *group_cipher)
++bergamota_wpa_build_ie(const uint8_t *ie, size_t len, uint8_t *out, size_t out_max, uint32_t *group_cipher)
 +{
 +	size_t p = 2, cnt;
 +	uint32_t group;
@@ -659,7 +659,7 @@ new file mode 100644
 +	p = 4;
 +	group = be32(ie + p);
 +	p += 4;
-+	if (group != SWEET_WPA_CIPHER_CCMP && group != SWEET_WPA_CIPHER_TKIP) {
++	if (group != BERGAMOTA_WPA_CIPHER_CCMP && group != BERGAMOTA_WPA_CIPHER_TKIP) {
 +		return 0;
 +	}
 +	if (p + 2 > len) {
@@ -671,7 +671,7 @@ new file mode 100644
 +		return 0;
 +	}
 +	for (size_t i = 0; i < cnt; i++, p += 4) {
-+		ccmp |= be32(ie + p) == SWEET_WPA_CIPHER_CCMP;
++		ccmp |= be32(ie + p) == BERGAMOTA_WPA_CIPHER_CCMP;
 +	}
 +	if (p + 2 > len) {
 +		return 0;
@@ -682,7 +682,7 @@ new file mode 100644
 +		return 0;
 +	}
 +	for (size_t i = 0; i < cnt; i++, p += 4) {
-+		psk |= be32(ie + p) == SWEET_WPA_AKM_PSK;
++		psk |= be32(ie + p) == BERGAMOTA_WPA_AKM_PSK;
 +	}
 +	if (p + 2 <= len) {
 +		caps = (uint16_t)(ie[p] | (ie[p + 1] << 8));
@@ -709,13 +709,13 @@ new file mode 100644
 +/* ---- the handshakes ---- */
 +
 +static void
-+wpa_fail(struct sweet_wpa *w, int err)
++wpa_fail(struct bergamota_wpa *w, int err)
 +{
 +	int was = w->state;
 +
 +	w->last_err = err;
-+	if (was == SWEET_WPA_WAIT_M1 || was == SWEET_WPA_WAIT_M3) {
-+		w->state = SWEET_WPA_FAILED;
++	if (was == BERGAMOTA_WPA_WAIT_M1 || was == BERGAMOTA_WPA_WAIT_M3) {
++		w->state = BERGAMOTA_WPA_FAILED;
 +		if (w->ops->done) {
 +			w->ops->done(w->arg, err);
 +		}
@@ -723,7 +723,7 @@ new file mode 100644
 +}
 +
 +static void
-+wpa_derive_ptk(struct sweet_wpa *w)
++wpa_derive_ptk(struct bergamota_wpa *w)
 +{
 +	uint8_t d[76], ptk[48];
 +	int a_lo = memcmp(w->aa, w->spa, 6) < 0;
@@ -733,7 +733,7 @@ new file mode 100644
 +	bcopy(a_lo ? w->spa : w->aa, d + 6, 6);
 +	bcopy(n_lo ? w->anonce : w->snonce, d + 12, 32);
 +	bcopy(n_lo ? w->snonce : w->anonce, d + 44, 32);
-+	sweet_wpa_prf(w->pmk, 32, "Pairwise key expansion", d, sizeof(d), ptk, sizeof(ptk));
++	bergamota_wpa_prf(w->pmk, 32, "Pairwise key expansion", d, sizeof(d), ptk, sizeof(ptk));
 +	bcopy(ptk, w->kck, 16);
 +	bcopy(ptk + 16, w->kek, 16);
 +	bcopy(ptk + 32, w->tk, 16);
@@ -747,7 +747,7 @@ new file mode 100644
 +	uint8_t h[20];
 +
 +	bzero(frame + EK_MIC, 16);
-+	sweet_wpa_hmac_sha1(kck, 16, frame, len, NULL, 0, h);
++	bergamota_wpa_hmac_sha1(kck, 16, frame, len, NULL, 0, h);
 +	bcopy(h, frame + EK_MIC, 16);
 +}
 +
@@ -762,7 +762,7 @@ new file mode 100644
 +	}
 +	bcopy(frame, copy, len);
 +	bzero(copy + EK_MIC, 16);
-+	sweet_wpa_hmac_sha1(kck, 16, copy, len, NULL, 0, h);
++	bergamota_wpa_hmac_sha1(kck, 16, copy, len, NULL, 0, h);
 +	ok = !ct_differ(h, frame + EK_MIC, 16);
 +	wipe(h, sizeof(h));
 +	return ok;
@@ -770,13 +770,13 @@ new file mode 100644
 +
 +/* send an EAPOL-Key frame with our nonce (or zeros) and the given key data, MIC'd with the KCK */
 +static void
-+wpa_send(struct sweet_wpa *w, uint8_t eapol_ver, uint16_t info, const uint8_t replay[8],
++wpa_send(struct bergamota_wpa *w, uint8_t eapol_ver, uint16_t info, const uint8_t replay[8],
 +    const uint8_t *nonce, const uint8_t *kd, size_t kd_len)
 +{
-+	uint8_t f[EK_DATA + SWEET_WPA_IE_MAX];
++	uint8_t f[EK_DATA + BERGAMOTA_WPA_IE_MAX];
 +	size_t len = EK_DATA + kd_len;
 +
-+	if (kd_len > SWEET_WPA_IE_MAX) {
++	if (kd_len > BERGAMOTA_WPA_IE_MAX) {
 +		return;
 +	}
 +	bzero(f, len);
@@ -833,9 +833,9 @@ new file mode 100644
 +}
 +
 +static int
-+wpa_install_gtk(struct sweet_wpa *w, const uint8_t *gtk, size_t gtk_len, unsigned idx, const uint8_t rsc[8])
++wpa_install_gtk(struct bergamota_wpa *w, const uint8_t *gtk, size_t gtk_len, unsigned idx, const uint8_t rsc[8])
 +{
-+	size_t want = w->group_cipher == SWEET_WPA_CIPHER_TKIP ? 32 : 16;
++	size_t want = w->group_cipher == BERGAMOTA_WPA_CIPHER_TKIP ? 32 : 16;
 +
 +	if (gtk_len != want || idx == 0) {
 +		return EBADMSG;
@@ -845,7 +845,7 @@ new file mode 100644
 +}
 +
 +void
-+sweet_wpa_start(struct sweet_wpa *w, const struct sweet_wpa_ops *ops, void *arg, const uint8_t pmk[32],
++bergamota_wpa_start(struct bergamota_wpa *w, const struct bergamota_wpa_ops *ops, void *arg, const uint8_t pmk[32],
 +    const uint8_t aa[6], const uint8_t spa[6], const uint8_t *own_ie, size_t own_ie_len,
 +    const uint8_t *ap_ie, size_t ap_ie_len, uint32_t group_cipher)
 +{
@@ -855,20 +855,20 @@ new file mode 100644
 +	bcopy(pmk, w->pmk, 32);
 +	bcopy(aa, w->aa, 6);
 +	bcopy(spa, w->spa, 6);
-+	w->own_ie_len = (uint8_t)(own_ie_len > SWEET_WPA_IE_MAX ? 0 : own_ie_len);
++	w->own_ie_len = (uint8_t)(own_ie_len > BERGAMOTA_WPA_IE_MAX ? 0 : own_ie_len);
 +	bcopy(own_ie, w->own_ie, w->own_ie_len);
-+	w->ap_ie_len = (uint8_t)(ap_ie_len > SWEET_WPA_IE_MAX ? 0 : ap_ie_len);
++	w->ap_ie_len = (uint8_t)(ap_ie_len > BERGAMOTA_WPA_IE_MAX ? 0 : ap_ie_len);
 +	if (w->ap_ie_len) {
 +		bcopy(ap_ie, w->ap_ie, w->ap_ie_len);
 +	}
 +	w->group_cipher = group_cipher;
-+	w->state = SWEET_WPA_WAIT_M1;
++	w->state = BERGAMOTA_WPA_WAIT_M1;
 +}
 +
 +void
-+sweet_wpa_stop(struct sweet_wpa *w)
++bergamota_wpa_stop(struct bergamota_wpa *w)
 +{
-+	const struct sweet_wpa_ops *ops = w->ops;
++	const struct bergamota_wpa_ops *ops = w->ops;
 +	void *arg = w->arg;
 +
 +	wipe(w, sizeof(*w));
@@ -877,7 +877,7 @@ new file mode 100644
 +}
 +
 +int
-+sweet_wpa_rx(struct sweet_wpa *w, const uint8_t *f, size_t len)
++bergamota_wpa_rx(struct bergamota_wpa *w, const uint8_t *f, size_t len)
 +{
 +	uint16_t info, dlen;
 +	uint8_t kd[512];
@@ -886,7 +886,7 @@ new file mode 100644
 +	unsigned gidx = 0;
 +	int err;
 +
-+	if (w->state == SWEET_WPA_IDLE || w->state == SWEET_WPA_FAILED) {
++	if (w->state == BERGAMOTA_WPA_IDLE || w->state == BERGAMOTA_WPA_FAILED) {
 +		return ENOTCONN;
 +	}
 +	w->rx++;
@@ -910,14 +910,14 @@ new file mode 100644
 +
 +	if ((info & KI_PAIRWISE) && !(info & KI_MIC)) {
 +		/* message 1/4: new SNonce, PTK, message 2/4 carrying our RSN element */
-+		if (w->state != SWEET_WPA_WAIT_M1 && w->state != SWEET_WPA_WAIT_M3) {
++		if (w->state != BERGAMOTA_WPA_WAIT_M1 && w->state != BERGAMOTA_WPA_WAIT_M3) {
 +			return EALREADY;        /* a new 4-way handshake (PTK rekey) is not supported */
 +		}
 +		bcopy(f + EK_NONCE, w->anonce, 32);
 +		w->ops->random(w->snonce, 32);
 +		wpa_derive_ptk(w);
 +		wpa_send(w, f[0], KI_VER_AES | KI_PAIRWISE | KI_MIC, f + EK_REPLAY, w->snonce, w->own_ie, w->own_ie_len);
-+		w->state = SWEET_WPA_WAIT_M3;
++		w->state = BERGAMOTA_WPA_WAIT_M3;
 +		return 0;
 +	}
 +	if (!(info & KI_MIC) || !w->ptk_valid) {
@@ -935,7 +935,7 @@ new file mode 100644
 +		wpa_fail(w, EBADMSG);
 +		return EBADMSG;
 +	}
-+	if ((err = sweet_wpa_aes_unwrap(w->kek, f + EK_DATA, dlen, kd)) != 0) {
++	if ((err = bergamota_wpa_aes_unwrap(w->kek, f + EK_DATA, dlen, kd)) != 0) {
 +		wpa_fail(w, err);
 +		return err;
 +	}
@@ -948,13 +948,13 @@ new file mode 100644
 +
 +	if (info & KI_PAIRWISE) {
 +		/* message 3/4 */
-+		if (w->state == SWEET_WPA_DONE && (info & KI_INSTALL) && !ct_differ(f + EK_NONCE, w->anonce, 32)) {
++		if (w->state == BERGAMOTA_WPA_DONE && (info & KI_INSTALL) && !ct_differ(f + EK_NONCE, w->anonce, 32)) {
 +			/* our message 4/4 was lost and the AP retried 3/4: answer again, keys stay as installed */
 +			wipe(kd, sizeof(kd));
 +			wpa_send(w, f[0], KI_VER_AES | KI_PAIRWISE | KI_MIC | KI_SECURE, f + EK_REPLAY, NULL, NULL, 0);
 +			return 0;
 +		}
-+		if (w->state != SWEET_WPA_WAIT_M3 || !(info & KI_INSTALL)) {
++		if (w->state != BERGAMOTA_WPA_WAIT_M3 || !(info & KI_INSTALL)) {
 +			wipe(kd, sizeof(kd));
 +			return EALREADY;
 +		}
@@ -966,7 +966,7 @@ new file mode 100644
 +		}
 +		wpa_send(w, f[0], KI_VER_AES | KI_PAIRWISE | KI_MIC | KI_SECURE, f + EK_REPLAY, NULL, NULL, 0);
 +		static const uint8_t zero_rsc[8];
-+		err = w->ops->install_key(w->arg, 1, 0, SWEET_WPA_CIPHER_CCMP, w->tk, 16, zero_rsc);
++		err = w->ops->install_key(w->arg, 1, 0, BERGAMOTA_WPA_CIPHER_CCMP, w->tk, 16, zero_rsc);
 +		if (!err) {
 +			err = wpa_install_gtk(w, gtk, gtk_len, gidx, f + EK_RSC);
 +		}
@@ -975,7 +975,7 @@ new file mode 100644
 +			wpa_fail(w, err);
 +			return err;
 +		}
-+		w->state = SWEET_WPA_DONE;
++		w->state = BERGAMOTA_WPA_DONE;
 +		if (w->ops->done) {
 +			w->ops->done(w->arg, 0);
 +		}
@@ -983,7 +983,7 @@ new file mode 100644
 +	}
 +
 +	/* group key message 1/2 (rekey) */
-+	if (w->state != SWEET_WPA_DONE || !(info & KI_SECURE)) {
++	if (w->state != BERGAMOTA_WPA_DONE || !(info & KI_SECURE)) {
 +		wipe(kd, sizeof(kd));
 +		return EALREADY;
 +	}
@@ -997,26 +997,26 @@ new file mode 100644
 +	wpa_send(w, f[0], KI_VER_AES | KI_MIC | KI_SECURE, f + EK_REPLAY, NULL, NULL, 0);
 +	return 0;
 +}
-+#endif /* !KERNEL || ARM64_BOARD_CONFIG_SWEET */
-diff --git a/bsd/dev/sweet_wpa.h b/bsd/dev/sweet_wpa.h
++#endif /* !KERNEL || ARM64_BOARD_CONFIG_BERGAMOTA */
+diff --git a/bsd/dev/bergamota_wpa.h b/bsd/dev/bergamota_wpa.h
 new file mode 100644
 --- /dev/null
-+++ b/bsd/dev/sweet_wpa.h
++++ b/bsd/dev/bergamota_wpa.h
 @@ -0,0 +1,89 @@
 +/*
-+ * SWEET: a minimal WPA2-Personal supplicant (4-way and group-key handshakes, CCMP pairwise and group,
++ * BERGAMOTA: a minimal WPA2-Personal supplicant (4-way and group-key handshakes, CCMP pairwise and group,
 + * AKM 00-0f-ac:2 PSK, key descriptor version 2) for the WCN3990 station (beryllium_wlan.c).
 + * docs/WIFI_IOS26_PHASE2.md WL4. No hardware access: frames in, frames and keys out through the ops.
 + */
-+#ifndef _SWEET_WPA_H_
-+#define _SWEET_WPA_H_
++#ifndef _BERGAMOTA_WPA_H_
++#define _BERGAMOTA_WPA_H_
 +
 +#include <stdint.h>
 +#include <stddef.h>
 +
-+#define SWEET_WPA_IE_MAX        64u
++#define BERGAMOTA_WPA_IE_MAX        64u
 +
-+struct sweet_wpa_ops {
++struct bergamota_wpa_ops {
 +	/* send one EAPOL frame (802.1X header on, no Ethernet header) to the AP, ethertype 0x888e */
 +	void (*tx_eapol)(void *arg, const uint8_t *frame, size_t len);
 +	/* install a key: pairwise (idx 0) or group (idx 1..3); key 16 bytes CCMP (32 for a TKIP group key);
@@ -1029,28 +1029,28 @@ new file mode 100644
 +};
 +
 +/* RSN suite selectors, as big-endian u32 (OUI << 8 | type) */
-+#define SWEET_WPA_CIPHER_TKIP   0x000fac02u
-+#define SWEET_WPA_CIPHER_CCMP   0x000fac04u
-+#define SWEET_WPA_AKM_PSK       0x000fac02u
++#define BERGAMOTA_WPA_CIPHER_TKIP   0x000fac02u
++#define BERGAMOTA_WPA_CIPHER_CCMP   0x000fac04u
++#define BERGAMOTA_WPA_AKM_PSK       0x000fac02u
 +
 +enum {
-+	SWEET_WPA_IDLE = 0,
-+	SWEET_WPA_WAIT_M1,      /* associated, waiting for message 1/4 */
-+	SWEET_WPA_WAIT_M3,      /* message 2/4 sent */
-+	SWEET_WPA_DONE,         /* PTK and GTK installed; group rekeys handled */
-+	SWEET_WPA_FAILED,
++	BERGAMOTA_WPA_IDLE = 0,
++	BERGAMOTA_WPA_WAIT_M1,      /* associated, waiting for message 1/4 */
++	BERGAMOTA_WPA_WAIT_M3,      /* message 2/4 sent */
++	BERGAMOTA_WPA_DONE,         /* PTK and GTK installed; group rekeys handled */
++	BERGAMOTA_WPA_FAILED,
 +};
 +
-+struct sweet_wpa {
-+	const struct sweet_wpa_ops *ops;
++struct bergamota_wpa {
++	const struct bergamota_wpa_ops *ops;
 +	void     *arg;
 +	int       state;
 +	uint8_t   pmk[32];
 +	uint8_t   aa[6];                /* authenticator (AP) MAC */
 +	uint8_t   spa[6];               /* our MAC */
-+	uint8_t   own_ie[SWEET_WPA_IE_MAX];     /* the RSN element we sent in the association request */
++	uint8_t   own_ie[BERGAMOTA_WPA_IE_MAX];     /* the RSN element we sent in the association request */
 +	uint8_t   own_ie_len;
-+	uint8_t   ap_ie[SWEET_WPA_IE_MAX];      /* the AP's RSN element from its beacon / probe response */
++	uint8_t   ap_ie[BERGAMOTA_WPA_IE_MAX];      /* the AP's RSN element from its beacon / probe response */
 +	uint8_t   ap_ie_len;
 +	uint32_t  group_cipher;
 +	uint8_t   anonce[32];
@@ -1070,25 +1070,25 @@ new file mode 100644
 + * (CCMP or TKIP), AKM PSK, no PMKIDs, capabilities 0. Returns the length, or 0 if the AP does not offer
 + * PSK with CCMP pairwise (or requires management frame protection).
 + */
-+size_t sweet_wpa_build_ie(const uint8_t *ap_ie, size_t ap_ie_len, uint8_t *out, size_t out_max, uint32_t *group_cipher);
++size_t bergamota_wpa_build_ie(const uint8_t *ap_ie, size_t ap_ie_len, uint8_t *out, size_t out_max, uint32_t *group_cipher);
 +
 +/* PMK = PBKDF2-HMAC-SHA1(passphrase, ssid, 4096, 32), for when only the passphrase is available */
-+int sweet_wpa_pmk_from_passphrase(const char *pass, size_t pass_len, const uint8_t *ssid, size_t ssid_len, uint8_t pmk[32]);
++int bergamota_wpa_pmk_from_passphrase(const char *pass, size_t pass_len, const uint8_t *ssid, size_t ssid_len, uint8_t pmk[32]);
 +
 +/* arm for a new association; own_ie must be what went into the association request */
-+void sweet_wpa_start(struct sweet_wpa *w, const struct sweet_wpa_ops *ops, void *arg, const uint8_t pmk[32],
++void bergamota_wpa_start(struct bergamota_wpa *w, const struct bergamota_wpa_ops *ops, void *arg, const uint8_t pmk[32],
 +    const uint8_t aa[6], const uint8_t spa[6], const uint8_t *own_ie, size_t own_ie_len,
 +    const uint8_t *ap_ie, size_t ap_ie_len, uint32_t group_cipher);
 +/* an EAPOL frame from the AP (802.1X header on); returns 0 if consumed, an errno if dropped */
-+int sweet_wpa_rx(struct sweet_wpa *w, const uint8_t *frame, size_t len);
++int bergamota_wpa_rx(struct bergamota_wpa *w, const uint8_t *frame, size_t len);
 +/* forget all keys (disassociation) */
-+void sweet_wpa_stop(struct sweet_wpa *w);
++void bergamota_wpa_stop(struct bergamota_wpa *w);
 +
 +/* exposed for the harness */
-+void sweet_wpa_hmac_sha1(const uint8_t *key, size_t key_len, const uint8_t *d1, size_t l1,
++void bergamota_wpa_hmac_sha1(const uint8_t *key, size_t key_len, const uint8_t *d1, size_t l1,
 +    const uint8_t *d2, size_t l2, uint8_t out[20]);
-+void sweet_wpa_prf(const uint8_t *key, size_t key_len, const char *label, const uint8_t *data, size_t data_len,
++void bergamota_wpa_prf(const uint8_t *key, size_t key_len, const char *label, const uint8_t *data, size_t data_len,
 +    uint8_t *out, size_t out_len);
-+int sweet_wpa_aes_unwrap(const uint8_t kek[16], const uint8_t *in, size_t in_len, uint8_t *out);
++int bergamota_wpa_aes_unwrap(const uint8_t kek[16], const uint8_t *in, size_t in_len, uint8_t *out);
 +
-+#endif /* _SWEET_WPA_H_ */
++#endif /* _BERGAMOTA_WPA_H_ */

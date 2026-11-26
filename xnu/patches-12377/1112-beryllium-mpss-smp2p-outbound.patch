@@ -34,10 +34,10 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
  /*
   * Boot 32: the console stopped right after the stage-4 banner (USB console and persistent log are
   * buffered, so the stop may be a few steps later). Every step now logs, flushes the persistent log
-  * and waits 1.5 s for the USB console; sweetmssstep=N stops after step N (then tears down).
+  * and waits 1.5 s for the USB console; bergamotamssstep=N stops after step N (then tears down).
   * Steps: 1 map, 2 read mba.mbn, 3 copy MBA, 4 QMP, 5 ARC votes, 6 clocks + alt reset, 7 SCM assign,
 - * 8 QDSP6 boot.
-+ * 8 QDSP6 boot; with sweetmpss=1: 9 SMP2P outbound item, 10 modem.mdt, 11 metadata auth, 12 segments,
++ * 8 QDSP6 boot; with bergamotampss=1: 9 SMP2P outbound item, 10 modem.mdt, 11 metadata auth, 12 segments,
 + * 13 AUTH_COMPLETE, 14 SMP2P watch.
   */
  static int ms_step_max = 99;
@@ -45,7 +45,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 @@ -1405,6 +1418,23 @@
  {
  	/* q6v5_mba_reclaim() order: halt the AXI ports, hold the Q6 in reset, clocks off, then reclaim */
- 	printf("SWEET MSS: teardown\n");
+ 	printf("BERGAMOTA MSS: teardown\n");
 +	if (ms.mpss_running && ms.smp2p_out) {
 +		/* qcom_q6v5_request_stop(): "stop" = bit 0 of master-kernel, wait stop-ack (slave-kernel bit 3), 5 s */
 +		uint32_t v = ms.smp2p_out + 20 + 16, in = 0;
@@ -58,10 +58,10 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			}
 +			wl_sleep(10);
 +		}
-+		printf("SWEET MSS: stop request: %s after %u ms (slave-kernel %#x)\n", t < 5000 ? "stop-ack" : "timed out", t, in);
++		printf("BERGAMOTA MSS: stop request: %s after %u ms (slave-kernel %#x)\n", t < 5000 ? "stop-ack" : "timed out", t, in);
 +		wl_wr(wl.smem, v, smem_u32(v) & ~1u);
 +		ms_smp2p_kick();
-+		sweet_log_sync();
++		bergamota_log_sync();
 +	}
  	if (ms.reset_out) {
  		ms_halt_axi("q6", 0x0000);
@@ -74,8 +74,8 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		/* smp2p unwind: out->valid_entries = 0 */
 +		wl_wr(wl.smem, ms.smp2p_out + 12, SMP2P_MAX_ENTRY);
 +	}
- 	printf("SWEET MSS: teardown done\n");
- 	sweet_log_sync();
+ 	printf("BERGAMOTA MSS: teardown done\n");
+ 	bergamota_log_sync();
  }
 @@ -1737,43 +1771,220 @@
  	return ok;
@@ -162,7 +162,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		}
 +		delay(1000);
 +	}
-+	printf("SWEET MSS: SMEM hwlock %u busy (owner %#x)\n", WL_SMEM_HWLOCK, wl_rd(wl.mutex, r));
++	printf("BERGAMOTA MSS: SMEM hwlock %u busy (owner %#x)\n", WL_SMEM_HWLOCK, wl_rd(wl.mutex, r));
 +	return false;
 +}
 +
@@ -173,7 +173,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	if (wl_rd(wl.mutex, r) == 1) {
 +		wl_wr(wl.mutex, r, 0);
 +	} else {
-+		printf("SWEET MSS: SMEM hwlock not owned by us (owner %#x)\n", wl_rd(wl.mutex, r));
++		printf("BERGAMOTA MSS: SMEM hwlock not owned by us (owner %#x)\n", wl_rd(wl.mutex, r));
 +	}
 +}
 +
@@ -189,7 +189,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	uint32_t off, psize, data = 0, free_u = 0, free_c = 0, pos = 0, have = 0;
 +	enum { A_BAD, A_EXISTS, A_SMALL, A_NEW, A_FULL } res = A_BAD;
 +	if (!ms_smem_part(0, 1, &off, &psize)) {
-+		printf("SWEET MSS: no apps<->modem SMEM partition\n");
++		printf("BERGAMOTA MSS: no apps<->modem SMEM partition\n");
 +		return 0;
 +	}
 +	if (!ms_smem_lock()) {
@@ -238,20 +238,20 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	ms_smem_unlock();
 +	switch (res) {
 +	case A_NEW:
-+		printf("SWEET MSS: SMEM item %u allocated at +%#x (%u bytes), free-uncached %#x -> %#x\n", item, data,
++		printf("BERGAMOTA MSS: SMEM item %u allocated at +%#x (%u bytes), free-uncached %#x -> %#x\n", item, data,
 +		    size, free_u, free_u + 16 + ((size + 7u) & ~7u));
 +		break;
 +	case A_EXISTS:
-+		printf("SWEET MSS: SMEM item %u exists at +%#x (%u bytes, reused)\n", item, data, have);
++		printf("BERGAMOTA MSS: SMEM item %u exists at +%#x (%u bytes, reused)\n", item, data, have);
 +		break;
 +	case A_SMALL:
-+		printf("SWEET MSS: SMEM item %u exists but has only %u bytes\n", item, have);
++		printf("BERGAMOTA MSS: SMEM item %u exists but has only %u bytes\n", item, have);
 +		break;
 +	case A_FULL:
-+		printf("SWEET MSS: SMEM partition out of memory\n");
++		printf("BERGAMOTA MSS: SMEM partition out of memory\n");
 +		break;
 +	case A_BAD:
-+		printf("SWEET MSS: apps<->modem partition not sane (free %#x/%#x size %#x, walk ended at +%#x)\n",
++		printf("BERGAMOTA MSS: apps<->modem partition not sane (free %#x/%#x size %#x, walk ended at +%#x)\n",
 +		    free_u, free_c, psize, pos - off);
 +		break;
 +	}
@@ -309,7 +309,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	ms_smp2p_add_entry(d, "ipa");
 +	ms_smp2p_kick();
 +	ms.smp2p_out = d;
-+	printf("SWEET MSS: smp2p item %u ready at +%#x: version 1, pid 0->1, entries master-kernel + ipa, doorbell bit %u\n",
++	printf("BERGAMOTA MSS: smp2p item %u ready at +%#x: version 1, pid 0->1, entries master-kernel + ipa, doorbell bit %u\n",
 +	    MPSS_SMP2P_OUT_ITEM, d, MPSS_SMP2P_DOORBELL);
 +	return true;
 +}
@@ -319,7 +319,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
  {
  	/* qcom_smem_get(QCOM_SMEM_HOST_ANY, ...): the global partition */
 @@ -1792,11 +2003,60 @@
- 	printf("SWEET MSS: modem crash reason: \"%s\"\n", msg);
+ 	printf("BERGAMOTA MSS: modem crash reason: \"%s\"\n", msg);
  }
  
 -/*
@@ -360,7 +360,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		uint32_t feat = (out1 >> 8) & (in1 >> 8);
 +		wl_wr(wl.smem, ms.smp2p_out + 4, (feat << 8) | (out1 & 0xff));
 +		ms.smp2p_nego = true;
-+		printf("SWEET MSS: smp2p negotiated: version %u, features %#x\n", out1 & 0xff, feat);
++		printf("BERGAMOTA MSS: smp2p negotiated: version %u, features %#x\n", out1 & 0xff, feat);
 +	}
 +	if (ms.smp2p_nego && ((smem_u32(ms.smp2p_out + 4) >> 8) & SMP2P_FEATURE_SSR_ACK)) {
 +		bool restart = (smem_u32(it + 16) & 1u) != 0;  /* SMP2P_FLAGS_RESTART_DONE_BIT */
@@ -369,7 +369,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			uint32_t f = smem_u32(ms.smp2p_out + 16) & ~2u;
 +			wl_wr(wl.smem, ms.smp2p_out + 16, f | (ms.ssr_ack ? 2u : 0));
 +			ms_smp2p_kick();
-+			printf("SWEET MSS: smp2p restart-done %d acknowledged\n", restart);
++			printf("BERGAMOTA MSS: smp2p restart-done %d acknowledged\n", restart);
 +		}
 +	}
 +}
@@ -431,7 +431,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 @@ -1889,10 +2153,11 @@
  		goto done;
  	}
- 	printf("SWEET MSS: MPSS AUTHENTICATED\n");
+ 	printf("BERGAMOTA MSS: MPSS AUTHENTICATED\n");
 -	if (!ms_step(13, "watch the modem's SMP2P entry for ready")) {
 +	if (!ms_step(14, "watch the modem's SMP2P entry for ready")) {
  		goto done;

@@ -1,7 +1,7 @@
-diff --git a/bsd/dev/sweet_a630.c b/bsd/dev/sweet_a630.c
+diff --git a/bsd/dev/bergamota_a630.c b/bsd/dev/bergamota_a630.c
 index efbed42a4d755d162a58d17dce7568ba0a3b04bd..121fbbfc6bdb78f827e2f34543a411dc9a2970b2 100644
---- a/bsd/dev/sweet_a630.c
-+++ b/bsd/dev/sweet_a630.c
+--- a/bsd/dev/bergamota_a630.c
++++ b/bsd/dev/bergamota_a630.c
 @@ -52,6 +52,8 @@
  #include <sys/vnode_internal.h>
  #include <sys/kauth.h>
@@ -14,7 +14,7 @@ index efbed42a4d755d162a58d17dce7568ba0a3b04bd..121fbbfc6bdb78f827e2f34543a411dc
 @@ -71,6 +73,36 @@ extern void pmap_set_cache_attributes(ppnum_t, unsigned int);
  extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
  extern kern_return_t thread_terminate(thread_t);
- extern void sweet_log_sync(void);               /* sweet_ufs.c */
+ extern void bergamota_log_sync(void);               /* bergamota_ufs.c */
 +
 +/*
 + * Power management (idle slumber, governor) repeats the whole GMU/HFI/CP bring-up on every wake. While a630_quiet is
@@ -44,24 +44,24 @@ index efbed42a4d755d162a58d17dce7568ba0a3b04bd..121fbbfc6bdb78f827e2f34543a411dc
 +	printf("%s", buf);
 +}
 +#define printf a630_printf
-+#define sweet_log_sync() (a630_quiet ? (void)0 : (sweet_log_sync)())
++#define bergamota_log_sync() (a630_quiet ? (void)0 : (bergamota_log_sync)())
  extern vnode_t rootvnode;
- extern bool sweet_a630_zap_load(void);          /* sweet_a630_pas.c */
- extern bool sweet_a630_zap_shutdown(void);
+ extern bool bergamota_a630_zap_load(void);          /* bergamota_a630_pas.c */
+ extern bool bergamota_a630_zap_shutdown(void);
 @@ -268,6 +300,19 @@ enum { CC_AHB, CC_CX_GMU, CC_CXO, CC_CX_SNOC_DVM, CC_CX_APB, CC_CXO_AON, CC_GX_G
  static vm_offset_t gcc, cc, gmu, gpu_regs, smmu_base;
  static int a630_mode;
  
 +/* Boot-args (all off/default unless given; docs/GPU_KERNEL.md "Power") */
-+static uint32_t a630_idle_ms;           /* sweetgpuidle=MS: slumber after this long without a submission (0 = never) */
-+static uint32_t a630_hwcg;              /* sweetgpuhwcg=1: hardware clock gating tables */
-+static uint32_t a630_ubwc;              /* sweetgpuubwc=1: program the UBWC/bank registers (hbb 15) */
-+static uint32_t a630_hb_s;              /* sweetgpuhb=SECONDS: heartbeat line with GPU + USB clock state */
-+static uint32_t a630_recover_max = 3;   /* sweetgpurecover=N: resets after a fault/hang before "lost until reboot" */
-+static uint32_t a630_bw_linux;          /* sweetgpubw=linux: the fixed Linux a630 BCM addresses instead of cmd-db's */
-+static int a630_gov;                    /* sweetgpufreq=gov */
++static uint32_t a630_idle_ms;           /* bergamotagpuidle=MS: slumber after this long without a submission (0 = never) */
++static uint32_t a630_hwcg;              /* bergamotagpuhwcg=1: hardware clock gating tables */
++static uint32_t a630_ubwc;              /* bergamotagpuubwc=1: program the UBWC/bank registers (hbb 15) */
++static uint32_t a630_hb_s;              /* bergamotagpuhb=SECONDS: heartbeat line with GPU + USB clock state */
++static uint32_t a630_recover_max = 3;   /* bergamotagpurecover=N: resets after a fault/hang before "lost until reboot" */
++static uint32_t a630_bw_linux;          /* bergamotagpubw=linux: the fixed Linux a630 BCM addresses instead of cmd-db's */
++static int a630_gov;                    /* bergamotagpufreq=gov */
 +static unsigned a630_level = 1;         /* current GX level (index into gpu_levels) */
-+static unsigned a630_level_max = 7;     /* sweetgpumax=N */
++static unsigned a630_level_max = 7;     /* bergamotagpumax=N */
 +static void *gmu_fw;                    /* kept for warm re-boots (stage 8 only) */
 +static size_t gmu_fw_size;
 +
@@ -69,7 +69,7 @@ index efbed42a4d755d162a58d17dce7568ba0a3b04bd..121fbbfc6bdb78f827e2f34543a411dc
  gpu_rd(vm_offset_t base, uint32_t off)
  {
 @@ -702,7 +747,10 @@ gpu_power_cx(void)
- 	printf("SWEET GPU: CX GDSC on: gdscr 0x%08x hw status 0x%08x\n",
+ 	printf("BERGAMOTA GPU: CX GDSC on: gdscr 0x%08x hw status 0x%08x\n",
  	    gpu_rd(cc, GPUCC_CX_GDSCR), gpu_rd(cc, GPUCC_CX_GDS_HW_CTRL));
  
 -	gpu_wr(gcc, GCC_GPU_GPLL0_VOTE, gpu_rd(gcc, GCC_GPU_GPLL0_VOTE) | GCC_GPU_GPLL0 | GCC_GPU_GPLL0_DIV);
@@ -114,7 +114,7 @@ index efbed42a4d755d162a58d17dce7568ba0a3b04bd..121fbbfc6bdb78f827e2f34543a411dc
 +			ncnoc = 1;
 +		}
 +	}
-+	printf("SWEET GPU: BW table BCMs: ddr %#x %#x %#x, cnoc %u x %#x%s\n", ddr_addrs[0], ddr_addrs[1], ddr_addrs[2], ncnoc,
++	printf("BERGAMOTA GPU: BW table BCMs: ddr %#x %#x %#x, cnoc %u x %#x%s\n", ddr_addrs[0], ddr_addrs[1], ddr_addrs[2], ncnoc,
 +	    cnoc_addrs[0], ncnoc == 3 ? " (Linux constants)" : " (cmd-db SH0, MC0, ACV, CN0)");
  	bzero(m, 4 * BW_TBL_DW);
  	m[0] = MSG_HDR(H2F_MSG_BW_VOTE_TBL, BW_TBL_DW, 0);
@@ -164,7 +164,7 @@ index efbed42a4d755d162a58d17dce7568ba0a3b04bd..121fbbfc6bdb78f827e2f34543a411dc
  	gpu_wr(gmu, GMU_BOOT_SLUMBER_OPTION, OOB_BOOT_OPTION);
  	gpu_wr(gmu, GMU_GX_VOTE_IDX, vote & 0xff);
  	gpu_wr(gmu, GMU_MX_VOTE_IDX, (vote >> 8) & 0xff);
- 	printf("SWEET GPU: GX rail on at level %u (%u MHz): gfx ARC %u, mx ARC %u\n",
+ 	printf("BERGAMOTA GPU: GX rail on at level %u (%u MHz): gfx ARC %u, mx ARC %u\n",
 -	    GX_BOOT_LEVEL, gx_khz[GX_BOOT_LEVEL] / 1000, vote & 0xff, (vote >> 8) & 0xff);
 +	    a630_level, gx_khz[a630_level] / 1000, vote & 0xff, (vote >> 8) & 0xff);
  	return gmu_oob_set(OOB_BOOT_SLUMBER, "boot_slumber (boot)");
@@ -188,7 +188,7 @@ index efbed42a4d755d162a58d17dce7568ba0a3b04bd..121fbbfc6bdb78f827e2f34543a411dc
  #define PC_CCU_INVALIDATE_COLOR 25
  #define CACHE_FLUSH_TS          4
 @@ -2035,6 +2110,136 @@ cp_status(const char *when)
- 	sweet_log_sync();
+ 	bergamota_log_sync();
  }
  
 +/* a630 hardware clock gating (Linux a6xx_catalog.c a630_hwcg: data, 105 writes), then RBBM_CLOCK_CNTL; GMU CGC regs */
@@ -317,7 +317,7 @@ index efbed42a4d755d162a58d17dce7568ba0a3b04bd..121fbbfc6bdb78f827e2f34543a411dc
 +	gpu_wr(gmu, R(0x9309), 0x00020202);                     /* GPU_GMU_AO_GMU_CGC_MODE_CNTL */
 +	gpu_wr(gmu, R(0x930a), 0x00010111);                     /* ..._DELAY_CNTL */
 +	gpu_wr(gmu, R(0x930b), 0x00005555);                     /* ..._HYST_CNTL */
-+	printf("SWEET GPU: hardware clock gating on (%u writes), RBBM_CLOCK_CNTL %#x\n",
++	printf("BERGAMOTA GPU: hardware clock gating on (%u writes), RBBM_CLOCK_CNTL %#x\n",
 +	    (unsigned)(sizeof(a630_hwcg_tbl) / sizeof(a630_hwcg_tbl[0])), gpu_r(0x00ae));
 +}
 +
@@ -351,35 +351,35 @@ index efbed42a4d755d162a58d17dce7568ba0a3b04bd..121fbbfc6bdb78f827e2f34543a411dc
 +static bool a630_awake;
 +static uint32_t a630_timed;      /* last submission whose stamps were added to the busy time */
 +static bool gpu_resume(void);
-+bool sweet_gpu_recover(const char *why);
++bool bergamota_gpu_recover(const char *why);
  
  static vm_offset_t ptp;
  static uint64_t ptp_pa;
-@@ -2478,9 +2700,12 @@ sweet_gpu_check_fault(void)
+@@ -2478,9 +2700,12 @@ bergamota_gpu_check_fault(void)
  	    gpu_rd(b, SMMU_CB_FAR + 4), gpu_rd(b, SMMU_CB_FAR), gpu_rd(b, SMMU_CB_FSYNR0));
  	gpu_wr(b, SMMU_CB_FSR, fsr);
  	if (!a630_dev.lost) {
 -		a630_dev.lost = true;
  		a630_dev.hangs++;
--		sweet_gpu_report("GPU LOST (SMMU fault)");
-+		sweet_gpu_report("GPU FAULT (SMMU)");
-+		if (!sweet_gpu_recover("SMMU fault")) {
+-		bergamota_gpu_report("GPU LOST (SMMU fault)");
++		bergamota_gpu_report("GPU FAULT (SMMU)");
++		if (!bergamota_gpu_recover("SMMU fault")) {
 +			a630_dev.lost = true;
-+			sweet_gpu_report("GPU LOST (SMMU fault, not recovered)");
++			bergamota_gpu_report("GPU LOST (SMMU fault, not recovered)");
 +		}
  	}
  	return true;
  }
-@@ -2523,7 +2748,7 @@ sweet_gpu_param(uint32_t which, uint64_t *value)
+@@ -2523,7 +2748,7 @@ bergamota_gpu_param(uint32_t which, uint64_t *value)
  	case 1:  *value = 630; return true;                     /* GPU_ID */
  	case 2:  *value = 0x100000; return true;                /* GMEM_SIZE */
  	case 3:  *value = 0x06030001; return true;              /* CHIP_ID */
 -	case 4:  *value = 710000000ull; return true;            /* MAX_FREQ (the GPU runs at 257 MHz: docs/GPU_KERNEL.md) */
-+	case 4:  *value = (uint64_t)gpu_levels[a630_level_max].mhz * 1000000ull; return true;   /* MAX_FREQ (sweetgpumax cap) */
++	case 4:  *value = (uint64_t)gpu_levels[a630_level_max].mhz * 1000000ull; return true;   /* MAX_FREQ (bergamotagpumax cap) */
  	case 5:  /* TIMESTAMP: the GMU always-on counter (19.2 MHz), what Linux a6xx_get_timestamp reads; the CP's own
  	          * copy read over AHB did not advance on hardware (docs/GPU_KERNEL.md) */
  		*value = (uint64_t)gpu_rd(gmu, GMU_AO_COUNTER_L) | ((uint64_t)gpu_rd(gmu, GMU_AO_COUNTER_H) << 32);
-@@ -2531,8 +2756,11 @@ sweet_gpu_param(uint32_t which, uint64_t *value)
+@@ -2531,8 +2756,11 @@ bergamota_gpu_param(uint32_t which, uint64_t *value)
  	case 6:  *value = 0x100000; return true;                /* GMEM_BASE */
  	case 7:  *value = 1; return true;                       /* PRIORITIES */
  	case 8:  *value = 0; return true;                       /* PP_PGTABLE */
@@ -394,16 +394,16 @@ index efbed42a4d755d162a58d17dce7568ba0a3b04bd..121fbbfc6bdb78f827e2f34543a411dc
  	case 15: *value = GVM_END - GVM_BASE; return true;      /* VA_SIZE */
  	default: return false;
 @@ -2644,12 +2872,27 @@ void
- sweet_gpu_mark_lost(void)
+ bergamota_gpu_mark_lost(void)
  {
  	if (!a630_dev.lost) {
 -		a630_dev.lost = true;
  		a630_dev.hangs++;
--		sweet_gpu_report("GPU LOST (no completion)");
-+		sweet_gpu_report("GPU HANG (no completion)");
-+		if (!sweet_gpu_recover("hang")) {
+-		bergamota_gpu_report("GPU LOST (no completion)");
++		bergamota_gpu_report("GPU HANG (no completion)");
++		if (!bergamota_gpu_recover("hang")) {
 +			a630_dev.lost = true;
-+			sweet_gpu_report("GPU LOST (not recovered)");
++			bergamota_gpu_report("GPU LOST (not recovered)");
 +		}
  	}
  }
@@ -423,14 +423,14 @@ index efbed42a4d755d162a58d17dce7568ba0a3b04bd..121fbbfc6bdb78f827e2f34543a411dc
  /*
   * One submission: invalidate the CCU, run each indirect buffer, then write the
   * sequence number with CACHE_FLUSH_TS (the tail of Linux a6xx_submit). Returns
-@@ -2658,11 +2901,15 @@ sweet_gpu_mark_lost(void)
+@@ -2658,11 +2901,15 @@ bergamota_gpu_mark_lost(void)
  uint32_t
- sweet_gpu_submit(const uint64_t *ib_iova, const uint32_t *ib_dwords, unsigned count)
+ bergamota_gpu_submit(const uint64_t *ib_iova, const uint32_t *ib_dwords, unsigned count)
  {
 -	unsigned need = 16 + 4 * count, room = 0;
 +	unsigned need = 32 + 4 * count, room = 0;
  
- 	if (!sweet_gpu_ready() || count == 0 || count > 128) {
+ 	if (!bergamota_gpu_ready() || count == 0 || count > 128) {
  		return 0;
  	}
 +	a630_last_active = mach_absolute_time();
@@ -439,8 +439,8 @@ index efbed42a4d755d162a58d17dce7568ba0a3b04bd..121fbbfc6bdb78f827e2f34543a411dc
 +	}
  	/* GPU registers are only touched while GX is on and the AHB fence allows them (never a hang, never a silent drop). */
  	if (!(gpu_rd(cc, GPUCC_GX_GDSCR) & GDSC_PWR_ON) || (gpu_rd(cc, gpucc_cbcr[CC_GX_GFX3D].off) & CBCR_CLK_OFF)) {
- 		sweet_gpu_report("submit refused: GX is off");
-@@ -2698,6 +2945,7 @@ sweet_gpu_submit(const uint64_t *ib_iova, const uint32_t *ib_dwords, unsigned co
+ 		bergamota_gpu_report("submit refused: GX is off");
+@@ -2698,6 +2945,7 @@ bergamota_gpu_submit(const uint64_t *ib_iova, const uint32_t *ib_dwords, unsigned co
  	if (++a630_dev.seqno == 0) {
  		a630_dev.seqno = 1;
  	}
@@ -448,7 +448,7 @@ index efbed42a4d755d162a58d17dce7568ba0a3b04bd..121fbbfc6bdb78f827e2f34543a411dc
  	ring_emit(pkt7(CP_EVENT_WRITE, 1));
  	ring_emit(PC_CCU_INVALIDATE_DEPTH);
  	ring_emit(pkt7(CP_EVENT_WRITE, 1));
-@@ -2708,6 +2956,8 @@ sweet_gpu_submit(const uint64_t *ib_iova, const uint32_t *ib_dwords, unsigned co
+@@ -2708,6 +2956,8 @@ bergamota_gpu_submit(const uint64_t *ib_iova, const uint32_t *ib_dwords, unsigned co
  		ring_emit((uint32_t)(ib_iova[i] >> 32));
  		ring_emit(ib_dwords[i]);
  	}
@@ -457,11 +457,11 @@ index efbed42a4d755d162a58d17dce7568ba0a3b04bd..121fbbfc6bdb78f827e2f34543a411dc
  	ring_emit(pkt7(CP_EVENT_WRITE, 4));
  	ring_emit(CACHE_FLUSH_TS | CP_EVENT_WRITE_IRQ);
  	ring_emit((uint32_t)(SCRATCH_VA + SCRATCH_FENCE));
-@@ -2730,6 +2980,8 @@ sweet_gpu_submit(const uint64_t *ib_iova, const uint32_t *ib_dwords, unsigned co
+@@ -2730,6 +2980,8 @@ bergamota_gpu_submit(const uint64_t *ib_iova, const uint32_t *ib_dwords, unsigned co
   * Clears the boot-slumber OOB like Linux after HFI start, forbids GX collapse
   * and sets up the address space for client buffers. Leaves OOB_GPU set.
   */
-+static void sweet_gpu_pm_start(void);
++static void bergamota_gpu_pm_start(void);
 +
  static bool
  gpu_keep_up(void)
@@ -472,10 +472,10 @@ index efbed42a4d755d162a58d17dce7568ba0a3b04bd..121fbbfc6bdb78f827e2f34543a411dc
  	a630_dev.ready = true;
 +	a630_awake = true;
 +	a630_last_active = mach_absolute_time();
-+	sweet_gpu_pm_start();
- 	printf("SWEET GPU: KEPT UP: GX on (OOB_GPU held, GMU keep-alive), ring %u dwords at RPTR=WPTR=%u, client VA 0x%llx-0x%llx, %u table pages\n",
++	bergamota_gpu_pm_start();
+ 	printf("BERGAMOTA GPU: KEPT UP: GX on (OOB_GPU held, GMU keep-alive), ring %u dwords at RPTR=WPTR=%u, client VA 0x%llx-0x%llx, %u table pages\n",
  	    RING_SIZE / 4, ring_wptr, GVM_BASE, GVM_END, PTP_PAGES);
- 	sweet_log_sync();
+ 	bergamota_log_sync();
 @@ -2815,6 +3070,337 @@ gpu_gx_test(int mode)
  	return true;
  }
@@ -491,17 +491,17 @@ index efbed42a4d755d162a58d17dce7568ba0a3b04bd..121fbbfc6bdb78f827e2f34543a411dc
 + */
 +static void gpu_gmu_reset(void);
 +
-+static LCK_GRP_DECLARE(a630_lck_grp, "sweetgpu");
++static LCK_GRP_DECLARE(a630_lck_grp, "bergamotagpu");
 +static LCK_MTX_DECLARE(a630_mtx, &a630_lck_grp);
 +
 +void
-+sweet_gpu_lock(void)
++bergamota_gpu_lock(void)
 +{
 +	lck_mtx_lock(&a630_mtx);
 +}
 +
 +void
-+sweet_gpu_unlock(void)
++bergamota_gpu_unlock(void)
 +{
 +	lck_mtx_unlock(&a630_mtx);
 +}
@@ -517,7 +517,7 @@ index efbed42a4d755d162a58d17dce7568ba0a3b04bd..121fbbfc6bdb78f827e2f34543a411dc
 +static bool
 +gpu_cp_idle_now(void)
 +{
-+	return gpu_r(A6XX_CP_RB_RPTR) == ring_wptr && sweet_gpu_fence_done(a630_dev.seqno);
++	return gpu_r(A6XX_CP_RB_RPTR) == ring_wptr && bergamota_gpu_fence_done(a630_dev.seqno);
 +}
 +
 +/* GX off through the GMU, then the GMU into reset (the stage-5 end, hardware verified). Lock held, GPU awake. */
@@ -534,7 +534,7 @@ index efbed42a4d755d162a58d17dce7568ba0a3b04bd..121fbbfc6bdb78f827e2f34543a411dc
 +	a630_suspends++;
 +	a630_quiet = 0;
 +	if (st != GPU_HW_SLUMBER) {
-+		printf("SWEET GPU: suspend: RPMH_POWER_STATE %#x is NOT slumber\n", st);
++		printf("BERGAMOTA GPU: suspend: RPMH_POWER_STATE %#x is NOT slumber\n", st);
 +		return false;
 +	}
 +	return true;
@@ -547,7 +547,7 @@ index efbed42a4d755d162a58d17dce7568ba0a3b04bd..121fbbfc6bdb78f827e2f34543a411dc
 +
 +	a630_quiet = a630_resumes >= 2;
 +	if (a630_resumes < 2) {
-+		printf("SWEET GPU: waking from slumber (resume %u)\n", a630_resumes + 1);
++		printf("BERGAMOTA GPU: waking from slumber (resume %u)\n", a630_resumes + 1);
 +	}
 +	if (gpu_rd(gmu, GMU_CM3_SYSRESET) != 1) {
 +		gpu_wr(gmu, GMU_CM3_SYSRESET, 1);
@@ -571,9 +571,9 @@ index efbed42a4d755d162a58d17dce7568ba0a3b04bd..121fbbfc6bdb78f827e2f34543a411dc
 +	}
 +	a630_quiet = 0;
 +	if (!ok) {
-+		printf("SWEET GPU: resume FAILED\n");
++		printf("BERGAMOTA GPU: resume FAILED\n");
 +		a630_dev.lost = true;
-+		sweet_gpu_report("GPU LOST (resume failed)");
++		bergamota_gpu_report("GPU LOST (resume failed)");
 +	}
 +	return ok;
 +}
@@ -584,13 +584,13 @@ index efbed42a4d755d162a58d17dce7568ba0a3b04bd..121fbbfc6bdb78f827e2f34543a411dc
 + * wake leaves the GPU lost.
 + */
 +bool
-+sweet_gpu_recover(const char *why)
++bergamota_gpu_recover(const char *why)
 +{
 +	if (!a630_dev.ready || a630_recoveries >= a630_recover_max) {
 +		return false;
 +	}
 +	a630_recoveries++;
-+	printf("SWEET GPU: RECOVERY %u/%u (%s)\n", a630_recoveries, a630_recover_max, why);
++	printf("BERGAMOTA GPU: RECOVERY %u/%u (%s)\n", a630_recoveries, a630_recover_max, why);
 +	if (a630_awake) {
 +		uint32_t gx = gpu_rd(cc, GPUCC_GX_GDSCR);
 +		if ((gx & GDSC_PWR_ON) && !(gpu_rd(cc, gpucc_cbcr[CC_GX_GFX3D].off) & CBCR_CLK_OFF)) {
@@ -612,12 +612,12 @@ index efbed42a4d755d162a58d17dce7568ba0a3b04bd..121fbbfc6bdb78f827e2f34543a411dc
 +	if (!gpu_resume()) {
 +		return false;
 +	}
-+	printf("SWEET GPU: recovered; submissions up to %u are void\n", a630_dev.seqno);
++	printf("BERGAMOTA GPU: recovered; submissions up to %u are void\n", a630_dev.seqno);
 +	return true;
 +}
 +
 +uint32_t
-+sweet_gpu_epoch(void)
++bergamota_gpu_epoch(void)
 +{
 +	return a630_recoveries;
 +}
@@ -635,7 +635,7 @@ index efbed42a4d755d162a58d17dce7568ba0a3b04bd..121fbbfc6bdb78f827e2f34543a411dc
 +	if (ok) {
 +		a630_level = lvl;
 +	} else {
-+		printf("SWEET GPU: GX level vote %u failed; governor off\n", lvl);
++		printf("BERGAMOTA GPU: GX level vote %u failed; governor off\n", lvl);
 +		a630_gov = 0;
 +	}
 +	return ok;
@@ -700,12 +700,12 @@ index efbed42a4d755d162a58d17dce7568ba0a3b04bd..121fbbfc6bdb78f827e2f34543a411dc
 +	}
 +}
 +
-+/* ---- metrics: sysctl kern.sweet_gpu (one line of key=value) ---- */
++/* ---- metrics: sysctl kern.bergamota_gpu (one line of key=value) ---- */
 +
-+extern void SweetAdrenoClients(char *buf, size_t size, uint32_t *count);
++extern void BergamotaAdrenoClients(char *buf, size_t size, uint32_t *count);
 +
 +static int
-+sweet_gpu_sysctl SYSCTL_HANDLER_ARGS
++bergamota_gpu_sysctl SYSCTL_HANDLER_ARGS
 +{
 +#pragma unused(arg1, arg2)
 +	char buf[640], pids[96];
@@ -716,7 +716,7 @@ index efbed42a4d755d162a58d17dce7568ba0a3b04bd..121fbbfc6bdb78f827e2f34543a411dc
 +	int n;
 +
 +	pids[0] = 0;
-+	SweetAdrenoClients(pids, sizeof(pids), &clients);
++	BergamotaAdrenoClients(pids, sizeof(pids), &clients);
 +	if (a630_dev.ready) {
 +		now_in = 0;
 +	}
@@ -740,7 +740,7 @@ index efbed42a4d755d162a58d17dce7568ba0a3b04bd..121fbbfc6bdb78f827e2f34543a411dc
 +	return sysctl_handle_string(oidp, buf, sizeof(buf), req);
 +}
 +
-+SYSCTL_PROC(_kern, OID_AUTO, sweet_gpu, CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, 0, 0, sweet_gpu_sysctl, "A",
++SYSCTL_PROC(_kern, OID_AUTO, bergamota_gpu, CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, 0, 0, bergamota_gpu_sysctl, "A",
 +    "Adreno 630 metrics: key=value line (docs/GPU_KERNEL.md)");
 +
 +/* ---- the PM thread: idle slumber, governor, residency, heartbeat ---- */
@@ -754,7 +754,7 @@ index efbed42a4d755d162a58d17dce7568ba0a3b04bd..121fbbfc6bdb78f827e2f34543a411dc
 +	(void)wr;
 +	for (;;) {
 +		sleep_ms(20);
-+		sweet_gpu_lock();
++		bergamota_gpu_lock();
 +		uint64_t now = mach_absolute_time(), dt;
 +		absolutetime_to_nanoseconds(now - last, &dt);
 +		last = now;
@@ -767,7 +767,7 @@ index efbed42a4d755d162a58d17dce7568ba0a3b04bd..121fbbfc6bdb78f827e2f34543a411dc
 +				if (a630_idle_ms && ns_since(a630_last_active) >= (uint64_t)a630_idle_ms * NSEC_PER_MSEC && gpu_cp_idle_now()) {
 +					bool first = a630_suspends == 0;
 +					if (first) {
-+						printf("SWEET GPU: idle for %u ms: slumber\n", a630_idle_ms);
++						printf("BERGAMOTA GPU: idle for %u ms: slumber\n", a630_idle_ms);
 +					}
 +					(void)gpu_suspend(!first);
 +					gov_win_start = 0;
@@ -780,24 +780,24 @@ index efbed42a4d755d162a58d17dce7568ba0a3b04bd..121fbbfc6bdb78f827e2f34543a411dc
 +				tot += res_ns[i];
 +			}
 +			summary = now;
-+			printf("SWEET GPU: pm: %s level %u busy %llu%% | time in level (%%): slumber %llu, 257 %llu, 342 %llu, 414 %llu, 520 %llu, 596 %llu, 675 %llu, 710 %llu | suspends %u resumes %u recoveries %u submits %u\n",
++			printf("BERGAMOTA GPU: pm: %s level %u busy %llu%% | time in level (%%): slumber %llu, 257 %llu, 342 %llu, 414 %llu, 520 %llu, 596 %llu, 675 %llu, 710 %llu | suspends %u resumes %u recoveries %u submits %u\n",
 +			    a630_awake ? "on" : "slumber", a630_level, gov_busy_pct, res_ns[0] * 100 / tot, res_ns[1] * 100 / tot, res_ns[2] * 100 / tot,
 +			    res_ns[3] * 100 / tot, res_ns[4] * 100 / tot, res_ns[5] * 100 / tot, res_ns[6] * 100 / tot, res_ns[7] * 100 / tot,
 +			    a630_suspends, a630_resumes, a630_recoveries, a630_dev.submissions);
 +		}
 +		if (a630_hb_s && gcc && ns_since(hb) >= (uint64_t)a630_hb_s * NSEC_PER_SEC) {
 +			hb = now;
-+			printf("SWEET GPU: hb: %s level %u | GCC usb30 gdscr %#x master %#x sleep %#x utmi %#x cfg-noc %#x aggre %#x ahb2phy %#x clkref %#x gpll0-vote %#x memnoc_gfx %#x ddrss_gpu_axi %#x\n",
++			printf("BERGAMOTA GPU: hb: %s level %u | GCC usb30 gdscr %#x master %#x sleep %#x utmi %#x cfg-noc %#x aggre %#x ahb2phy %#x clkref %#x gpll0-vote %#x memnoc_gfx %#x ddrss_gpu_axi %#x\n",
 +			    a630_awake ? "on" : "slumber", a630_level, gpu_rd(gcc, 0x0f004), gpu_rd(gcc, 0x0f010), gpu_rd(gcc, 0x0f014),
 +			    gpu_rd(gcc, 0x0f018), gpu_rd(gcc, 0x0502c), gpu_rd(gcc, 0x8201c), gpu_rd(gcc, 0x6a004), gpu_rd(gcc, 0x8c010),
 +			    gpu_rd(gcc, GCC_GPU_GPLL0_VOTE), gpu_rd(gcc, GCC_GPU_MEMNOC_GFX_CBCR), gpu_rd(gcc, GCC_DDRSS_GPU_AXI_CBCR));
 +		}
-+		sweet_gpu_unlock();
++		bergamota_gpu_unlock();
 +	}
 +}
 +
 +static void
-+sweet_gpu_pm_start(void)
++bergamota_gpu_pm_start(void)
 +{
 +	thread_t thread;
 +
@@ -806,7 +806,7 @@ index efbed42a4d755d162a58d17dce7568ba0a3b04bd..121fbbfc6bdb78f827e2f34543a411dc
 +	}
 +	if (kernel_thread_start((thread_continue_t)a630_pm_thread, NULL, &thread) == KERN_SUCCESS) {
 +		thread_deallocate(thread);
-+		printf("SWEET GPU: PM thread: idle %u ms, %s, max level %u, hwcg %u, recover %u\n", a630_idle_ms, a630_gov ? "governor" : "fixed level",
++		printf("BERGAMOTA GPU: PM thread: idle %u ms, %s, max level %u, hwcg %u, recover %u\n", a630_idle_ms, a630_gov ? "governor" : "fixed level",
 +		    a630_level_max, a630_hwcg, a630_recover_max);
 +	}
 +}
@@ -818,17 +818,17 @@ index efbed42a4d755d162a58d17dce7568ba0a3b04bd..121fbbfc6bdb78f827e2f34543a411dc
  	}
  	gpu_hfi_table();
  	bool booted = gpu_gmu_boot((const uint32_t *)fw, fwsize, false);
--	sweet_a630_fw_put(fw, fwsize);
+-	bergamota_a630_fw_put(fw, fwsize);
 +	if (mode >= 8) {
 +		gmu_fw = fw;    /* kept: every wake from slumber boots the GMU again */
 +		gmu_fw_size = fwsize;
 +	} else {
-+		sweet_a630_fw_put(fw, fwsize);
++		bergamota_a630_fw_put(fw, fwsize);
 +	}
  	bool rail = false, gx = false;
  	if (booted && mode >= 5) {
  		rail = gpu_gx_rail_on();
-@@ -2972,6 +3563,42 @@ sweet_a630_probe(void)
+@@ -2972,6 +3563,42 @@ bergamota_a630_probe(void)
  		mode = 8;
  	}
  	a630_mode = mode;
@@ -836,31 +836,31 @@ index efbed42a4d755d162a58d17dce7568ba0a3b04bd..121fbbfc6bdb78f827e2f34543a411dc
 +		int v = 0;
 +		char fb[16] = "";
 +
-+		if (PE_parse_boot_argn("sweetgpuidle", &v, sizeof(v)) && v > 0) {
++		if (PE_parse_boot_argn("bergamotagpuidle", &v, sizeof(v)) && v > 0) {
 +			a630_idle_ms = (uint32_t)MIN(v, 600000);
 +		}
-+		if (PE_parse_boot_argn("sweetgpuhwcg", &v, sizeof(v))) {
++		if (PE_parse_boot_argn("bergamotagpuhwcg", &v, sizeof(v))) {
 +			a630_hwcg = v != 0;
 +		}
-+		if (PE_parse_boot_argn("sweetgpuubwc", &v, sizeof(v))) {
++		if (PE_parse_boot_argn("bergamotagpuubwc", &v, sizeof(v))) {
 +			a630_ubwc = v != 0;
 +		}
-+		if (PE_parse_boot_argn("sweetgpuhb", &v, sizeof(v)) && v > 0) {
++		if (PE_parse_boot_argn("bergamotagpuhb", &v, sizeof(v)) && v > 0) {
 +			a630_hb_s = (uint32_t)MIN(v, 3600);
 +		}
-+		if (PE_parse_boot_argn("sweetgpurecover", &v, sizeof(v)) && v >= 0) {
++		if (PE_parse_boot_argn("bergamotagpurecover", &v, sizeof(v)) && v >= 0) {
 +			a630_recover_max = (uint32_t)MIN(v, 100);
 +		}
-+		if (PE_parse_boot_argn("sweetgpubw", fb, sizeof(fb)) && fb[0] == 'l') {
++		if (PE_parse_boot_argn("bergamotagpubw", fb, sizeof(fb)) && fb[0] == 'l') {
 +			a630_bw_linux = 1;
 +		}
-+		if (PE_parse_boot_argn("sweetgpumax", &v, sizeof(v)) && v >= 1 && v < (int)GPU_NLEVELS) {
++		if (PE_parse_boot_argn("bergamotagpumax", &v, sizeof(v)) && v >= 1 && v < (int)GPU_NLEVELS) {
 +			a630_level_max = (unsigned)v;
 +		} else {
 +			a630_level_max = GPU_NLEVELS - 1;
 +		}
 +		fb[0] = 0;
-+		if (PE_parse_boot_argn("sweetgpufreq", fb, sizeof(fb))) {
++		if (PE_parse_boot_argn("bergamotagpufreq", fb, sizeof(fb))) {
 +			if (fb[0] == 'g') {
 +				a630_gov = 1;                   /* starts at the lowest level, the governor moves it */
 +			} else if (fb[0] >= '1' && fb[0] <= '9') {
@@ -871,49 +871,49 @@ index efbed42a4d755d162a58d17dce7568ba0a3b04bd..121fbbfc6bdb78f827e2f34543a411dc
  	if (mode <= 2) {
  		a630_run(mode);         /* no firmware, no waiting */
  		return;
-diff --git a/iokit/Kernel/arm/SweetAdreno.cpp b/iokit/Kernel/arm/SweetAdreno.cpp
+diff --git a/iokit/Kernel/arm/BergamotaAdreno.cpp b/iokit/Kernel/arm/BergamotaAdreno.cpp
 index 9702737be291f11810ed974456fab87c6fc3cea5..8e0836023ad87a391961a73a8d6cd3490b4182cc 100644
---- a/iokit/Kernel/arm/SweetAdreno.cpp
-+++ b/iokit/Kernel/arm/SweetAdreno.cpp
-@@ -48,6 +48,9 @@ void sweet_gpu_iova_free(uint64_t iova, uint64_t size);
- bool sweet_gpu_vm_map(uint64_t iova, uint64_t pa, bool readonly);
- void sweet_gpu_vm_unmap(uint64_t iova, uint64_t size);
- void sweet_gpu_vm_flush(void);
-+void sweet_gpu_lock(void);
-+void sweet_gpu_unlock(void);
-+uint32_t sweet_gpu_epoch(void);
- bool sweet_gpu_check_fault(void);
- void sweet_gpu_cache_sync(void *va, size_t len);
- uint32_t sweet_gpu_submit(const uint64_t *ib_iova, const uint32_t *ib_dwords, unsigned count);
-@@ -70,8 +73,11 @@ void SweetAdrenoPublish(void);
+--- a/iokit/Kernel/arm/BergamotaAdreno.cpp
++++ b/iokit/Kernel/arm/BergamotaAdreno.cpp
+@@ -48,6 +48,9 @@ void bergamota_gpu_iova_free(uint64_t iova, uint64_t size);
+ bool bergamota_gpu_vm_map(uint64_t iova, uint64_t pa, bool readonly);
+ void bergamota_gpu_vm_unmap(uint64_t iova, uint64_t size);
+ void bergamota_gpu_vm_flush(void);
++void bergamota_gpu_lock(void);
++void bergamota_gpu_unlock(void);
++uint32_t bergamota_gpu_epoch(void);
+ bool bergamota_gpu_check_fault(void);
+ void bergamota_gpu_cache_sync(void *va, size_t len);
+ uint32_t bergamota_gpu_submit(const uint64_t *ib_iova, const uint32_t *ib_dwords, unsigned count);
+@@ -70,8 +73,11 @@ void BergamotaAdrenoPublish(void);
  #define IOVA_UNSET              0
  #define GPU_PAGE                0x1000ull       /* SMMU granule; never PAGE_SIZE (16 KiB) */
  
 -static IOLock *gAdrenoLock;
 -static uint32_t gAdrenoClients;
-+static IOLock *gClientsLock;           /* only the pid list below; the device lock is sweet_gpu_lock() */
++static IOLock *gClientsLock;           /* only the pid list below; the device lock is bergamota_gpu_lock() */
 +static struct {
 +	int32_t pid;
 +	uint32_t count;
 +} gClientPids[32];
  
- struct sweet_gem {
+ struct bergamota_gem {
  	IOMemoryDescriptor       *md;           /* NULL: free slot */
-@@ -97,6 +103,7 @@ class SweetAdrenoUserClient : public IOUserClient {
- 	OSDeclareDefaultStructors(SweetAdrenoUserClient);
+@@ -97,6 +103,7 @@ class BergamotaAdrenoUserClient : public IOUserClient {
+ 	OSDeclareDefaultStructors(BergamotaAdrenoUserClient);
  
  	task_t            fTask;
 +	int32_t           fPid;
- 	struct sweet_gem *fGems;
+ 	struct bergamota_gem *fGems;
  	uint32_t          fNextGem;
  	uint64_t          fQueues;      /* bit n = submitqueue id n open (id 0 = default, always) */
-@@ -141,6 +148,34 @@ OSDefineMetaClassAndStructors(AGXDeviceUserClient, SweetAdrenoUserClient);
+@@ -141,6 +148,34 @@ OSDefineMetaClassAndStructors(AGXDeviceUserClient, BergamotaAdrenoUserClient);
  
  /* ------------------------------------------------------------------ */
  
-+/* "pid,pid" of the open clients (with a trailing "+" when the list is cut) and their number; for kern.sweet_gpu. */
++/* "pid,pid" of the open clients (with a trailing "+" when the list is cut) and their number; for kern.bergamota_gpu. */
 +extern "C" void
-+SweetAdrenoClients(char *buf, size_t size, uint32_t *count)
++BergamotaAdrenoClients(char *buf, size_t size, uint32_t *count)
 +{
 +	size_t n = 0;
 +
@@ -940,10 +940,10 @@ index 9702737be291f11810ed974456fab87c6fc3cea5..8e0836023ad87a391961a73a8d6cd349
 +}
 +
  extern "C" void
- SweetAdrenoPublish(void)
+ BergamotaAdrenoPublish(void)
  {
-@@ -149,10 +184,10 @@ SweetAdrenoPublish(void)
- 	if (!sweet_gpu_ready()) {
+@@ -149,10 +184,10 @@ BergamotaAdrenoPublish(void)
+ 	if (!bergamota_gpu_ready()) {
  		return;
  	}
 -	if (gAdrenoLock == NULL) {
@@ -955,13 +955,13 @@ index 9702737be291f11810ed974456fab87c6fc3cea5..8e0836023ad87a391961a73a8d6cd349
 +	if (gClientsLock == NULL) {
  		return;
  	}
- 	(void)PE_parse_boot_argn("sweetgpuuc", &agx, sizeof(agx));
-@@ -182,10 +217,28 @@ SweetAdrenoUserClient::initWithTask(task_t owningTask, void *securityID, UInt32
+ 	(void)PE_parse_boot_argn("bergamotagpuuc", &agx, sizeof(agx));
+@@ -182,10 +217,28 @@ BergamotaAdrenoUserClient::initWithTask(task_t owningTask, void *securityID, UInt32
  	if (!IOUserClient::initWithTask(owningTask, securityID, type)) {
  		return false;
  	}
--	if (!sweet_gpu_ready() || gAdrenoLock == NULL) {
-+	if (!sweet_gpu_ready() || gClientsLock == NULL) {
+-	if (!bergamota_gpu_ready() || gAdrenoLock == NULL) {
++	if (!bergamota_gpu_ready() || gClientsLock == NULL) {
  		return false;
  	}
  	fTask = owningTask;
@@ -983,15 +983,15 @@ index 9702737be291f11810ed974456fab87c6fc3cea5..8e0836023ad87a391961a73a8d6cd349
 +		gClientPids[slot].count++;
 +	}
 +	IOLockUnlock(gClientsLock);
- 	fGems = (struct sweet_gem *)IOMallocZeroData(sizeof(struct sweet_gem) * GEM_MAX);
+ 	fGems = (struct bergamota_gem *)IOMallocZeroData(sizeof(struct bergamota_gem) * GEM_MAX);
  	return fGems != NULL;
  }
-@@ -203,9 +256,17 @@ SweetAdrenoUserClient::free()
+@@ -203,9 +256,17 @@ BergamotaAdrenoUserClient::free()
  IOReturn
- SweetAdrenoUserClient::clientClose(void)
+ BergamotaAdrenoUserClient::clientClose(void)
  {
 -	IOLockLock(gAdrenoLock);
-+	sweet_gpu_lock();
++	bergamota_gpu_lock();
  	if (!fClosed) {
  		fClosed = true;
 +		IOLockLock(gClientsLock);
@@ -1005,299 +1005,299 @@ index 9702737be291f11810ed974456fab87c6fc3cea5..8e0836023ad87a391961a73a8d6cd349
  		if (fGems != NULL) {
  			for (uint32_t i = 0; i < GEM_MAX; i++) {
  				if (fGems[i].md != NULL) {
-@@ -214,7 +275,7 @@ SweetAdrenoUserClient::clientClose(void)
+@@ -214,7 +275,7 @@ BergamotaAdrenoUserClient::clientClose(void)
  			}
  		}
  	}
 -	IOLockUnlock(gAdrenoLock);
-+	sweet_gpu_unlock();
++	bergamota_gpu_unlock();
  	terminate();
  	return kIOReturnSuccess;
  }
 @@ -261,6 +322,7 @@ bool
- SweetAdrenoUserClient::waitFence(uint32_t fence, uint64_t ns)
+ BergamotaAdrenoUserClient::waitFence(uint32_t fence, uint64_t ns)
  {
  	uint64_t began = mach_absolute_time(), limit, cap, early;
-+	uint32_t epoch = sweet_gpu_epoch();
++	uint32_t epoch = bergamota_gpu_epoch();
  
- 	if (fence == 0 || sweet_gpu_fence_done(fence)) {
+ 	if (fence == 0 || bergamota_gpu_fence_done(fence)) {
  		return true;
-@@ -276,6 +338,9 @@ SweetAdrenoUserClient::waitFence(uint32_t fence, uint64_t ns)
- 		if (sweet_gpu_fence_done(fence)) {
+@@ -276,6 +338,9 @@ BergamotaAdrenoUserClient::waitFence(uint32_t fence, uint64_t ns)
+ 		if (bergamota_gpu_fence_done(fence)) {
  			return true;
  		}
-+		if (epoch != sweet_gpu_epoch()) {
++		if (epoch != bergamota_gpu_epoch()) {
 +			return false;                   /* the GPU was reset under this wait: the work is void */
 +		}
- 		if (sweet_gpu_check_fault() || !sweet_gpu_ready()) {
+ 		if (bergamota_gpu_check_fault() || !bergamota_gpu_ready()) {
  			return false;                   /* the CP faulted: fail now instead of waiting for the timeout */
  		}
-@@ -290,13 +355,13 @@ SweetAdrenoUserClient::waitFence(uint32_t fence, uint64_t ns)
+@@ -290,13 +355,13 @@ BergamotaAdrenoUserClient::waitFence(uint32_t fence, uint64_t ns)
  			}
  			return false;
  		}
 -		IOLockUnlock(gAdrenoLock);
-+		sweet_gpu_unlock();
++		bergamota_gpu_unlock();
  		if (waited < early) {           /* short jobs: spin; longer ones: sleep a millisecond at a time */
  			delay_for_interval(100, NSEC_PER_USEC);
  		} else {
  			IOSleep(1);
  		}
 -		IOLockLock(gAdrenoLock);
-+		sweet_gpu_lock();
++		bergamota_gpu_lock();
  	}
  }
  
-@@ -397,7 +462,7 @@ SweetAdrenoUserClient::gemNew(struct sweet_msm_gem_new *r)
+@@ -397,7 +462,7 @@ BergamotaAdrenoUserClient::gemNew(struct bergamota_msm_gem_new *r)
  	bzero(kva, (size_t)size);
- 	sweet_gpu_cache_sync(kva, (size_t)size);
+ 	bergamota_gpu_cache_sync(kva, (size_t)size);
  
 -	IOLockLock(gAdrenoLock);
-+	sweet_gpu_lock();
++	bergamota_gpu_lock();
  	IOReturn ret = kIOReturnNoResources;
- 	if (!sweet_gpu_ready()) {
+ 	if (!bergamota_gpu_ready()) {
  		ret = kIOReturnNotReady;
-@@ -421,7 +486,7 @@ SweetAdrenoUserClient::gemNew(struct sweet_msm_gem_new *r)
+@@ -421,7 +486,7 @@ BergamotaAdrenoUserClient::gemNew(struct bergamota_msm_gem_new *r)
  			}
  		}
  	}
 -	IOLockUnlock(gAdrenoLock);
-+	sweet_gpu_unlock();
++	bergamota_gpu_unlock();
  	if (ret != kIOReturnSuccess) {
  		buf->release();
  	}
-@@ -431,7 +496,7 @@ SweetAdrenoUserClient::gemNew(struct sweet_msm_gem_new *r)
+@@ -431,7 +496,7 @@ BergamotaAdrenoUserClient::gemNew(struct bergamota_msm_gem_new *r)
  IOReturn
- SweetAdrenoUserClient::gemInfo(struct sweet_msm_gem_info *r)
+ BergamotaAdrenoUserClient::gemInfo(struct bergamota_msm_gem_info *r)
  {
 -	IOLockLock(gAdrenoLock);
-+	sweet_gpu_lock();
- 	struct sweet_gem *g = gem(r->handle);
++	bergamota_gpu_lock();
+ 	struct bergamota_gem *g = gem(r->handle);
  	IOReturn ret = kIOReturnBadArgument;
  
-@@ -482,14 +547,14 @@ SweetAdrenoUserClient::gemInfo(struct sweet_msm_gem_info *r)
+@@ -482,14 +547,14 @@ BergamotaAdrenoUserClient::gemInfo(struct bergamota_msm_gem_info *r)
  			break;
  		}
  	}
 -	IOLockUnlock(gAdrenoLock);
-+	sweet_gpu_unlock();
++	bergamota_gpu_unlock();
  	return ret;
  }
  
  IOReturn
- SweetAdrenoUserClient::cpuPrep(struct sweet_msm_gem_cpu_prep *r)
+ BergamotaAdrenoUserClient::cpuPrep(struct bergamota_msm_gem_cpu_prep *r)
  {
 -	IOLockLock(gAdrenoLock);
-+	sweet_gpu_lock();
- 	struct sweet_gem *g = gem(r->handle);
++	bergamota_gpu_lock();
+ 	struct bergamota_gem *g = gem(r->handle);
  	IOReturn ret = kIOReturnBadArgument;
  
-@@ -508,7 +573,7 @@ SweetAdrenoUserClient::cpuPrep(struct sweet_msm_gem_cpu_prep *r)
+@@ -508,7 +573,7 @@ BergamotaAdrenoUserClient::cpuPrep(struct bergamota_msm_gem_cpu_prep *r)
  			ret = kIOReturnBusy;
  		}
  	}
 -	IOLockUnlock(gAdrenoLock);
-+	sweet_gpu_unlock();
++	bergamota_gpu_unlock();
  	return ret;
  }
  
-@@ -574,7 +639,7 @@ SweetAdrenoUserClient::submit(struct sweet_msm_gem_submit *r)
+@@ -574,7 +639,7 @@ BergamotaAdrenoUserClient::submit(struct bergamota_msm_gem_submit *r)
  		}
  	}
  
 -	IOLockLock(gAdrenoLock);
-+	sweet_gpu_lock();
- 	if (!sweet_gpu_ready()) {
++	bergamota_gpu_lock();
+ 	if (!bergamota_gpu_ready()) {
  		ret = kIOReturnNotReady;
  		goto unlock;
-@@ -644,7 +709,7 @@ SweetAdrenoUserClient::submit(struct sweet_msm_gem_submit *r)
+@@ -644,7 +709,7 @@ BergamotaAdrenoUserClient::submit(struct bergamota_msm_gem_submit *r)
  		ret = kIOReturnSuccess;
  	}
  unlock:
 -	IOLockUnlock(gAdrenoLock);
-+	sweet_gpu_unlock();
++	bergamota_gpu_unlock();
  out:
  	if (bos != NULL) {
  		IOFreeData(bos, bosSize);
 @@ -664,7 +729,7 @@ out:
  IOReturn
- SweetAdrenoUserClient::waitFenceCall(struct sweet_msm_wait_fence *r)
+ BergamotaAdrenoUserClient::waitFenceCall(struct bergamota_msm_wait_fence *r)
  {
 -	IOLockLock(gAdrenoLock);
-+	sweet_gpu_lock();
++	bergamota_gpu_lock();
  	IOReturn ret;
  
  	if (r->queueid >= QUEUE_IDS || (r->queueid != 0 && !(fQueues & (1ull << r->queueid)))) {
-@@ -674,9 +739,11 @@ SweetAdrenoUserClient::waitFenceCall(struct sweet_msm_wait_fence *r)
+@@ -674,9 +739,11 @@ BergamotaAdrenoUserClient::waitFenceCall(struct bergamota_msm_wait_fence *r)
  	} else {
  		uint64_t ns = (r->timeout.tv_sec < 0 || r->timeout.tv_nsec < 0) ? 0 :
  		    (uint64_t)r->timeout.tv_sec * NSEC_PER_SEC + (uint64_t)r->timeout.tv_nsec;
--		ret = waitFence(r->fence, ns) ? kIOReturnSuccess : (sweet_gpu_ready() ? kIOReturnTimeout : kIOReturnIOError);
-+		uint32_t epoch = sweet_gpu_epoch();
-+		ret = waitFence(r->fence, ns) && epoch == sweet_gpu_epoch() ? kIOReturnSuccess :
-+		    ((sweet_gpu_ready() && epoch == sweet_gpu_epoch()) ? kIOReturnTimeout : kIOReturnIOError);
+-		ret = waitFence(r->fence, ns) ? kIOReturnSuccess : (bergamota_gpu_ready() ? kIOReturnTimeout : kIOReturnIOError);
++		uint32_t epoch = bergamota_gpu_epoch();
++		ret = waitFence(r->fence, ns) && epoch == bergamota_gpu_epoch() ? kIOReturnSuccess :
++		    ((bergamota_gpu_ready() && epoch == bergamota_gpu_epoch()) ? kIOReturnTimeout : kIOReturnIOError);
  	}
 -	IOLockUnlock(gAdrenoLock);
-+	sweet_gpu_unlock();
++	bergamota_gpu_unlock();
  	return ret;
  }
  
-@@ -711,7 +778,7 @@ SweetAdrenoUserClient::surfaceBo(struct sweet_gpu_surface_bo *r)
+@@ -711,7 +778,7 @@ BergamotaAdrenoUserClient::surfaceBo(struct bergamota_gpu_surface_bo *r)
  		s->release();
  		return kIOReturnBadArgument;
  	}
 -	IOLockLock(gAdrenoLock);
-+	sweet_gpu_lock();
++	bergamota_gpu_lock();
  	ret = kIOReturnNoResources;
- 	if (!sweet_gpu_ready()) {
+ 	if (!bergamota_gpu_ready()) {
  		ret = kIOReturnNotReady;
-@@ -739,7 +806,7 @@ SweetAdrenoUserClient::surfaceBo(struct sweet_gpu_surface_bo *r)
+@@ -739,7 +806,7 @@ BergamotaAdrenoUserClient::surfaceBo(struct bergamota_gpu_surface_bo *r)
  			}
  		}
  	}
 -	IOLockUnlock(gAdrenoLock);
-+	sweet_gpu_unlock();
++	bergamota_gpu_unlock();
  	if (s != NULL) {
  		s->release();
  	}
-@@ -749,7 +816,7 @@ SweetAdrenoUserClient::surfaceBo(struct sweet_gpu_surface_bo *r)
+@@ -749,7 +816,7 @@ BergamotaAdrenoUserClient::surfaceBo(struct bergamota_gpu_surface_bo *r)
  IOReturn
- SweetAdrenoUserClient::boSync(struct sweet_gpu_bo_sync *r)
+ BergamotaAdrenoUserClient::boSync(struct bergamota_gpu_bo_sync *r)
  {
 -	IOLockLock(gAdrenoLock);
-+	sweet_gpu_lock();
- 	struct sweet_gem *g = gem(r->handle);
++	bergamota_gpu_lock();
+ 	struct bergamota_gem *g = gem(r->handle);
  	IOReturn ret = kIOReturnBadArgument;
  
-@@ -764,7 +831,7 @@ SweetAdrenoUserClient::boSync(struct sweet_gpu_bo_sync *r)
+@@ -764,7 +831,7 @@ BergamotaAdrenoUserClient::boSync(struct bergamota_gpu_bo_sync *r)
  			ret = kIOReturnSuccess;
  		}
  	}
 -	IOLockUnlock(gAdrenoLock);
-+	sweet_gpu_unlock();
++	bergamota_gpu_unlock();
  	return ret;
  }
  
-@@ -773,7 +840,7 @@ SweetAdrenoUserClient::clientMemoryForType(UInt32 type, IOOptionBits *options, I
+@@ -773,7 +840,7 @@ BergamotaAdrenoUserClient::clientMemoryForType(UInt32 type, IOOptionBits *options, I
  {
  	IOReturn ret = kIOReturnBadArgument;
  
 -	IOLockLock(gAdrenoLock);
-+	sweet_gpu_lock();
- 	struct sweet_gem *g = gem(type);
++	bergamota_gpu_lock();
+ 	struct bergamota_gem *g = gem(type);
  	if (g != NULL) {
  		g->md->retain();
-@@ -781,7 +848,7 @@ SweetAdrenoUserClient::clientMemoryForType(UInt32 type, IOOptionBits *options, I
+@@ -781,7 +848,7 @@ BergamotaAdrenoUserClient::clientMemoryForType(UInt32 type, IOOptionBits *options, I
  		*options = 0;
  		ret = kIOReturnSuccess;
  	}
 -	IOLockUnlock(gAdrenoLock);
-+	sweet_gpu_unlock();
++	bergamota_gpu_unlock();
  	return ret;
  }
  
-@@ -840,9 +907,9 @@ SweetAdrenoUserClient::externalMethod(uint32_t selector, IOExternalMethodArgumen
+@@ -840,9 +907,9 @@ BergamotaAdrenoUserClient::externalMethod(uint32_t selector, IOExternalMethodArgumen
  	switch (selector) {
- 	case SWEET_GPU_SEL_GET_PARAM:
- 		NEED(struct sweet_msm_param);
+ 	case BERGAMOTA_GPU_SEL_GET_PARAM:
+ 		NEED(struct bergamota_msm_param);
 -		IOLockLock(gAdrenoLock);
-+		sweet_gpu_lock();
- 		ret = sweet_gpu_param(r.param.param, &r.param.value) ? kIOReturnSuccess : kIOReturnUnsupported;
++		bergamota_gpu_lock();
+ 		ret = bergamota_gpu_param(r.param.param, &r.param.value) ? kIOReturnSuccess : kIOReturnUnsupported;
 -		IOLockUnlock(gAdrenoLock);
-+		sweet_gpu_unlock();
++		bergamota_gpu_unlock();
  		outLen = sizeof(r.param);
  		break;
- 	case SWEET_GPU_SEL_GEM_NEW:
-@@ -861,9 +928,9 @@ SweetAdrenoUserClient::externalMethod(uint32_t selector, IOExternalMethodArgumen
+ 	case BERGAMOTA_GPU_SEL_GEM_NEW:
+@@ -861,9 +928,9 @@ BergamotaAdrenoUserClient::externalMethod(uint32_t selector, IOExternalMethodArgumen
  		break;
- 	case SWEET_GPU_SEL_GEM_CPU_FINI:
- 		NEED(struct sweet_msm_gem_cpu_fini);
+ 	case BERGAMOTA_GPU_SEL_GEM_CPU_FINI:
+ 		NEED(struct bergamota_msm_gem_cpu_fini);
 -		IOLockLock(gAdrenoLock);
-+		sweet_gpu_lock();
++		bergamota_gpu_lock();
  		ret = gem(r.cpuFini.handle) != NULL ? kIOReturnSuccess : kIOReturnBadArgument;
 -		IOLockUnlock(gAdrenoLock);
-+		sweet_gpu_unlock();
++		bergamota_gpu_unlock();
  		__asm__ volatile ("dsb sy" ::: "memory");       /* CPU stores through the WC mapping reach memory */
  		break;
- 	case SWEET_GPU_SEL_GEM_SUBMIT:
-@@ -877,15 +944,15 @@ SweetAdrenoUserClient::externalMethod(uint32_t selector, IOExternalMethodArgumen
+ 	case BERGAMOTA_GPU_SEL_GEM_SUBMIT:
+@@ -877,15 +944,15 @@ BergamotaAdrenoUserClient::externalMethod(uint32_t selector, IOExternalMethodArgumen
  		break;
- 	case SWEET_GPU_SEL_GEM_MADVISE:
- 		NEED(struct sweet_msm_gem_madvise);
+ 	case BERGAMOTA_GPU_SEL_GEM_MADVISE:
+ 		NEED(struct bergamota_msm_gem_madvise);
 -		IOLockLock(gAdrenoLock);
-+		sweet_gpu_lock();
++		bergamota_gpu_lock();
  		ret = gem(r.madvise.handle) != NULL ? kIOReturnSuccess : kIOReturnBadArgument;
 -		IOLockUnlock(gAdrenoLock);
-+		sweet_gpu_unlock();
++		bergamota_gpu_unlock();
  		r.madvise.retained = 1;
  		outLen = sizeof(r.madvise);
  		break;
- 	case SWEET_GPU_SEL_GEM_CLOSE:
- 		NEED(struct sweet_gem_close);
+ 	case BERGAMOTA_GPU_SEL_GEM_CLOSE:
+ 		NEED(struct bergamota_gem_close);
 -		IOLockLock(gAdrenoLock);
-+		sweet_gpu_lock();
++		bergamota_gpu_lock();
  		{
- 			struct sweet_gem *g = gem(r.close.handle);
+ 			struct bergamota_gem *g = gem(r.close.handle);
  			if (g == NULL) {
-@@ -894,11 +961,11 @@ SweetAdrenoUserClient::externalMethod(uint32_t selector, IOExternalMethodArgumen
+@@ -894,11 +961,11 @@ BergamotaAdrenoUserClient::externalMethod(uint32_t selector, IOExternalMethodArgumen
  				releaseGem(g);
  			}
  		}
 -		IOLockUnlock(gAdrenoLock);
-+		sweet_gpu_unlock();
++		bergamota_gpu_unlock();
  		break;
- 	case SWEET_GPU_SEL_SUBMITQUEUE_NEW:
- 		NEED(struct sweet_msm_submitqueue);
+ 	case BERGAMOTA_GPU_SEL_SUBMITQUEUE_NEW:
+ 		NEED(struct bergamota_msm_submitqueue);
 -		IOLockLock(gAdrenoLock);
-+		sweet_gpu_lock();
++		bergamota_gpu_lock();
  		ret = kIOReturnNoResources;
  		if (r.queue.prio != 0 || r.queue.flags != 0) {
  			ret = kIOReturnBadArgument;
-@@ -912,22 +979,22 @@ SweetAdrenoUserClient::externalMethod(uint32_t selector, IOExternalMethodArgumen
+@@ -912,22 +979,22 @@ BergamotaAdrenoUserClient::externalMethod(uint32_t selector, IOExternalMethodArgumen
  				}
  			}
  		}
 -		IOLockUnlock(gAdrenoLock);
-+		sweet_gpu_unlock();
++		bergamota_gpu_unlock();
  		outLen = sizeof(r.queue);
  		break;
- 	case SWEET_GPU_SEL_SUBMITQUEUE_CLOSE:
+ 	case BERGAMOTA_GPU_SEL_SUBMITQUEUE_CLOSE:
  		NEED(uint32_t);
 -		IOLockLock(gAdrenoLock);
-+		sweet_gpu_lock();
++		bergamota_gpu_lock();
  		if (r.queueId == 0 || r.queueId >= QUEUE_IDS || !(fQueues & (1ull << r.queueId))) {
  			ret = kIOReturnBadArgument;
  		} else {
  			fQueues &= ~(1ull << r.queueId);
  		}
 -		IOLockUnlock(gAdrenoLock);
-+		sweet_gpu_unlock();
++		bergamota_gpu_unlock();
  		break;
- 	case SWEET_GPU_SEL_INFO: {
+ 	case BERGAMOTA_GPU_SEL_INFO: {
  		uint64_t v = 0;
 -		IOLockLock(gAdrenoLock);
-+		sweet_gpu_lock();
- 		r.info.abi_version = SWEET_GPU_ABI_VERSION;
- 		r.info.flags = sweet_gpu_ready() ? 1u : 2u;
++		bergamota_gpu_lock();
+ 		r.info.abi_version = BERGAMOTA_GPU_ABI_VERSION;
+ 		r.info.flags = bergamota_gpu_ready() ? 1u : 2u;
  		r.info.gpu_id = 630;
-@@ -935,7 +1002,7 @@ SweetAdrenoUserClient::externalMethod(uint32_t selector, IOExternalMethodArgumen
- 		r.info.va_start = sweet_gpu_param(SWEET_MSM_PARAM_VA_START, &v) ? v : 0;
- 		r.info.va_size = sweet_gpu_param(SWEET_MSM_PARAM_VA_SIZE, &v) ? v : 0;
- 		r.info.last_fence = sweet_gpu_ready() ? sweet_gpu_fence_last() : 0;
+@@ -935,7 +1002,7 @@ BergamotaAdrenoUserClient::externalMethod(uint32_t selector, IOExternalMethodArgumen
+ 		r.info.va_start = bergamota_gpu_param(BERGAMOTA_MSM_PARAM_VA_START, &v) ? v : 0;
+ 		r.info.va_size = bergamota_gpu_param(BERGAMOTA_MSM_PARAM_VA_SIZE, &v) ? v : 0;
+ 		r.info.last_fence = bergamota_gpu_ready() ? bergamota_gpu_fence_last() : 0;
 -		IOLockUnlock(gAdrenoLock);
-+		sweet_gpu_unlock();
++		bergamota_gpu_unlock();
  		outLen = sizeof(r.info);
  		break;
  	}
-@@ -945,9 +1012,9 @@ SweetAdrenoUserClient::externalMethod(uint32_t selector, IOExternalMethodArgumen
+@@ -945,9 +1012,9 @@ BergamotaAdrenoUserClient::externalMethod(uint32_t selector, IOExternalMethodArgumen
  		outLen = sizeof(r.surface);
  		break;
- 	case SWEET_GPU_SEL_DEBUG:
+ 	case BERGAMOTA_GPU_SEL_DEBUG:
 -		IOLockLock(gAdrenoLock);
-+		sweet_gpu_lock();
- 		sweet_gpu_debug(r.debug.w);
++		bergamota_gpu_lock();
+ 		bergamota_gpu_debug(r.debug.w);
 -		IOLockUnlock(gAdrenoLock);
-+		sweet_gpu_unlock();
++		bergamota_gpu_unlock();
  		outLen = sizeof(r.debug);
  		break;
- 	case SWEET_GPU_SEL_BO_SYNC:
+ 	case BERGAMOTA_GPU_SEL_BO_SYNC:

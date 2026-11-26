@@ -14,7 +14,7 @@ index ac42481baad1cf75277b191f73f36b4b806cb912..f0d21f0c27b70fbc6a242df9fa75a008
  	unsigned tx_pkts, tx_fail, tx_garbage, tios_get, tios_set, baud_req_ignored;
  	unsigned connects;
  	unsigned last_rx_pkts, last_tx_pkts;
-+	unsigned compat, compat_fixed, compat_local, err_budget;       /* sweetbtcompat; rewritten / kernel-answered commands */
++	unsigned compat, compat_fixed, compat_local, err_budget;       /* bergamotabtcompat; rewritten / kernel-answered commands */
  } bt;
  
  static uint8_t bt_ring[BT_RING_SIZE];
@@ -27,7 +27,7 @@ index ac42481baad1cf75277b191f73f36b4b806cb912..f0d21f0c27b70fbc6a242df9fa75a008
 + * failed"; with 0238+0239 v2 a SIGABRT in Stack_Init). The WCN3990 answers Command Complete with
 + * status 0x01 (Unknown HCI Command) to commands Apple's Broadcom controllers know: the Broadcom
 + * vendor commands of bluetoothd's bcm_vsc.c (0xfce2, 0xfce9, 0xfd47, 0xfd48 on boot
-+ * combo2-0240b-bt0239v2). sweetbtcompat=1 turns such an answer into success for standard
++ * combo2-0240b-bt0239v2). bergamotabtcompat=1 turns such an answer into success for standard
 + * commands (OGF != 0x3f), =2 (default) also for vendor commands: the reply then has no return
 + * parameters, which bcm_vsc.c's sub-opcode checker accepts (it returns true on an empty reply);
 + * a read that needs its parameters still fails in bluetoothd and shows up in the log. Every rewrite and every other non-zero status is logged (own budget), so the
@@ -146,7 +146,7 @@ index ac42481baad1cf75277b191f73f36b4b806cb912..f0d21f0c27b70fbc6a242df9fa75a008
 +		ev[i] = 0;
 +	}
 +	bt_watchdog_fired++;
-+	printf("SWEET BT: compat: opcode %#06x (OGF %#x OCF %#05x, first parameter %#04x) not answered by the controller "
++	printf("BERGAMOTA BT: compat: opcode %#06x (OGF %#x OCF %#05x, first parameter %#04x) not answered by the controller "
 +	    "within %u ms, answered as success by the kernel (%u so far)\n", bt_pend.op, bt_pend.op >> 10,
 +	    bt_pend.op & 0x3ff, bt_pend.p0, BT_CMD_WATCHDOG_MS, bt_watchdog_fired);
 +	bt_hci_rx_packet(ev, sizeof(ev));
@@ -190,7 +190,7 @@ index ac42481baad1cf75277b191f73f36b4b806cb912..f0d21f0c27b70fbc6a242df9fa75a008
 +	ev[5] = cmd[2];
 +	ev[6] = 0;                      /* success */
 +	bt.compat_local++;
-+	printf("SWEET BT: compat: opcode %#06x answered by the kernel (not sent to the controller, %u so far)\n",
++	printf("BERGAMOTA BT: compat: opcode %#06x answered by the kernel (not sent to the controller, %u so far)\n",
 +	    op, bt.compat_local);
 +	bt_hci_rx_packet(ev, sizeof(ev));
 +	return true;
@@ -221,7 +221,7 @@ index ac42481baad1cf75277b191f73f36b4b806cb912..f0d21f0c27b70fbc6a242df9fa75a008
 +				uint8_t was = *b;
 +
 +				*b |= (uint8_t)(1u << bt_local_cmds[i].bit);
-+				printf("SWEET BT: compat: supported commands octet %u %#04x -> %#04x (opcode %#06x)\n",
++				printf("BERGAMOTA BT: compat: supported commands octet %u %#04x -> %#04x (opcode %#06x)\n",
 +				    bt_local_cmds[i].octet, was, *b, bt_local_cmds[i].op);
 +			}
 +		}
@@ -241,7 +241,7 @@ index ac42481baad1cf75277b191f73f36b4b806cb912..f0d21f0c27b70fbc6a242df9fa75a008
 +		 */
 +		p[6] = 0;
 +		bt.compat_fixed++;
-+		printf("SWEET BT: compat: LE opcode %#06x Command Disallowed by the controller, answered as success (%u so far)\n",
++		printf("BERGAMOTA BT: compat: LE opcode %#06x Command Disallowed by the controller, answered as success (%u so far)\n",
 +		    op, bt.compat_fixed);
 +		return len;
 +	}
@@ -272,14 +272,14 @@ index ac42481baad1cf75277b191f73f36b4b806cb912..f0d21f0c27b70fbc6a242df9fa75a008
 +			p[7 + i] = 0;
 +		}
 +		bt.compat_fixed++;
-+		printf("SWEET BT: compat: opcode %#06x (OGF %#x OCF %#05x) status %#04x from the controller, answered as success "
++		printf("BERGAMOTA BT: compat: opcode %#06x (OGF %#x OCF %#05x) status %#04x from the controller, answered as success "
 +		    "with %u parameter bytes (first %#04x) (%u so far)\n", op, op >> 10, op & 0x3ff, st, BT_COMPAT_PAD, p0,
 +		    bt.compat_fixed);
 +		return 7 + BT_COMPAT_PAD;
 +	}
 +	if (bt.err_budget) {
 +		bt.err_budget--;
-+		printf("SWEET BT: %s for opcode %#06x (OGF %#x OCF %#05x): status %#04x\n",
++		printf("BERGAMOTA BT: %s for opcode %#06x (OGF %#x OCF %#05x): status %#04x\n",
 +		    p[1] == 0x0e ? "Command Complete" : "Command Status", op, op >> 10, op & 0x3ff, st);
 +	}
 +	return len;
@@ -334,8 +334,8 @@ index ac42481baad1cf75277b191f73f36b4b806cb912..f0d21f0c27b70fbc6a242df9fa75a008
  	bt.log_budget = log_budget;
 +	bt.compat = 2;
 +	bt.err_budget = 64;
-+	(void)PE_parse_boot_argn("sweetbtcompat", &bt.compat, sizeof(bt.compat));
-+	printf("SWEET BT: compat %u (unknown commands answered as success: %s)\n", bt.compat,
++	(void)PE_parse_boot_argn("bergamotabtcompat", &bt.compat, sizeof(bt.compat));
++	printf("BERGAMOTA BT: compat %u (unknown commands answered as success: %s)\n", bt.compat,
 +	    bt.compat >= 2 ? "standard and Broadcom vendor" : bt.compat ? "standard only" : "off");
  	/* raw mode as bluetoothd would set it (cfmakeraw, 8N1, hw flow control); the speed is filled in on get */
  	bt.tio.c_cflag = 0x38B00ul;

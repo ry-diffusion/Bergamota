@@ -2,24 +2,24 @@ diff --git a/bsd/conf/files b/bsd/conf/files
 index 805491ee85dfbaa1e74373760ecfc687ad366ba1..daa0bed330e3bae7aa01d7c1619c3af4d3bdb60a 100644
 --- a/bsd/conf/files
 +++ b/bsd/conf/files
-@@ -112,6 +112,8 @@ bsd/dev/sweet_spmi.c			standard
- bsd/dev/sweet_usb.c			standard
- bsd/dev/sweet_cpufreq.c			standard
- bsd/dev/sweet_smmu.c			standard
-+bsd/dev/sweet_a630.c			standard
-+bsd/dev/sweet_a630_pas.c			standard
+@@ -112,6 +112,8 @@ bsd/dev/bergamota_spmi.c			standard
+ bsd/dev/bergamota_usb.c			standard
+ bsd/dev/bergamota_cpufreq.c			standard
+ bsd/dev/bergamota_smmu.c			standard
++bsd/dev/bergamota_a630.c			standard
++bsd/dev/bergamota_a630_pas.c			standard
  bsd/dev/mem.c				standard
  bsd/dev/munge.c 			optional config_requires_u32_munging
  bsd/dev/unix_startup.c			standard
-diff --git a/bsd/dev/sweet_a630.c b/bsd/dev/sweet_a630.c
+diff --git a/bsd/dev/bergamota_a630.c b/bsd/dev/bergamota_a630.c
 new file mode 100644
 index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb76469f11
 --- /dev/null
-+++ b/bsd/dev/sweet_a630.c
++++ b/bsd/dev/bergamota_a630.c
 @@ -0,0 +1,2350 @@
 +/*
-+ * SWEET GPU phase 1, Poco F1 (beryllium, SDM845): Adreno 630 power-up.
-+ * OFF by default. Boot-arg sweetgpu=N; every stage logs "SWEET GPU:" and
++ * BERGAMOTA GPU phase 1, Poco F1 (beryllium, SDM845): Adreno 630 power-up.
++ * OFF by default. Boot-arg bergamotagpu=N; every stage logs "BERGAMOTA GPU:" and
 + * stops at the first failure without touching anything it cannot undo:
 + *
 + *   0  nothing (default)
@@ -40,11 +40,11 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 + *      (stream ID 0), SQE_CNTL=1, CP_ME_INIT, zap, CP_SET_SECURE_MODE 0, then
 + *      a NOP/MEM_WRITE/CACHE_FLUSH_TS submission with timestamp readback
 + *
-+ * Stages >= 3 need firmware: files under /usr/standalone/firmware/sweet/
++ * Stages >= 3 need firmware: files under /usr/standalone/firmware/bergamota/
 + * of the iOS root (a630_gmu.bin, a630_sqe.fw, a630_zap.mdt + a630_zap.bNN)
-+ * or, without a root image yet, ADT properties of /sweet-gpu (gmu-firmware,
++ * or, without a root image yet, ADT properties of /bergamota-gpu (gmu-firmware,
 + * sqe-firmware, zap-mdt, zap-b00..zap-b09). The stages run on a kernel
-+ * thread that waits (boot-arg sweetgpuwait=seconds, default 600) for them.
++ * thread that waits (boot-arg bergamotagpuwait=seconds, default 600) for them.
 + * See docs/GPU_A630_BRINGUP.md.
 + *
 + * Provenance: the structure and the hardware-proven register sequences are
@@ -56,7 +56,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 + * (dtb/beryllium/live.dts). Register numbers are dword indexes from
 + * a6xx.xml.h / a6xx_gmu.xml.h (Linux v6.6).
 + */
-+#if defined(ARM64_BOARD_CONFIG_SWEET)
++#if defined(ARM64_BOARD_CONFIG_BERGAMOTA)
 +#include <sys/param.h>
 +#include <sys/systm.h>
 +#include <sys/errno.h>
@@ -74,21 +74,21 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +#include <vm/vm_kern.h>
 +#include <pexpert/pexpert.h>
 +#include <pexpert/device_tree.h>
-+#include "sweet_board.h"
++#include "bergamota_board.h"
 +
 +extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
 +/* osfmk/vm/pmap.h, MACH_KERNEL_PRIVATE */
 +extern void pmap_set_cache_attributes(ppnum_t, unsigned int);
 +extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
 +extern kern_return_t thread_terminate(thread_t);
-+extern void sweet_log_sync(void);               /* sweet_ufs.c */
++extern void bergamota_log_sync(void);               /* bergamota_ufs.c */
 +extern vnode_t rootvnode;
-+extern bool sweet_a630_zap_load(void);          /* sweet_a630_pas.c */
-+extern bool sweet_a630_zap_shutdown(void);
-+extern bool sweet_a630_zap_running(void);
-+void sweet_a630_probe(void);
-+bool sweet_a630_fw_get(const char *adt_prop, const char *file, void **buf, size_t *len);
-+void sweet_a630_fw_put(void *buf, size_t len);
++extern bool bergamota_a630_zap_load(void);          /* bergamota_a630_pas.c */
++extern bool bergamota_a630_zap_shutdown(void);
++extern bool bergamota_a630_zap_running(void);
++void bergamota_a630_probe(void);
++bool bergamota_a630_fw_get(const char *adt_prop, const char *file, void **buf, size_t *len);
++void bergamota_a630_fw_put(void *buf, size_t len);
 +
 +/* ------------------------------------------------------------------ */
 +/* Register map                                                        */
@@ -340,7 +340,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 + * (VM_WIMG_WCOMB) so the SMMU walker, GMU, CP and CPU all see the same
 + * bytes (device memory types on managed RAM are refused by the pmap).
 + * __ARM_COHERENT_IO__ builds make flush_dcache* no-ops, so the lines dirtied
-+ * by the zeroing are cleaned and invalidated explicitly (sweet_dma_sync_va,
++ * by the zeroing are cleaned and invalidated explicitly (bergamota_dma_sync_va,
 + * dc civac) before and after the attribute change. pmap_set_cache_attributes
 + * on kernel RAM above 4 GiB needs the 64-bit fix of this patch
 + * (pmap_sync_page_attributes_phys).
@@ -352,7 +352,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +
 +	if (kmem_alloc_contig(kernel_map, &kva, size, PAGE_MASK, 0, 0,
 +	    KMA_DATA | KMA_ZERO | KMA_PERMANENT, VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS) {
-+		printf("SWEET GPU: no contiguous DMA memory (%lu bytes)\n", (unsigned long)size);
++		printf("BERGAMOTA GPU: no contiguous DMA memory (%lu bytes)\n", (unsigned long)size);
 +		return false;
 +	}
 +	ppnum_t pn = pmap_find_phys(kernel_pmap, (addr64_t)kva);
@@ -361,25 +361,25 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	}
 +	for (unsigned i = 1; i < size / PAGE_SIZE; i++) {
 +		if (pmap_find_phys(kernel_pmap, (addr64_t)(kva + i * PAGE_SIZE)) != pn + i) {
-+			printf("SWEET GPU: DMA block not physically contiguous\n");
++			printf("BERGAMOTA GPU: DMA block not physically contiguous\n");
 +			return false;
 +		}
 +	}
-+	sweet_dma_sync_va((const void *)kva, size);
++	bergamota_dma_sync_va((const void *)kva, size);
 +	for (unsigned i = 0; i < size / PAGE_SIZE; i++) {
 +		pmap_set_cache_attributes(pn + i, VM_WIMG_WCOMB);
 +	}
-+	sweet_dma_sync_va((const void *)kva, size);
++	bergamota_dma_sync_va((const void *)kva, size);
 +	*va = kva;
 +	*pa = ptoa_64(pn);
 +	return true;
 +}
 +
 +/* ------------------------------------------------------------------ */
-+/* Firmware: /usr/standalone/firmware/sweet/ in the root, or the ADT   */
++/* Firmware: /usr/standalone/firmware/bergamota/ in the root, or the ADT   */
 +/* ------------------------------------------------------------------ */
 +
-+#define FW_DIR          "/usr/standalone/firmware/sweet/"
++#define FW_DIR          "/usr/standalone/firmware/bergamota/"
 +#define FW_MAX          0x40000u
 +
 +static bool
@@ -389,7 +389,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	const void *data = NULL;
 +	unsigned int size = 0;
 +
-+	if (!prop || SecureDTLookupEntry(NULL, "/sweet-gpu", &node) != kSuccess ||
++	if (!prop || SecureDTLookupEntry(NULL, "/bergamota-gpu", &node) != kSuccess ||
 +	    SecureDTGetProperty(node, prop, &data, &size) != kSuccess || size == 0 || size > FW_MAX) {
 +		return false;
 +	}
@@ -442,15 +442,15 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	return true;
 +}
 +
-+/* ADT property first (no file system needed), then the file. Free with sweet_a630_fw_put. */
++/* ADT property first (no file system needed), then the file. Free with bergamota_a630_fw_put. */
 +bool
-+sweet_a630_fw_get(const char *adt_prop, const char *file, void **buf, size_t *len)
++bergamota_a630_fw_get(const char *adt_prop, const char *file, void **buf, size_t *len)
 +{
 +	return fw_from_adt(adt_prop, buf, len) || fw_from_file(file, buf, len);
 +}
 +
 +void
-+sweet_a630_fw_put(void *buf, size_t len)
++bergamota_a630_fw_put(void *buf, size_t len)
 +{
 +	if (buf) {
 +		kfree_data(buf, (vm_size_t)len);
@@ -496,11 +496,11 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +		cmddb = ml_io_map(CMDDB_PA, CMDDB_SIZE);
 +	}
 +	if (!cmddb) {
-+		printf("SWEET GPU: cmd-db map failed\n");
++		printf("BERGAMOTA GPU: cmd-db map failed\n");
 +		return false;
 +	}
 +	if (db_rd(4) != CMDDB_MAGIC || db_rd(0) != 1 || (db_rd(140) & 1u)) {
-+		printf("SWEET GPU: cmd-db at %#x: version %#x magic %#x flags %#x not usable\n",
++		printf("BERGAMOTA GPU: cmd-db at %#x: version %#x magic %#x flags %#x not usable\n",
 +		    CMDDB_PA, db_rd(0), db_rd(4), db_rd(140));
 +		return false;
 +	}
@@ -535,7 +535,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +		unsigned count = db16(h + 6);
 +		if (slave < 3 || slave > 5 || (entries & 3u) || !db_range(entries, count * CMDDB_ENTRY) ||
 +		    !db_range(aux, 0)) {
-+			printf("SWEET GPU: cmd-db: malformed slave header %u\n", i);
++			printf("BERGAMOTA GPU: cmd-db: malformed slave header %u\n", i);
 +			return -1;
 +		}
 +		for (unsigned j = 0; j < count; j++) {
@@ -582,24 +582,24 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	uint32_t cfg_ahb, cx_gdscr, cbcr[CC_N];
 +
 +	cfg_ahb = gpu_rd(gcc, GCC_GPU_CFG_AHB_CBCR);
-+	printf("SWEET GPU: GCC cfg_ahb 0x%08x memnoc_gfx 0x%08x snoc_dvm_gfx 0x%08x ddrss_gpu_axi 0x%08x gpll0 vote 0x%08x\n",
++	printf("BERGAMOTA GPU: GCC cfg_ahb 0x%08x memnoc_gfx 0x%08x snoc_dvm_gfx 0x%08x ddrss_gpu_axi 0x%08x gpll0 vote 0x%08x\n",
 +	    cfg_ahb, gpu_rd(gcc, GCC_GPU_MEMNOC_GFX_CBCR), gpu_rd(gcc, GCC_GPU_SNOC_DVM_CBCR),
 +	    gpu_rd(gcc, GCC_DDRSS_GPU_AXI_CBCR), gpu_rd(gcc, GCC_GPU_GPLL0_VOTE));
 +	*gx_gdscr = 0;
 +	if (cfg_ahb & CBCR_CLK_OFF) {
-+		printf("SWEET GPU: GPU CC config clock off; GPU CC not read\n");
++		printf("BERGAMOTA GPU: GPU CC config clock off; GPU CC not read\n");
 +		return false;
 +	}
 +	cx_gdscr = gpu_rd(cc, GPUCC_CX_GDSCR);
 +	*gx_gdscr = gpu_rd(cc, GPUCC_GX_GDSCR);
-+	printf("SWEET GPU: GDSC cx 0x%08x (%s, hw status 0x%08x) gx 0x%08x (%s)\n",
++	printf("BERGAMOTA GPU: GDSC cx 0x%08x (%s, hw status 0x%08x) gx 0x%08x (%s)\n",
 +	    cx_gdscr, (cx_gdscr & GDSC_PWR_ON) ? "on" : "off", gpu_rd(cc, GPUCC_CX_GDS_HW_CTRL),
 +	    *gx_gdscr, (*gx_gdscr & GDSC_PWR_ON) ? "on" : "off");
-+	printf("SWEET GPU: GMU RCG cmd 0x%08x cfg 0x%08x\n",
++	printf("BERGAMOTA GPU: GMU RCG cmd 0x%08x cfg 0x%08x\n",
 +	    gpu_rd(cc, GPUCC_GMU_CMD_RCGR), gpu_rd(cc, GPUCC_GMU_CFG_RCGR));
 +	for (unsigned i = 0; i < CC_N; i++) {
 +		cbcr[i] = gpu_rd(cc, gpucc_cbcr[i].off);
-+		printf("SWEET GPU: clk %-12s CBCR 0x%08x (%s)\n", gpucc_cbcr[i].name, cbcr[i],
++		printf("BERGAMOTA GPU: clk %-12s CBCR 0x%08x (%s)\n", gpucc_cbcr[i].name, cbcr[i],
 +		    (cbcr[i] & CBCR_CLK_OFF) ? "off" : "on");
 +	}
 +	/* GMU registers need the CX GDSC and the GMU, AHB and XO clocks. */
@@ -611,7 +611,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +gpu_map_gmu(void)
 +{
 +	if (gmu == 0 && (gmu = ml_io_map(GMU_PA, GMU_SIZE)) == 0) {
-+		printf("SWEET GPU: GMU map failed\n");
++		printf("BERGAMOTA GPU: GMU map failed\n");
 +		return false;
 +	}
 +	return true;
@@ -642,17 +642,17 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +		return;
 +	}
 +	for (unsigned i = 0; i < sizeof(regs) / sizeof(regs[0]); i++) {
-+		printf("SWEET GPU: GMU %-24s 0x%08x\n", regs[i].name, gpu_rd(gmu, regs[i].off));
++		printf("BERGAMOTA GPU: GMU %-24s 0x%08x\n", regs[i].name, gpu_rd(gmu, regs[i].off));
 +	}
 +	/* The GPU core is in the GX domain, which the GMU normally controls. */
 +	if (!gx_is_on(gx_gdscr)) {
-+		printf("SWEET GPU: GX domain off; GPU core not read\n");
++		printf("BERGAMOTA GPU: GX domain off; GPU core not read\n");
 +		return;
 +	}
 +	if (!gpu_regs && !(gpu_regs = ml_io_map(GPU_PA, GPU_SIZE))) {
 +		return;
 +	}
-+	printf("SWEET GPU: RBBM_STATUS 0x%08x CP_SQE_INSTR_BASE 0x%08x CP_ALWAYS_ON 0x%08x\n",
++	printf("BERGAMOTA GPU: RBBM_STATUS 0x%08x CP_SQE_INSTR_BASE 0x%08x CP_ALWAYS_ON 0x%08x\n",
 +	    gpu_r(A6XX_RBBM_STATUS), gpu_r(A6XX_CP_SQE_INSTR_BASE), gpu_r(A6XX_CP_ALWAYS_ON_COUNTER));
 +}
 +
@@ -661,7 +661,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +{
 +	gpu_wr(base, off, gpu_rd(base, off) | CBCR_CLK_ENABLE);
 +	bool ok = gpu_poll(base, off, CBCR_CLK_OFF, 0, 200);
-+	printf("SWEET GPU: enable %-12s CBCR 0x%08x%s\n", name, gpu_rd(base, off),
++	printf("BERGAMOTA GPU: enable %-12s CBCR 0x%08x%s\n", name, gpu_rd(base, off),
 +	    ok ? "" : " (still off after 200 us)");
 +	return ok;
 +}
@@ -678,7 +678,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	uint32_t v = gpu_rd(cc, GPUCC_CX_GDSCR);
 +
 +	if (v & GDSC_HW_CONTROL) {
-+		printf("SWEET GPU: CX GDSC under HW control (0x%08x); not touched\n", v);
++		printf("BERGAMOTA GPU: CX GDSC under HW control (0x%08x); not touched\n", v);
 +		return false;
 +	}
 +	if (!(v & GDSC_PWR_ON)) {
@@ -688,12 +688,12 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +		delay(1);       /* 8 XO cycles before the status bit is valid */
 +		if (!gpu_poll(cc, GPUCC_CX_GDS_HW_CTRL, GDSC_PWR_ON, GDSC_PWR_ON, GDSC_TIMEOUT_US) &&
 +		    !gpu_poll(cc, GPUCC_CX_GDS_HW_CTRL, GDSC_PWR_ON, GDSC_PWR_ON, GDSC_TIMEOUT_US)) {
-+			printf("SWEET GPU: CX GDSC enable timed out: gdscr 0x%08x hw status 0x%08x\n",
++			printf("BERGAMOTA GPU: CX GDSC enable timed out: gdscr 0x%08x hw status 0x%08x\n",
 +			    gpu_rd(cc, GPUCC_CX_GDSCR), gpu_rd(cc, GPUCC_CX_GDS_HW_CTRL));
 +			return false;
 +		}
 +	}
-+	printf("SWEET GPU: CX GDSC on: gdscr 0x%08x hw status 0x%08x\n",
++	printf("BERGAMOTA GPU: CX GDSC on: gdscr 0x%08x hw status 0x%08x\n",
 +	    gpu_rd(cc, GPUCC_CX_GDSCR), gpu_rd(cc, GPUCC_CX_GDS_HW_CTRL));
 +
 +	gpu_wr(gcc, GCC_GPU_GPLL0_VOTE, gpu_rd(gcc, GCC_GPU_GPLL0_VOTE) | GCC_GPU_GPLL0 | GCC_GPU_GPLL0_DIV);
@@ -702,11 +702,11 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	gpu_wr(cc, GPUCC_GMU_CFG_RCGR, GMU_RCG_CFG_200MHZ);
 +	gpu_wr(cc, GPUCC_GMU_CMD_RCGR, gpu_rd(cc, GPUCC_GMU_CMD_RCGR) | RCG_CMD_UPDATE);
 +	if (!gpu_poll(cc, GPUCC_GMU_CMD_RCGR, RCG_CMD_UPDATE, 0, 500)) {
-+		printf("SWEET GPU: GMU RCG update timed out: cmd 0x%08x cfg 0x%08x\n",
++		printf("BERGAMOTA GPU: GMU RCG update timed out: cmd 0x%08x cfg 0x%08x\n",
 +		    gpu_rd(cc, GPUCC_GMU_CMD_RCGR), gpu_rd(cc, GPUCC_GMU_CFG_RCGR));
 +		return false;
 +	}
-+	printf("SWEET GPU: GMU RCG 200 MHz: cmd 0x%08x cfg 0x%08x\n",
++	printf("BERGAMOTA GPU: GMU RCG 200 MHz: cmd 0x%08x cfg 0x%08x\n",
 +	    gpu_rd(cc, GPUCC_GMU_CMD_RCGR), gpu_rd(cc, GPUCC_GMU_CFG_RCGR));
 +
 +	/* gpu_cc_sdm845_probe: recommended wake/sleep settings of gpu_cc_cx_gmu_clk. */
@@ -810,11 +810,11 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +gpu_smmu_probe(void)
 +{
 +	if (gpu_rd(gcc, GCC_GPU_MEMNOC_GFX_CBCR) & CBCR_CLK_OFF) {
-+		printf("SWEET GPU: SMMU clock off; SMMU not read\n");
++		printf("BERGAMOTA GPU: SMMU clock off; SMMU not read\n");
 +		return;
 +	}
 +	if (!smmu_map()) {
-+		printf("SWEET GPU: SMMU map failed\n");
++		printf("BERGAMOTA GPU: SMMU map failed\n");
 +		return;
 +	}
 +	vm_offset_t smmu = smmu_base;
@@ -822,12 +822,12 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	unsigned nsmr = id0 & 0xff, ncb = id1 & 0xff;
 +	uint32_t page = (id1 & (1u << 31)) ? 0x10000 : 0x1000;
 +	uint32_t cb_base = page << (((id1 >> 28) & 7) + 1);
-+	printf("SWEET GPU: SMMU sCR0 0x%08x IDR0 0x%08x IDR1 0x%08x IDR2 0x%08x: %u SMRs, %u CBs, page 0x%x, CBs at +0x%x\n",
++	printf("BERGAMOTA GPU: SMMU sCR0 0x%08x IDR0 0x%08x IDR1 0x%08x IDR2 0x%08x: %u SMRs, %u CBs, page 0x%x, CBs at +0x%x\n",
 +	    gpu_rd(smmu, SMMU_sCR0), id0, id1, gpu_rd(smmu, SMMU_IDR2), nsmr, ncb, page, cb_base);
 +	for (unsigned i = 0; i < nsmr && SMMU_S2CR(i) < page; i++) {
 +		uint32_t smr = gpu_rd(smmu, SMMU_SMR(i)), s2cr = gpu_rd(smmu, SMMU_S2CR(i));
 +		if (smr || s2cr) {
-+			printf("SWEET GPU: SMMU SMR%-2u 0x%08x (%s id 0x%x mask 0x%x) S2CR 0x%08x (type %u cb %u)\n",
++			printf("BERGAMOTA GPU: SMMU SMR%-2u 0x%08x (%s id 0x%x mask 0x%x) S2CR 0x%08x (type %u cb %u)\n",
 +			    i, smr, (smr & SMR_VALID) ? "valid" : "invalid", smr & 0x7fff, (smr >> 16) & 0x7fff,
 +			    s2cr, (s2cr >> 16) & 3, s2cr & 0xff);
 +		}
@@ -835,10 +835,10 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	for (unsigned i = 0; i < ncb; i++) {
 +		uint32_t cb = cb_base + i * page;
 +		if (cb + page > SMMU_SIZE || page + SMMU_CBAR(i) >= cb_base) {
-+			printf("SWEET GPU: SMMU CB%u outside the 0x%x mapping\n", i, SMMU_SIZE);
++			printf("BERGAMOTA GPU: SMMU CB%u outside the 0x%x mapping\n", i, SMMU_SIZE);
 +			break;
 +		}
-+		printf("SWEET GPU: SMMU CB%-2u CBAR 0x%08x SCTLR 0x%08x TCR 0x%08x TTBR0 0x%08x%08x FSR 0x%08x\n",
++		printf("BERGAMOTA GPU: SMMU CB%-2u CBAR 0x%08x SCTLR 0x%08x TCR 0x%08x TTBR0 0x%08x%08x FSR 0x%08x\n",
 +		    i, gpu_rd(smmu, page + SMMU_CBAR(i)), gpu_rd(smmu, cb + SMMU_CB_SCTLR),
 +		    gpu_rd(smmu, cb + SMMU_CB_TCR), gpu_rd(smmu, cb + SMMU_CB_TTBR0 + 4),
 +		    gpu_rd(smmu, cb + SMMU_CB_TTBR0), gpu_rd(smmu, cb + SMMU_CB_FSR));
@@ -851,7 +851,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	if (!smmu_map()) {
 +		return;
 +	}
-+	printf("SWEET GPU: SMMU sGFSR 0x%08x sGFSYNR0 0x%08x sGFSYNR1 0x%08x sGFSYNR2 0x%08x sGFAR 0x%08x%08x\n",
++	printf("BERGAMOTA GPU: SMMU sGFSR 0x%08x sGFSYNR0 0x%08x sGFSYNR1 0x%08x sGFSYNR2 0x%08x sGFAR 0x%08x%08x\n",
 +	    gpu_rd(smmu_base, SMMU_sGFSR), gpu_rd(smmu_base, SMMU_sGFSYNR0), gpu_rd(smmu_base, SMMU_sGFSYNR1),
 +	    gpu_rd(smmu_base, SMMU_sGFSYNR2), gpu_rd(smmu_base, SMMU_sGFAR_HI), gpu_rd(smmu_base, SMMU_sGFAR_LO));
 +}
@@ -863,7 +863,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +		return;
 +	}
 +	vm_offset_t b = smmu_base + SMMU_CB(cb);
-+	printf("SWEET GPU: SMMU CB%u FSR 0x%08x FSYNR0 0x%08x FAR 0x%08x%08x\n", cb,
++	printf("BERGAMOTA GPU: SMMU CB%u FSR 0x%08x FSYNR0 0x%08x FAR 0x%08x%08x\n", cb,
 +	    gpu_rd(b, SMMU_CB_FSR), gpu_rd(b, SMMU_CB_FSYNR0), gpu_rd(b, SMMU_CB_FAR + 4), gpu_rd(b, SMMU_CB_FAR));
 +}
 +
@@ -872,7 +872,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +{
 +	gpu_wr(base, sync, 0);
 +	if (!gpu_poll(base, status, 1, 0, 10000)) {
-+		printf("SWEET GPU: SMMU TLB sync timed out (0x%x)\n", sync);
++		printf("BERGAMOTA GPU: SMMU TLB sync timed out (0x%x)\n", sync);
 +		return false;
 +	}
 +	return true;
@@ -890,7 +890,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	gpu_wr(smmu, SMMU_SMR(idx), smr);
 +	uint32_t gfsr = gpu_rd(smmu, SMMU_sGFSR);
 +	uint32_t rs2 = gpu_rd(smmu, SMMU_S2CR(idx)), rsmr = gpu_rd(smmu, SMMU_SMR(idx));
-+	printf("SWEET GPU: SMR%u (%s) wrote S2CR 0x%08x SMR 0x%08x, reads S2CR 0x%08x SMR 0x%08x; sGFSR 0x%08x -> 0x%08x sGFSYNR0 0x%08x\n",
++	printf("BERGAMOTA GPU: SMR%u (%s) wrote S2CR 0x%08x SMR 0x%08x, reads S2CR 0x%08x SMR 0x%08x; sGFSR 0x%08x -> 0x%08x sGFSYNR0 0x%08x\n",
 +	    idx, what, s2cr, smr, rs2, rsmr, gfsr0, gfsr, gpu_rd(smmu, SMMU_sGFSYNR0));
 +	return rs2 == s2cr && rsmr == smr && gfsr == 0;
 +}
@@ -910,7 +910,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	}
 +	gpu_wr(smmu, SMMU_MICRO_MMU_CTRL, gpu_rd(smmu, SMMU_MICRO_MMU_CTRL) | MICRO_MMU_HALT_REQ);
 +	if (!gpu_poll(smmu, SMMU_MICRO_MMU_CTRL, MICRO_MMU_IDLE, MICRO_MMU_IDLE, 30000)) {
-+		printf("SWEET GPU: SMMU did not halt (0x%08x)\n", gpu_rd(smmu, SMMU_MICRO_MMU_CTRL));
++		printf("BERGAMOTA GPU: SMMU did not halt (0x%08x)\n", gpu_rd(smmu, SMMU_MICRO_MMU_CTRL));
 +		gpu_wr(smmu, SMMU_MICRO_MMU_CTRL, gpu_rd(smmu, SMMU_MICRO_MMU_CTRL) & ~MICRO_MMU_HALT_REQ);
 +		return false;
 +	}
@@ -918,7 +918,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +		gpu_wr(smmu, smmu_impl_defs[i][0], smmu_impl_defs[i][1]);
 +	}
 +	gpu_wr(smmu, SMMU_MICRO_MMU_CTRL, gpu_rd(smmu, SMMU_MICRO_MMU_CTRL) & ~MICRO_MMU_HALT_REQ);
-+	printf("SWEET GPU: SMMU resumed: MICRO_MMU_CTRL 0x%08x sCR0 0x%08x\n",
++	printf("BERGAMOTA GPU: SMMU resumed: MICRO_MMU_CTRL 0x%08x sCR0 0x%08x\n",
 +	    gpu_rd(smmu, SMMU_MICRO_MMU_CTRL), gpu_rd(smmu, SMMU_sCR0));
 +	done = true;
 +	return true;
@@ -932,7 +932,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	uint64_t ttbr = l1_pa | ((uint64_t)asid << 48);
 +
 +	if (gpu_rd(b, SMMU_CB_SCTLR) != 0 || gpu_rd(b, SMMU_CB_TTBR0) != 0 || gpu_rd(b, SMMU_CB_TTBR0 + 4) != 0) {
-+		printf("SWEET GPU: SMMU CB%u already in use; not touched\n", cb);
++		printf("BERGAMOTA GPU: SMMU CB%u already in use; not touched\n", cb);
 +		return false;
 +	}
 +	gpu_wr(smmu, SMMU_GR1 + SMMU_CBA2R(cb), CBA2R_RW64_64BIT);
@@ -951,7 +951,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +		return false;
 +	}
 +	gpu_wr(b, SMMU_CB_SCTLR, SCTLR_CB);
-+	printf("SWEET GPU: SMMU CB%u: SCTLR 0x%08x TCR 0x%08x TCR2 0x%08x TTBR0 0x%08x%08x MAIR0 0x%08x\n",
++	printf("BERGAMOTA GPU: SMMU CB%u: SCTLR 0x%08x TCR 0x%08x TCR2 0x%08x TTBR0 0x%08x%08x MAIR0 0x%08x\n",
 +	    cb, gpu_rd(b, SMMU_CB_SCTLR), gpu_rd(b, SMMU_CB_TCR), gpu_rd(b, SMMU_CB_TTBCR2),
 +	    gpu_rd(b, SMMU_CB_TTBR0 + 4), gpu_rd(b, SMMU_CB_TTBR0), gpu_rd(b, SMMU_CB_MAIR0));
 +	return gpu_rd(b, SMMU_CB_SCTLR) == SCTLR_CB && gpu_rd(b, SMMU_CB_TTBR0) == (uint32_t)ttbr &&
@@ -1025,7 +1025,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	gm_map(GMU_VA_HFI, GMEM_HFI, GMEM_HFI_SIZE);
 +	gm_map(GMU_VA_DUMP, GMEM_DUMP, GMEM_DUMP_SIZE);
 +	gm_map(GMU_VA_LOG, GMEM_LOG, 0x1000);
-+	printf("SWEET GPU: GMU memory at 0x%llx: dummy 0x%08x, HFI 0x%08x, dump 0x%08x, log 0x%08x\n",
++	printf("BERGAMOTA GPU: GMU memory at 0x%llx: dummy 0x%08x, HFI 0x%08x, dump 0x%08x, log 0x%08x\n",
 +	    gmem_pa, GMU_VA_DUMMY, GMU_VA_HFI, GMU_VA_DUMP, GMU_VA_LOG);
 +	return true;
 +}
@@ -1040,11 +1040,11 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	vm_offset_t smmu = smmu_base;
 +	unsigned nsmr = gpu_rd(smmu, SMMU_IDR0) & 0xff;
 +	if (nsmr < 3) {
-+		printf("SWEET GPU: SMMU has only %u SMRs\n", nsmr);
++		printf("BERGAMOTA GPU: SMMU has only %u SMRs\n", nsmr);
 +		return false;
 +	}
 +	if (((gpu_rd(smmu, SMMU_SMR(GMU_SMR_IDX)) | gpu_rd(smmu, SMMU_SMR(GMU_SMR_IDX + 1))) & SMR_VALID)) {
-+		printf("SWEET GPU: SMMU SMR%u-%u already in use; not touched\n", GMU_SMR_IDX, GMU_SMR_IDX + 1);
++		printf("BERGAMOTA GPU: SMMU SMR%u-%u already in use; not touched\n", GMU_SMR_IDX, GMU_SMR_IDX + 1);
 +		return false;
 +	}
 +	if (!smmu_impl_init() || !smmu_context_bank(GMU_CB, GMU_ASID, gmem_pa + GMEM_L1)) {
@@ -1061,7 +1061,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	}
 +	if (!routed) {
 +		/* 0083 on sweet: a masked SMR read back 0 and the SoC reset after the GMU boot. */
-+		printf("SWEET GPU: VALID SMRs for the GMU stream IDs do not stick; GMU not booted\n");
++		printf("BERGAMOTA GPU: VALID SMRs for the GMU stream IDs do not stick; GMU not booted\n");
 +		return false;
 +	}
 +	return true;
@@ -1097,7 +1097,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	vm_offset_t cfg = ml_io_map(PDC_CFG_PA, PDC_SIZE), seq = ml_io_map(PDC_SEQ_PA, PDC_SIZE);
 +
 +	if (cfg == 0 || seq == 0) {
-+		printf("SWEET GPU: PDC map failed\n");
++		printf("BERGAMOTA GPU: PDC map failed\n");
 +		return false;
 +	}
 +	const struct { const char *name; uint32_t *addr; uint32_t linux_addr; } arcs[] = {
@@ -1107,7 +1107,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +		if (cmddb_lookup(arcs[i].name, &a, lv, 16, &n) == (int)CMDDB_SLAVE_ARC) {
 +			*arcs[i].addr = a;
 +		}
-+		printf("SWEET GPU: PDC %s address 0x%05x%s\n", arcs[i].name, *arcs[i].addr,
++		printf("BERGAMOTA GPU: PDC %s address 0x%05x%s\n", arcs[i].name, *arcs[i].addr,
 +		    *arcs[i].addr == arcs[i].linux_addr ? " (as Linux a630)" : " (cmd-db; differs from the Linux constant)");
 +	}
 +	gpu_wr(gmu, RSCC(RSCC_RSC_STATUS0_DRV0), 1u << 24);    /* no SDE clock gating */
@@ -1152,7 +1152,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	bool ack = gpu_poll(gmu, GMU_RSCC_CONTROL_ACK, 1u << 1, 1u << 1, 10000);
 +	bool idle = gpu_poll(gmu, RSCC(RSCC_SEQ_BUSY_DRV0), 0xffffffffu, 0, 10000);
 +	gpu_wr(gmu, GMU_RSCC_CONTROL_REQ, 0);
-+	printf("SWEET GPU: RSC wake: ack=%u sequencer idle=%u (CONTROL_ACK 0x%08x SEQ_BUSY 0x%08x)\n",
++	printf("BERGAMOTA GPU: RSC wake: ack=%u sequencer idle=%u (CONTROL_ACK 0x%08x SEQ_BUSY 0x%08x)\n",
 +	    ack, idle, gpu_rd(gmu, GMU_RSCC_CONTROL_ACK), gpu_rd(gmu, RSCC(RSCC_SEQ_BUSY_DRV0)));
 +}
 +
@@ -1171,7 +1171,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +static void
 +gpu_gmu_state(const char *when)
 +{
-+	printf("SWEET GPU: GMU %s: FW_INIT_RESULT 0x%08x SYSRESET 0x%08x GMU2HOST_INFO 0x%08x AO_HOST_INT 0x%08x RPMH_POWER_STATE 0x%08x HFI_CTRL_STATUS 0x%08x\n",
++	printf("BERGAMOTA GPU: GMU %s: FW_INIT_RESULT 0x%08x SYSRESET 0x%08x GMU2HOST_INFO 0x%08x AO_HOST_INT 0x%08x RPMH_POWER_STATE 0x%08x HFI_CTRL_STATUS 0x%08x\n",
 +	    when, gpu_rd(gmu, GMU_CM3_FW_INIT_RESULT), gpu_rd(gmu, GMU_CM3_SYSRESET),
 +	    gpu_rd(gmu, GMU_GMU2HOST_INTR_INFO), gpu_rd(gmu, GMU_AO_HOST_INTERRUPT_STATUS),
 +	    gpu_rd(gmu, GMU_RPMH_POWER_STATE), gpu_rd(gmu, GMU_HFI_CTRL_STATUS));
@@ -1188,7 +1188,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	uint32_t sysreset = gpu_rd(gmu, GMU_CM3_SYSRESET);
 +
 +	if (sysreset != 1) {
-+		printf("SWEET GPU: CM3_SYSRESET 0x%08x, GMU core not held in reset; TCM not written\n", sysreset);
++		printf("BERGAMOTA GPU: CM3_SYSRESET 0x%08x, GMU core not held in reset; TCM not written\n", sysreset);
 +		return;
 +	}
 +	for (unsigned t = 0; t < 2; t++) {
@@ -1199,12 +1199,12 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +		for (unsigned i = 0; i < 5; i++) {
 +			uint32_t want = 0x5ee70000u | (t << 12) | offs[i], got = gpu_rd(gmu, tcm[t].base + offs[i]);
 +			if (got != want) {
-+				printf("SWEET GPU: %s +0x%04x wrote 0x%08x read 0x%08x\n", tcm[t].name, offs[i], want, got);
++				printf("BERGAMOTA GPU: %s +0x%04x wrote 0x%08x read 0x%08x\n", tcm[t].name, offs[i], want, got);
 +				bad++;
 +			}
 +			gpu_wr(gmu, tcm[t].base + offs[i], 0);
 +		}
-+		printf("SWEET GPU: %s write/readback %s\n", tcm[t].name, bad ? "FAILED" : "ok");
++		printf("BERGAMOTA GPU: %s write/readback %s\n", tcm[t].name, bad ? "FAILED" : "ok");
 +	}
 +}
 +
@@ -1271,11 +1271,11 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	unsigned bad = 0;
 +
 +	if (size == 0 || size > 2 * GMU_TCM_SIZE || (size & 3)) {
-+		printf("SWEET GPU: gmu firmware size %lu invalid (max 0x%x, multiple of 4)\n", (unsigned long)size, 2 * GMU_TCM_SIZE);
++		printf("BERGAMOTA GPU: gmu firmware size %lu invalid (max 0x%x, multiple of 4)\n", (unsigned long)size, 2 * GMU_TCM_SIZE);
 +		return false;
 +	}
 +	if (gpu_rd(gmu, GMU_CM3_SYSRESET) != 1) {
-+		printf("SWEET GPU: GMU core not held in reset; not booted\n");
++		printf("BERGAMOTA GPU: GMU core not held in reset; not booted\n");
 +		return false;
 +	}
 +	gpu_smmu_faults();
@@ -1291,7 +1291,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	for (unsigned i = 0; i < size / 4; i++) {
 +		bad += gpu_rd(gmu, GMU_CM3_ITCM + 4 * i) != fw[i];
 +	}
-+	printf("SWEET GPU: GMU firmware %lu bytes loaded, %u words differ on readback\n", (unsigned long)size, bad);
++	printf("BERGAMOTA GPU: GMU firmware %lu bytes loaded, %u words differ on readback\n", (unsigned long)size, bad);
 +	if (bad) {
 +		return false;
 +	}
@@ -1301,7 +1301,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +		mask = 0x1ff;
 +		done = 0x100;
 +	}
-+	printf("SWEET GPU: GMU firmware id word 0x%08x: boot result expected 0x%x under mask 0x%x\n", fwid, done, mask);
++	printf("BERGAMOTA GPU: GMU firmware id word 0x%08x: boot result expected 0x%x under mask 0x%x\n", fwid, done, mask);
 +	gpu_wr(gmu, GMU_CM3_FW_INIT_RESULT, 0);
 +	gpu_wr(gmu, GMU_CM3_BOOT_CONFIG, GMU_TCM_BOOT);
 +	gpu_wr(gmu, GMU_HFI_QTBL_ADDR, GMU_VA_HFI);
@@ -1317,7 +1317,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	gpu_wr(gmu, GMU_PWR_COL_INTER_FRAME_CTRL, 0x9c40400);
 +	gpu_wr(gmu, GMU_RPMH_CTRL, gpu_rd(gmu, GMU_RPMH_CTRL) | GMU_RPMH_ENABLE_MASK);
 +	gpu_gmu_state("before start");
-+	sweet_log_sync();
++	bergamota_log_sync();
 +
 +	gpu_wr(gmu, GMU_CX_GMU_WFI_CONFIG, 0);
 +	gpu_wr(gmu, GMU_CM3_SYSRESET, 1);
@@ -1327,10 +1327,10 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	bool booted = gpu_poll(gmu, GMU_CM3_FW_INIT_RESULT, mask, done, GMU_START_TIMEOUT_US);
 +	uint64_t ns;
 +	absolutetime_to_nanoseconds(mach_absolute_time() - t0, &ns);
-+	printf("SWEET GPU: GMU %s after %llu us\n", booted ? "BOOTED (FW_INIT_RESULT ok)" : "did not boot", ns / 1000);
++	printf("BERGAMOTA GPU: GMU %s after %llu us\n", booted ? "BOOTED (FW_INIT_RESULT ok)" : "did not boot", ns / 1000);
 +	gpu_gmu_state("after start");
 +	gpu_smmu_faults();
-+	sweet_log_sync();
++	bergamota_log_sync();
 +	if (hold) {
 +		gpu_wr(gmu, GMU_CM3_SYSRESET, 1);
 +		delay(10);
@@ -1373,7 +1373,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	uint32_t space = wr >= rd ? HFI_QUEUE_DW - (wr - rd) : rd - wr;
 +
 +	if (wr >= HFI_QUEUE_DW || space < n) {
-+		printf("SWEET GPU: HFI queue %u full or corrupt (rd %u wr %u)\n", q, rd, wr);
++		printf("BERGAMOTA GPU: HFI queue %u full or corrupt (rd %u wr %u)\n", q, rd, wr);
 +		return false;
 +	}
 +	for (unsigned i = 0; i < n; i++) {
@@ -1395,12 +1395,12 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +		return 0;
 +	}
 +	if (rd >= HFI_QUEUE_DW || wr >= HFI_QUEUE_DW) {
-+		printf("SWEET GPU: HFI queue %u indices out of range (rd %u wr %u)\n", q, rd, wr);
++		printf("BERGAMOTA GPU: HFI queue %u indices out of range (rd %u wr %u)\n", q, rd, wr);
 +		return 0;
 +	}
 +	uint32_t hdr = gm_rd(base + 4 * rd), n = MSG_DW(hdr);
 +	if (n == 0 || n > max) {
-+		printf("SWEET GPU: HFI queue %u: bad message 0x%08x at %u; queue dropped\n", q, hdr, rd);
++		printf("BERGAMOTA GPU: HFI queue %u: bad message 0x%08x at %u; queue dropped\n", q, hdr, rd);
 +		gm_wr(hfi_qh(q, QH_READ_INDEX), wr);
 +		return 0;
 +	}
@@ -1419,7 +1419,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	unsigned n;
 +
 +	while ((n = hfi_read(HFI_DBG_ID, m, 19)) != 0) {
-+		printf("SWEET GPU: HFI debug 0x%08x (id %u): %08x %08x %08x %08x\n", m[0], MSG_ID(m[0]),
++		printf("BERGAMOTA GPU: HFI debug 0x%08x (id %u): %08x %08x %08x %08x\n", m[0], MSG_ID(m[0]),
 +		    n > 1 ? m[1] : 0, n > 2 ? m[2] : 0, n > 3 ? m[3] : 0, n > 4 ? m[4] : 0);
 +	}
 +}
@@ -1429,13 +1429,13 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +hfi_cmd(const char *name, uint32_t *msg, unsigned n, uint32_t *ack, unsigned ack_max)
 +{
 +	msg[0] = (msg[0] & 0xfffff) | (++hfi_seq << 20);
-+	printf("SWEET GPU: HFI %s: sending 0x%08x (%u dwords)\n", name, msg[0], n);
-+	sweet_log_sync();
++	printf("BERGAMOTA GPU: HFI %s: sending 0x%08x (%u dwords)\n", name, msg[0], n);
++	bergamota_log_sync();
 +	if (!hfi_write(HFI_CMD_ID, msg, n)) {
 +		return false;
 +	}
 +	if (!gpu_poll(gmu, GMU_GMU2HOST_INTR_INFO, HFI_IRQ_MSGQ, HFI_IRQ_MSGQ, HFI_RSP_TIMEOUT_US)) {
-+		printf("SWEET GPU: HFI %s: no reply (INTR_INFO 0x%08x)\n", name, gpu_rd(gmu, GMU_GMU2HOST_INTR_INFO));
++		printf("BERGAMOTA GPU: HFI %s: no reply (INTR_INFO 0x%08x)\n", name, gpu_rd(gmu, GMU_GMU2HOST_INTR_INFO));
 +		hfi_drain_debug();
 +		return false;
 +	}
@@ -1443,15 +1443,15 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	unsigned got;
 +	while ((got = hfi_read(HFI_MSG_ID, ack, ack_max)) != 0) {
 +		if (MSG_TYPE(ack[0]) == HFI_V1_MSG_ACK && got >= 3 && MSG_SEQ(ack[1]) == MSG_SEQ(msg[0])) {
-+			printf("SWEET GPU: HFI %s: ACK 0x%08x for 0x%08x, error %u, data 0x%08x\n",
++			printf("BERGAMOTA GPU: HFI %s: ACK 0x%08x for 0x%08x, error %u, data 0x%08x\n",
 +			    name, ack[0], ack[1], ack[2], got > 3 ? ack[3] : 0);
 +			hfi_drain_debug();
 +			return ack[2] == 0;
 +		}
-+		printf("SWEET GPU: HFI %s: other message 0x%08x (id %u) %08x %08x\n",
++		printf("BERGAMOTA GPU: HFI %s: other message 0x%08x (id %u) %08x %08x\n",
 +		    name, ack[0], MSG_ID(ack[0]), got > 1 ? ack[1] : 0, got > 2 ? ack[2] : 0);
 +	}
-+	printf("SWEET GPU: HFI %s: interrupt but no ACK\n", name);
++	printf("BERGAMOTA GPU: HFI %s: interrupt but no ACK\n", name);
 +	hfi_drain_debug();
 +	return false;
 +}
@@ -1460,11 +1460,11 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +gpu_hfi_dump(void)
 +{
 +	for (unsigned q = 0; q < HFI_QUEUES; q++) {
-+		printf("SWEET GPU: HFI queue %u: status %u rd %u wr %u drop %u rx_req %u tx_req %u\n", q,
++		printf("BERGAMOTA GPU: HFI queue %u: status %u rd %u wr %u drop %u rx_req %u tx_req %u\n", q,
 +		    gm_rd(hfi_qh(q, QH_STATUS)), gm_rd(hfi_qh(q, QH_READ_INDEX)), gm_rd(hfi_qh(q, QH_WRITE_INDEX)),
 +		    gm_rd(hfi_qh(q, 5)), gm_rd(hfi_qh(q, QH_RX_REQ)), gm_rd(hfi_qh(q, 9)));
 +	}
-+	printf("SWEET GPU: GMU log +00: %08x %08x %08x %08x, dump +00: %08x %08x, dummy +00: %08x\n",
++	printf("BERGAMOTA GPU: GMU log +00: %08x %08x %08x %08x, dump +00: %08x %08x, dummy +00: %08x\n",
 +	    gm_rd(GMEM_LOG), gm_rd(GMEM_LOG + 4), gm_rd(GMEM_LOG + 8), gm_rd(GMEM_LOG + 12),
 +	    gm_rd(GMEM_DUMP), gm_rd(GMEM_DUMP + 4), gm_rd(GMEM_DUMMY));
 +}
@@ -1507,7 +1507,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +		for (k = 0; k < npri && pri[k] < vlvl[i]; k++) {
 +		}
 +		if (k == npri) {
-+			printf("SWEET GPU: %s level %u: VLVL %u above the %u ARC levels\n", what, i, vlvl[i], npri);
++			printf("BERGAMOTA GPU: %s level %u: VLVL %u above the %u ARC levels\n", what, i, vlvl[i], npri);
 +			return false;
 +		}
 +		for (j = 0; j < nsec; j++) {
@@ -1533,10 +1533,10 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	}
 +	for (unsigned a = 0; a < 3; a++) {
 +		if (cmddb_lookup(arcs[a], &addr[a], lvl[a], MAX_GX_LEVELS, &num[a]) != (int)CMDDB_SLAVE_ARC) {
-+			printf("SWEET GPU: cmd-db %s lookup failed\n", arcs[a]);
++			printf("BERGAMOTA GPU: cmd-db %s lookup failed\n", arcs[a]);
 +			return false;
 +		}
-+		printf("SWEET GPU: cmd-db %s addr 0x%05x, %u levels: %u %u %u %u %u %u %u %u %u %u\n",
++		printf("BERGAMOTA GPU: cmd-db %s addr 0x%05x, %u levels: %u %u %u %u %u %u %u %u %u %u\n",
 +		    arcs[a], addr[a], num[a], lvl[a][0], lvl[a][1], lvl[a][2], lvl[a][3], lvl[a][4], lvl[a][5],
 +		    lvl[a][6], lvl[a][7], lvl[a][8], lvl[a][9]);
 +	}
@@ -1551,11 +1551,11 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +		return false;
 +	}
 +	for (unsigned i = 0; i < GPU_NLEVELS; i++) {
-+		printf("SWEET GPU: GX level %u: %u MHz VLVL %u -> vote 0x%08x (gfx %u, mx %u)\n", i,
++		printf("BERGAMOTA GPU: GX level %u: %u MHz VLVL %u -> vote 0x%08x (gfx %u, mx %u)\n", i,
 +		    gpu_levels[i].mhz, gx_vl[i], gx_votes[i], gx_votes[i] & 0xff, (gx_votes[i] >> 8) & 0xff);
 +	}
 +	for (unsigned i = 0; i < 2; i++) {
-+		printf("SWEET GPU: CX level %u: %u MHz VLVL %u -> vote 0x%08x\n", i, cx_khz[i] / 1000, cx_vl[i], cx_votes[i]);
++		printf("BERGAMOTA GPU: CX level %u: %u MHz VLVL %u -> vote 0x%08x\n", i, cx_khz[i] / 1000, cx_vl[i], cx_votes[i]);
 +	}
 +	gx_levels = GPU_NLEVELS;
 +	return true;
@@ -1602,7 +1602,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	for (unsigned i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
 +		uint32_t a = 0;
 +		int kind = cmddb_lookup(names[i], &a, NULL, 0, NULL);
-+		printf("SWEET GPU: cmd-db BCM %s: %s addr 0x%05x\n", names[i],
++		printf("BERGAMOTA GPU: cmd-db BCM %s: %s addr 0x%05x\n", names[i],
 +		    kind == (int)CMDDB_SLAVE_BCM ? "found" : "not found", kind > 0 ? a : 0);
 +	}
 +}
@@ -1647,31 +1647,31 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	uint32_t ack[19];
 +	bool done = false;
 +
-+	printf("SWEET GPU: starting HFI (HFI_CTRL_INIT)\n");
-+	sweet_log_sync();
++	printf("BERGAMOTA GPU: starting HFI (HFI_CTRL_INIT)\n");
++	bergamota_log_sync();
 +	gpu_wr(gmu, GMU_HFI_CTRL_INIT, 1);
 +	if (!gpu_poll(gmu, GMU_HFI_CTRL_STATUS, 1, 1, GMU_START_TIMEOUT_US)) {
-+		printf("SWEET GPU: HFI init failed: HFI_CTRL_STATUS 0x%08x\n", gpu_rd(gmu, GMU_HFI_CTRL_STATUS));
++		printf("BERGAMOTA GPU: HFI init failed: HFI_CTRL_STATUS 0x%08x\n", gpu_rd(gmu, GMU_HFI_CTRL_STATUS));
 +		gpu_smmu_cb_faults(GMU_CB);
 +		gpu_hfi_dump();
 +		return false;
 +	}
 +	uint32_t ver = gpu_rd(gmu, GMU_HFI_VERSION_INFO);
-+	printf("SWEET GPU: HFI up: HFI_CTRL_STATUS 0x%08x, HFI version 0x%08x (major %u minor %u branch %u)\n",
++	printf("BERGAMOTA GPU: HFI up: HFI_CTRL_STATUS 0x%08x, HFI version 0x%08x (major %u minor %u branch %u)\n",
 +	    gpu_rd(gmu, GMU_HFI_CTRL_STATUS), ver, ver >> 28, (ver >> 5) & 0x7fffff, ver & 0x1f);
 +	if ((ver >> 28) >= 2) {
-+		printf("SWEET GPU: HFI v2 firmware; this driver speaks the legacy v1 protocol only\n");
++		printf("BERGAMOTA GPU: HFI v2 firmware; this driver speaks the legacy v1 protocol only\n");
 +		return false;
 +	}
 +	uint32_t init[5] = { MSG_HDR(H2F_MSG_INIT, 5, 0), 0, GMU_VA_DUMP, GMEM_DUMP_SIZE, GMU_COLD_BOOT };
 +	if (hfi_cmd("H2F_MSG_INIT", init, 5, ack, 19)) {
 +		uint32_t fwver[2] = { MSG_HDR(H2F_MSG_FW_VER, 2, 0), GMU_FW_VERSION_WANTED };
 +		if (hfi_cmd("H2F_MSG_FW_VER", fwver, 2, ack, 19)) {
-+			printf("SWEET GPU: GMU firmware version 0x%08x: %u.%u step %u\n",
++			printf("BERGAMOTA GPU: GMU firmware version 0x%08x: %u.%u step %u\n",
 +			    ack[3], ack[3] >> 28, (ack[3] >> 16) & 0xfff, ack[3] & 0xffff);
 +			done = gpu_hfi_tables(ack);
 +			if (done) {
-+				printf("SWEET GPU: HFI start complete (DCVS, BW, TEST acknowledged)\n");
++				printf("BERGAMOTA GPU: HFI start complete (DCVS, BW, TEST acknowledged)\n");
 +			}
 +		}
 +	}
@@ -1702,13 +1702,13 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +{
 +	uint32_t set = 1u << (req + 16), check = 1u << (req + 24);
 +
-+	printf("SWEET GPU: OOB %s: set 0x%08x\n", name, set);
-+	sweet_log_sync();
++	printf("BERGAMOTA GPU: OOB %s: set 0x%08x\n", name, set);
++	bergamota_log_sync();
 +	gpu_wr(gmu, GMU_HOST2GMU_INTR_SET, set);
 +	bool ok = gpu_poll(gmu, GMU_GMU2HOST_INTR_INFO, check, check, GMU_START_TIMEOUT_US);
 +	uint32_t info = gpu_rd(gmu, GMU_GMU2HOST_INTR_INFO);
 +	gpu_wr(gmu, GMU_GMU2HOST_INTR_CLR, check);
-+	printf("SWEET GPU: OOB %s: %s (INTR_INFO 0x%08x, RPMH_POWER_STATE 0x%x, SPTPRAC 0x%08x)\n", name,
++	printf("BERGAMOTA GPU: OOB %s: %s (INTR_INFO 0x%08x, RPMH_POWER_STATE 0x%x, SPTPRAC 0x%08x)\n", name,
 +	    ok ? "acknowledged" : "TIMED OUT", info, gpu_rd(gmu, GMU_RPMH_POWER_STATE),
 +	    gpu_rd(gmu, GMU_SPTPRAC_PWR_CLK_STATUS));
 +	return ok;
@@ -1729,7 +1729,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	gpu_wr(gmu, GMU_BOOT_SLUMBER_OPTION, OOB_BOOT_OPTION);
 +	gpu_wr(gmu, GMU_GX_VOTE_IDX, vote & 0xff);
 +	gpu_wr(gmu, GMU_MX_VOTE_IDX, (vote >> 8) & 0xff);
-+	printf("SWEET GPU: GX rail on at level %u (%u MHz): gfx ARC %u, mx ARC %u\n",
++	printf("BERGAMOTA GPU: GX rail on at level %u (%u MHz): gfx ARC %u, mx ARC %u\n",
 +	    GX_BOOT_LEVEL, gx_khz[GX_BOOT_LEVEL] / 1000, vote & 0xff, (vote >> 8) & 0xff);
 +	return gmu_oob_set(OOB_BOOT_SLUMBER, "boot_slumber (boot)");
 +}
@@ -1744,7 +1744,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	gpu_wr(gmu, GMU_GX_SPTPRAC_POWER_CONTROL, on ? SPTPRAC_POWERON_CTRL : SPTPRAC_POWEROFF_CTRL);
 +	bool ok = on ? gpu_poll(gmu, GMU_SPTPRAC_PWR_CLK_STATUS, SPTPRAC_ON_MASK, SPTPRAC_ON_STATUS, SPTPRAC_TIMEOUT_US) :
 +	    gpu_poll(gmu, GMU_SPTPRAC_PWR_CLK_STATUS, SPTPRAC_POWEROFF_STATUS, SPTPRAC_POWEROFF_STATUS, SPTPRAC_TIMEOUT_US);
-+	printf("SWEET GPU: SPTPRAC power %s: %s (status 0x%08x)\n", on ? "on" : "off",
++	printf("BERGAMOTA GPU: SPTPRAC power %s: %s (status 0x%08x)\n", on ? "on" : "off",
 +	    ok ? "ok" : "TIMED OUT", gpu_rd(gmu, GMU_SPTPRAC_PWR_CLK_STATUS));
 +	return ok;
 +}
@@ -1759,7 +1759,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	bool ok = gmu_oob_set(OOB_BOOT_SLUMBER, "boot_slumber (slumber)");
 +	gmu_oob_clear(OOB_BOOT_SLUMBER);
 +	uint32_t state = gpu_rd(gmu, GMU_RPMH_POWER_STATE);
-+	printf("SWEET GPU: slumber %s: RPMH_POWER_STATE 0x%x%s\n", ok ? "acknowledged" : "not acknowledged",
++	printf("BERGAMOTA GPU: slumber %s: RPMH_POWER_STATE 0x%x%s\n", ok ? "acknowledged" : "not acknowledged",
 +	    state, state == GPU_HW_SLUMBER ? " (slumber)" : " (NOT slumber)");
 +	gpu_wr(gmu, GMU_AO_AHB_FENCE_CTRL, 0);                  /* put the fence back into allow mode */
 +}
@@ -1831,12 +1831,12 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +{
 +	for (unsigned i = 0; i < 100000; i++) {
 +		if (gpu_r(A6XX_CP_RB_RPTR) == ring_wptr) {
-+			printf("SWEET GPU: CP %s: ring idle (RPTR=WPTR=%u) RBBM_STATUS 0x%08x\n", what, ring_wptr, gpu_r(A6XX_RBBM_STATUS));
++			printf("BERGAMOTA GPU: CP %s: ring idle (RPTR=WPTR=%u) RBBM_STATUS 0x%08x\n", what, ring_wptr, gpu_r(A6XX_RBBM_STATUS));
 +			return true;
 +		}
 +		delay(1);
 +	}
-+	printf("SWEET GPU: CP %s: ring did NOT drain: RPTR %u WPTR %u RBBM_STATUS 0x%08x CP_STATUS_1 0x%08x HW_FAULT 0x%08x CP_IRQ 0x%08x PROTECT 0x%08x RBBM_IRQ 0x%08x\n",
++	printf("BERGAMOTA GPU: CP %s: ring did NOT drain: RPTR %u WPTR %u RBBM_STATUS 0x%08x CP_STATUS_1 0x%08x HW_FAULT 0x%08x CP_IRQ 0x%08x PROTECT 0x%08x RBBM_IRQ 0x%08x\n",
 +	    what, gpu_r(A6XX_CP_RB_RPTR), ring_wptr, gpu_r(A6XX_RBBM_STATUS), gpu_r(A6XX_CP_STATUS_1),
 +	    gpu_r(A6XX_CP_HW_FAULT), gpu_r(A6XX_CP_INTERRUPT_STATUS), gpu_r(A6XX_CP_PROTECT_STATUS),
 +	    gpu_r(A6XX_RBBM_INT_0_STATUS));
@@ -1909,7 +1909,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +			return false;
 +		}
 +	}
-+	printf("SWEET GPU: CP software walk: %u pages mapped, read-only SQE, %u unmapped guards verified\n",
++	printf("BERGAMOTA GPU: CP software walk: %u pages mapped, read-only SQE, %u unmapped guards verified\n",
 +	    pages, (unsigned)(sizeof(holes) / sizeof(holes[0])));
 +	return true;
 +}
@@ -1921,7 +1921,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	uint32_t w0 = (uint32_t)fw[4] | ((uint32_t)fw[5] << 8) | ((uint32_t)fw[6] << 16) | ((uint32_t)fw[7] << 24);
 +	uint32_t w2 = (uint32_t)fw[12] | ((uint32_t)fw[13] << 8) | ((uint32_t)fw[14] << 16) | ((uint32_t)fw[15] << 24);
 +	bool ok = (((w0 & 0xf) == 0xa) && (w2 & 0xf) >= 1) || (w0 & 0xfff) >= 0x190;
-+	printf("SWEET GPU: CP SQE %lu bytes (+4 byte header), version word 0x%08x patch word 0x%08x%s\n",
++	printf("BERGAMOTA GPU: CP SQE %lu bytes (+4 byte header), version word 0x%08x patch word 0x%08x%s\n",
 +	    (unsigned long)(size - 4), w0, w2, ok ? "" : " (older than Linux requires: no CP_WHERE_AM_I, not used here)");
 +}
 +
@@ -1932,13 +1932,13 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	void *fw = NULL;
 +	size_t size = 0;
 +
-+	if (!sweet_a630_fw_get("sqe-firmware", "a630_sqe.fw", &fw, &size) || size < 20 || size - 4 > SQE_MAX || (size & 3)) {
-+		printf("SWEET GPU: CP: a630_sqe.fw missing or invalid\n");
++	if (!bergamota_a630_fw_get("sqe-firmware", "a630_sqe.fw", &fw, &size) || size < 20 || size - 4 > SQE_MAX || (size & 3)) {
++		printf("BERGAMOTA GPU: CP: a630_sqe.fw missing or invalid\n");
 +		return false;
 +	}
 +	cp_sqe_check(fw, size);
 +	if (!smmu_map()) {
-+		sweet_a630_fw_put(fw, size);
++		bergamota_a630_fw_put(fw, size);
 +		return false;
 +	}
 +	vm_offset_t smmu = smmu_base;
@@ -1946,27 +1946,27 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	unsigned nsmr = gpu_rd(smmu, SMMU_IDR0) & 0xff;
 +	if (nsmr < 3 || (gpu_rd(smmu, SMMU_SMR(CP_SMR)) & SMR_VALID) ||
 +	    gpu_rd(cb, SMMU_CB_SCTLR) || gpu_rd(cb, SMMU_CB_TTBR0) || gpu_rd(cb, SMMU_CB_TTBR0 + 4)) {
-+		printf("SWEET GPU: CP: SMMU CB%u / SMR%u unavailable\n", CP_CB, CP_SMR);
-+		sweet_a630_fw_put(fw, size);
++		printf("BERGAMOTA GPU: CP: SMMU CB%u / SMR%u unavailable\n", CP_CB, CP_SMR);
++		bergamota_a630_fw_put(fw, size);
 +		return false;
 +	}
 +	for (unsigned i = 0; i < nsmr; i++) {
 +		uint32_t smr = gpu_rd(smmu, SMMU_SMR(i)), mask = (smr >> 16) & 0x7fff, sid = smr & 0x7fff;
 +		if ((smr & SMR_VALID) && !(sid & ~mask)) {
-+			printf("SWEET GPU: CP: stream ID 0 already owned by SMR%u\n", i);
-+			sweet_a630_fw_put(fw, size);
++			printf("BERGAMOTA GPU: CP: stream ID 0 already owned by SMR%u\n", i);
++			bergamota_a630_fw_put(fw, size);
 +			return false;
 +		}
 +	}
 +	if (!cp_memory && !dma_alloc(CP_MEMORY_SIZE, &cp_memory, &cp_memory_pa)) {
 +		cp_memory = 0;
-+		sweet_a630_fw_put(fw, size);
++		bergamota_a630_fw_put(fw, size);
 +		return false;
 +	}
 +	/* The first four bytes of a630_sqe.fw are a header: Linux loads from byte 4. */
 +	memcpy((void *)(cp_memory + SQE_OFF), (const uint8_t *)fw + 4, size - 4);
 +	bool same = memcmp((const void *)(cp_memory + SQE_OFF), (const uint8_t *)fw + 4, size - 4) == 0;
-+	sweet_a630_fw_put(fw, size);
++	bergamota_a630_fw_put(fw, size);
 +	if (!same) {
 +		return false;
 +	}
@@ -1976,13 +1976,13 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	cp_map_buffer(SQE_VA, SQE_OFF, SQE_MAX, true);
 +	cp_map_buffer(SCRATCH_VA, SCRATCH_OFF, SCRATCH_SIZE, false);
 +	if (!cp_check_tables()) {
-+		printf("SWEET GPU: CP software walk failed\n");
++		printf("BERGAMOTA GPU: CP software walk failed\n");
 +		return false;
 +	}
-+	sweet_dma_sync_va((const void *)cp_memory, CP_MEMORY_SIZE);
-+	printf("SWEET GPU: CP memory at 0x%llx: ring VA 0x%x, SQE VA 0x%x, scratch VA 0x%x\n",
++	bergamota_dma_sync_va((const void *)cp_memory, CP_MEMORY_SIZE);
++	printf("BERGAMOTA GPU: CP memory at 0x%llx: ring VA 0x%x, SQE VA 0x%x, scratch VA 0x%x\n",
 +	    cp_memory_pa, RING_VA, SQE_VA, SCRATCH_VA);
-+	sweet_log_sync();
++	bergamota_log_sync();
 +	if (!smmu_impl_init() || !smmu_context_bank(CP_CB, CP_ASID, cp_memory_pa + CP_L1)) {
 +		return false;
 +	}
@@ -1991,11 +1991,11 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	gpu_wr(smmu, SMMU_TLBIALLNSNH, 0);
 +	if (!smmu_sync(smmu, SMMU_sTLBGSYNC, SMMU_sTLBGSTATUS) || !routed || gpu_rd(smmu, SMMU_sGFSR) ||
 +	    (gpu_rd(cb, SMMU_CB_FSR) & 0xc00001feu)) {
-+		printf("SWEET GPU: CP context/stream setup failed\n");
++		printf("BERGAMOTA GPU: CP context/stream setup failed\n");
 +		return false;
 +	}
-+	printf("SWEET GPU: CP memory setup complete: CB%u ASID%u SID0 SMR%u\n", CP_CB, CP_ASID, CP_SMR);
-+	sweet_log_sync();
++	printf("BERGAMOTA GPU: CP memory setup complete: CB%u ASID%u SID0 SMR%u\n", CP_CB, CP_ASID, CP_SMR);
++	bergamota_log_sync();
 +	return true;
 +}
 +
@@ -2004,24 +2004,24 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +gpu_ahb_allow(void)
 +{
 +	uint32_t before = gpu_rd(gmu, GMU_AO_AHB_FENCE_CTRL);
-+	printf("SWEET GPU: AHB fence ctrl %#x range0 %#x range1 %#x dropped-status %#x\n", before,
++	printf("BERGAMOTA GPU: AHB fence ctrl %#x range0 %#x range1 %#x dropped-status %#x\n", before,
 +	    gpu_rd(gmu, GMU_AHB_FENCE_RANGE_0), gpu_rd(gmu, GMU_AHB_FENCE_RANGE_1), gpu_rd(gmu, GMU_AHB_FENCE_STATUS));
 +	if (before) {
 +		gpu_wr(gmu, GMU_AO_AHB_FENCE_CTRL, 0);
 +	}
 +	bool allow = gpu_poll(gmu, GMU_AO_AHB_FENCE_CTRL, 0xffffffffu, 0, 1000);
-+	printf("SWEET GPU: AHB fence %s (ctrl %#x)\n", allow ? "ALLOW" : "NOT allow", gpu_rd(gmu, GMU_AO_AHB_FENCE_CTRL));
++	printf("BERGAMOTA GPU: AHB fence %s (ctrl %#x)\n", allow ? "ALLOW" : "NOT allow", gpu_rd(gmu, GMU_AO_AHB_FENCE_CTRL));
 +	return allow;
 +}
 +
 +static void
 +cp_status(const char *when)
 +{
-+	printf("SWEET GPU: CP %s: SQE_CNTL %#x RPTR %u WPTR %u HW_FAULT %#x CP_IRQ %#x PROTECT %#x CP_STATUS_1 %#x RBBM_STATUS %#x RBBM_IRQ %#x\n",
++	printf("BERGAMOTA GPU: CP %s: SQE_CNTL %#x RPTR %u WPTR %u HW_FAULT %#x CP_IRQ %#x PROTECT %#x CP_STATUS_1 %#x RBBM_STATUS %#x RBBM_IRQ %#x\n",
 +	    when, gpu_r(A6XX_CP_SQE_CNTL), gpu_r(A6XX_CP_RB_RPTR), gpu_r(A6XX_CP_RB_WPTR), gpu_r(A6XX_CP_HW_FAULT),
 +	    gpu_r(A6XX_CP_INTERRUPT_STATUS), gpu_r(A6XX_CP_PROTECT_STATUS), gpu_r(A6XX_CP_STATUS_1),
 +	    gpu_r(A6XX_RBBM_STATUS), gpu_r(A6XX_RBBM_INT_0_STATUS));
-+	sweet_log_sync();
++	bergamota_log_sync();
 +}
 +
 +/*
@@ -2046,11 +2046,11 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	if (!(sp & 1u)) {
 +		gpu_wr(gmu, GMU_GX_SPTPRAC_CLOCK_CONTROL, sp | 1u);
 +	}
-+	printf("SWEET GPU: SP clock control %#x -> %#x\n", sp, gpu_rd(gmu, GMU_GX_SPTPRAC_CLOCK_CONTROL));
++	printf("BERGAMOTA GPU: SP clock control %#x -> %#x\n", sp, gpu_rd(gmu, GMU_GX_SPTPRAC_CLOCK_CONTROL));
 +	cp_status("before configuration");
 +	if (gpu_r(A6XX_CP_SQE_CNTL) || gpu_r(A6XX_CP_HW_FAULT) || gpu_r(A6XX_CP_INTERRUPT_STATUS) ||
 +	    gpu_r(A6XX_CP_RB_RPTR) || gpu_r(A6XX_CP_RB_WPTR)) {
-+		printf("SWEET GPU: CP has inherited state or faults; configuration stopped\n");
++		printf("BERGAMOTA GPU: CP has inherited state or faults; configuration stopped\n");
 +		return false;
 +	}
 +	for (unsigned i = 0; i < sizeof(addr_mode) / sizeof(addr_mode[0]); i++) {
@@ -2080,7 +2080,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	gpu_w64(A6XX_CP_RB_RPTR_ADDR, SCRATCH_VA + SCRATCH_RPTR);
 +	if (gpu_r(A6XX_CP_RB_CNTL) != CP_RB_CNTL_VALUE || gpu_r(A6XX_CP_SQE_INSTR_BASE) != SQE_VA ||
 +	    gpu_r(A6XX_CP_RB_BASE) != RING_VA || gpu_r(A6XX_CP_ROQ_THRESHOLDS_2) != 0x010000c0) {
-+		printf("SWEET GPU: CP configuration readback mismatch\n");
++		printf("BERGAMOTA GPU: CP configuration readback mismatch\n");
 +		cp_status("after configuration");
 +		return false;
 +	}
@@ -2117,7 +2117,7 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +
 +	*memwr = 0;
 +	*ts = 0;
-+	sweet_dma_sync_va((const void *)(cp_memory + SCRATCH_OFF), 0x200);
++	bergamota_dma_sync_va((const void *)(cp_memory + SCRATCH_OFF), 0x200);
 +	ring_emit(pkt7(CP_NOP, 1));
 +	ring_emit(0);
 +	ring_emit(pkt7(CP_MEM_WRITE, 3));
@@ -2133,21 +2133,21 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	ring_flush();
 +	bool idle = ring_wait_idle("NOP submission");
 +	for (unsigned i = 0; i < 50000 && (*memwr != memval || *ts != seq); i++) {
-+		sweet_dma_sync_va((const void *)(cp_memory + SCRATCH_OFF), 0x200);
++		bergamota_dma_sync_va((const void *)(cp_memory + SCRATCH_OFF), 0x200);
 +		delay(1);
 +	}
 +	uint32_t irq = gpu_r(A6XX_RBBM_INT_0_STATUS);
-+	printf("SWEET GPU: CP NOP test: CP_MEM_WRITE read back 0x%08x (want 0x%08x), CACHE_FLUSH_TS timestamp 0x%08x (want 0x%08x), RBBM_INT_0_STATUS 0x%08x\n",
++	printf("BERGAMOTA GPU: CP NOP test: CP_MEM_WRITE read back 0x%08x (want 0x%08x), CACHE_FLUSH_TS timestamp 0x%08x (want 0x%08x), RBBM_INT_0_STATUS 0x%08x\n",
 +	    *memwr, memval, *ts, seq, irq);
 +	if (irq) {
 +		gpu_w(A6XX_RBBM_INT_CLEAR_CMD, irq & 0x00ffffffu);
 +	}
 +	cp_status("after NOP submission");
 +	if (idle && *memwr == memval && *ts == seq) {
-+		printf("SWEET GPU: CP NOP test PASSED: the CP fetched, executed and wrote back through the GPU SMMU\n");
++		printf("BERGAMOTA GPU: CP NOP test PASSED: the CP fetched, executed and wrote back through the GPU SMMU\n");
 +		return true;
 +	}
-+	printf("SWEET GPU: CP NOP test FAILED (%s)\n", !idle ? "ring did not drain" : "ring drained but memory not updated");
++	printf("BERGAMOTA GPU: CP NOP test FAILED (%s)\n", !idle ? "ring did not drain" : "ring drained but memory not updated");
 +	return false;
 +}
 +
@@ -2170,18 +2170,18 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	if (gmu_oob_set(OOB_GPU, "gpu")) {
 +		(void)gpu_report(&gx_gdscr);
 +		gpu_report_gmu(gx_gdscr);
-+		sweet_log_sync();
++		bergamota_log_sync();
 +		bool gx = gx_is_on(gx_gdscr) && gpu_regs;
 +		bool cp_ok = false;
 +		if (mode >= 7 && gx) {
 +			cp_ok = gpu_cp_hw_init() && gpu_cp_start();
 +			if (!cp_ok) {
-+				printf("SWEET GPU: CP bring-up stopped before the zap shader\n");
++				printf("BERGAMOTA GPU: CP bring-up stopped before the zap shader\n");
 +			}
 +		}
 +		if (mode >= 6 && gx && (mode < 7 || cp_ok)) {
-+			if (!sweet_a630_zap_load()) {
-+				printf("SWEET GPU: zap load failed\n");
++			if (!bergamota_a630_zap_load()) {
++				printf("BERGAMOTA GPU: zap load failed\n");
 +			} else if (mode >= 7) {
 +				/* CP_SET_SECURE_MODE 0 leaves secure mode: the CP runs the zap shader */
 +				ring_emit(pkt7(CP_SET_SECURE_MODE, 1));
@@ -2191,9 +2191,9 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +					(void)gpu_cp_nop_test();
 +				}
 +			}
-+			if (!sweet_a630_zap_shutdown() && sweet_a630_zap_running()) {
-+				printf("SWEET GPU: zap operation not quiesced; retaining GX/GMU until reset\n");
-+				sweet_log_sync();
++			if (!bergamota_a630_zap_shutdown() && bergamota_a630_zap_running()) {
++				printf("BERGAMOTA GPU: zap operation not quiesced; retaining GX/GMU until reset\n");
++				bergamota_log_sync();
 +				return false;
 +			}
 +		}
@@ -2222,24 +2222,24 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +{
 +	uint32_t gx_gdscr;
 +
-+	printf("SWEET GPU: Adreno 630 bring-up, stage %d (GPU 0x%x, GMU 0x%x, gpucc 0x%x, SMMU 0x%x)\n",
++	printf("BERGAMOTA GPU: Adreno 630 bring-up, stage %d (GPU 0x%x, GMU 0x%x, gpucc 0x%x, SMMU 0x%x)\n",
 +	    mode, GPU_PA, GMU_PA, GPUCC_PA, SMMU_PA);
 +	gcc = ml_io_map(GCC_PA, GCC_SIZE);
 +	cc = ml_io_map(GPUCC_PA, GPUCC_SIZE);
 +	if (gcc == 0 || cc == 0) {
-+		printf("SWEET GPU: GCC/GPU CC map failed\n");
++		printf("BERGAMOTA GPU: GCC/GPU CC map failed\n");
 +		return;
 +	}
 +	bool cx_up = gpu_report(&gx_gdscr);
 +	if (mode >= 2 && !cx_up) {
 +		if (!gpu_power_cx()) {
-+			printf("SWEET GPU: CX power-up failed; GMU not read\n");
++			printf("BERGAMOTA GPU: CX power-up failed; GMU not read\n");
 +			return;
 +		}
 +		cx_up = gpu_report(&gx_gdscr);
 +	}
 +	if (!cx_up) {
-+		printf("SWEET GPU: CX domain unpowered or unclocked; GMU not read\n");
++		printf("BERGAMOTA GPU: CX domain unpowered or unclocked; GMU not read\n");
 +		return;
 +	}
 +	if (!gpu_map_gmu()) {
@@ -2251,43 +2251,43 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +		gpu_tcm_test();
 +	}
 +	if (mode < 3) {
-+		printf("SWEET GPU: stage %d complete\n", mode);
++		printf("BERGAMOTA GPU: stage %d complete\n", mode);
 +		return;
 +	}
 +
 +	void *fw = NULL;
 +	size_t fwsize = 0;
-+	if (!sweet_a630_fw_get("gmu-firmware", "a630_gmu.bin", &fw, &fwsize)) {
-+		printf("SWEET GPU: a630_gmu.bin not found (%s or ADT /sweet-gpu gmu-firmware); GMU not booted\n", FW_DIR);
++	if (!bergamota_a630_fw_get("gmu-firmware", "a630_gmu.bin", &fw, &fwsize)) {
++		printf("BERGAMOTA GPU: a630_gmu.bin not found (%s or ADT /bergamota-gpu gmu-firmware); GMU not booted\n", FW_DIR);
 +		return;
 +	}
 +	if (mode == 3) {
 +		bool ok = gpu_gmu_boot((const uint32_t *)fw, fwsize, true);
-+		sweet_a630_fw_put(fw, fwsize);
-+		printf("SWEET GPU: stage 3 %s\n", ok ? "complete: GMU firmware boots" : "FAILED");
++		bergamota_a630_fw_put(fw, fwsize);
++		printf("BERGAMOTA GPU: stage 3 %s\n", ok ? "complete: GMU firmware boots" : "FAILED");
 +		return;
 +	}
 +
 +	/* KGSL order: GMU memory and IOMMU at probe, HFI table, then the boot. */
 +	if (!gpu_gmem_alloc() || !gpu_smmu_gmu()) {
-+		sweet_a630_fw_put(fw, fwsize);
-+		printf("SWEET GPU: GMU memory/SMMU setup failed; GMU not booted\n");
++		bergamota_a630_fw_put(fw, fwsize);
++		printf("BERGAMOTA GPU: GMU memory/SMMU setup failed; GMU not booted\n");
 +		return;
 +	}
 +	if (!gpu_dcvs_votes()) {
-+		sweet_a630_fw_put(fw, fwsize);
-+		printf("SWEET GPU: no DCVS votes; GMU not booted\n");
++		bergamota_a630_fw_put(fw, fwsize);
++		printf("BERGAMOTA GPU: no DCVS votes; GMU not booted\n");
 +		return;
 +	}
 +	if (mode >= 7 && !gpu_cp_memory()) {
-+		sweet_a630_fw_put(fw, fwsize);
-+		printf("SWEET GPU: CP memory setup failed; GMU not booted\n");
-+		sweet_log_sync();
++		bergamota_a630_fw_put(fw, fwsize);
++		printf("BERGAMOTA GPU: CP memory setup failed; GMU not booted\n");
++		bergamota_log_sync();
 +		return;
 +	}
 +	gpu_hfi_table();
 +	bool booted = gpu_gmu_boot((const uint32_t *)fw, fwsize, false);
-+	sweet_a630_fw_put(fw, fwsize);
++	bergamota_a630_fw_put(fw, fwsize);
 +	bool rail = false, gx = false;
 +	if (booted && mode >= 5) {
 +		rail = gpu_gx_rail_on();
@@ -2303,8 +2303,8 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +		gpu_gx_slumber();
 +	}
 +	gpu_gmu_reset();
-+	sweet_log_sync();
-+	printf("SWEET GPU: stage %d finished\n", mode);
++	bergamota_log_sync();
++	printf("BERGAMOTA GPU: stage %d finished\n", mode);
 +}
 +
 +static void
@@ -2313,20 +2313,20 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	(void)arg;
 +	(void)wr;
 +	int wait = 600;
-+	(void)PE_parse_boot_argn("sweetgpuwait", &wait, sizeof(wait));
++	(void)PE_parse_boot_argn("bergamotagpuwait", &wait, sizeof(wait));
 +	/* Stages >= 3 need the firmware: the ADT, or the iOS root once it is mounted. */
 +	void *fw = NULL;
 +	size_t size = 0;
 +	for (int t = 0;; t += 2) {
-+		if (sweet_a630_fw_get("gmu-firmware", "a630_gmu.bin", &fw, &size)) {
-+			sweet_a630_fw_put(fw, size);
++		if (bergamota_a630_fw_get("gmu-firmware", "a630_gmu.bin", &fw, &size)) {
++			bergamota_a630_fw_put(fw, size);
 +			break;
 +		}
 +		if (t == 0 || t % 60 == 0) {
-+			printf("SWEET GPU: waiting for a630_gmu.bin (ADT /sweet-gpu or %s), %d s\n", FW_DIR, t);
++			printf("BERGAMOTA GPU: waiting for a630_gmu.bin (ADT /bergamota-gpu or %s), %d s\n", FW_DIR, t);
 +		}
 +		if (t >= wait) {
-+			printf("SWEET GPU: no GPU firmware after %d s; giving up (see docs/GPU_A630_BRINGUP.md)\n", t);
++			printf("BERGAMOTA GPU: no GPU firmware after %d s; giving up (see docs/GPU_A630_BRINGUP.md)\n", t);
 +			goto out;
 +		}
 +		sleep_ms(2000);
@@ -2339,15 +2339,15 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +}
 +
 +void
-+sweet_a630_probe(void)
++bergamota_a630_probe(void)
 +{
 +	int mode = 0;
 +	thread_t thread;
 +
-+	if (!sweet_board_beryllium()) {
++	if (!bergamota_board_beryllium()) {
 +		return;
 +	}
-+	(void)PE_parse_boot_argn("sweetgpu", &mode, sizeof(mode));
++	(void)PE_parse_boot_argn("bergamotagpu", &mode, sizeof(mode));
 +	if (mode <= 0) {
 +		return;
 +	}
@@ -2363,18 +2363,18 @@ index 0000000000000000000000000000000000000000..cc26a50fe19b1b6d2df02639df33fceb
 +	if (kr == KERN_SUCCESS) {
 +		thread_deallocate(thread);
 +	} else {
-+		printf("SWEET GPU: kernel_thread_start failed %d\n", kr);
++		printf("BERGAMOTA GPU: kernel_thread_start failed %d\n", kr);
 +	}
 +}
-+#endif /* ARM64_BOARD_CONFIG_SWEET */
-diff --git a/bsd/dev/sweet_a630_pas.c b/bsd/dev/sweet_a630_pas.c
++#endif /* ARM64_BOARD_CONFIG_BERGAMOTA */
+diff --git a/bsd/dev/bergamota_a630_pas.c b/bsd/dev/bergamota_a630_pas.c
 new file mode 100644
 index 0000000000000000000000000000000000000000..131355df969cd5b8ddfddca092bce0f1eb960793
 --- /dev/null
-+++ b/bsd/dev/sweet_a630_pas.c
++++ b/bsd/dev/bergamota_a630_pas.c
 @@ -0,0 +1,342 @@
 +/*
-+ * SWEET GPU phase 1, Poco F1 (SDM845): signed Adreno 630 zap shader through
++ * BERGAMOTA GPU phase 1, Poco F1 (SDM845): signed Adreno 630 zap shader through
 + * Qualcomm TrustZone PAS (SCM service 2, pas id 13), as Linux
 + * qcom_mdt_load()/qcom_scm_pas_*() and the phone's subsys-pil-tz do:
 + *
@@ -2394,7 +2394,7 @@ index 0000000000000000000000000000000000000000..131355df969cd5b8ddfddca092bce0f1
 + * the phone's drivers/soc/qcom/scm.c and Linux qcom_scm-smc.c as ported in
 + * the ios-sweet gpu branch (0088-0092).
 + */
-+#if defined(ARM64_BOARD_CONFIG_SWEET)
++#if defined(ARM64_BOARD_CONFIG_BERGAMOTA)
 +#include <sys/param.h>
 +#include <sys/systm.h>
 +#include <kern/clock.h>
@@ -2403,17 +2403,17 @@ index 0000000000000000000000000000000000000000..131355df969cd5b8ddfddca092bce0f1
 +#include <vm/pmap.h>
 +#include <vm/vm_kern.h>
 +#include <pexpert/pexpert.h>
-+#include "sweet_board.h"
++#include "bergamota_board.h"
 +
 +extern ppnum_t pmap_find_phys(pmap_t, addr64_t);
 +extern void pmap_set_cache_attributes(ppnum_t, unsigned int);
 +extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
-+extern void sweet_log_sync(void);
-+extern bool sweet_a630_fw_get(const char *adt_prop, const char *file, void **buf, size_t *len);
-+extern void sweet_a630_fw_put(void *buf, size_t len);
-+bool sweet_a630_zap_load(void);
-+bool sweet_a630_zap_shutdown(void);
-+bool sweet_a630_zap_running(void);
++extern void bergamota_log_sync(void);
++extern bool bergamota_a630_fw_get(const char *adt_prop, const char *file, void **buf, size_t *len);
++extern void bergamota_a630_fw_put(void *buf, size_t len);
++bool bergamota_a630_zap_load(void);
++bool bergamota_a630_zap_shutdown(void);
++bool bergamota_a630_zap_running(void);
 +
 +#define SCM_SIP                 0x02000000u
 +#define SCM_64                  0x40000000u
@@ -2465,7 +2465,7 @@ index 0000000000000000000000000000000000000000..131355df969cd5b8ddfddca092bce0f1
 +				break;
 +			}
 +			if (resume == SCM_RESUME_LIMIT) {
-+				printf("SWEET GPU: SCM interrupted call did not complete; no further calls\n");
++				printf("BERGAMOTA GPU: SCM interrupted call did not complete; no further calls\n");
 +				return false;
 +			}
 +		}
@@ -2473,7 +2473,7 @@ index 0000000000000000000000000000000000000000..131355df969cd5b8ddfddca092bce0f1
 +			return true;
 +		}
 +		if (fast || busy == SCM_BUSY_LIMIT) {
-+			printf("SWEET GPU: SCM busy; no further calls\n");
++			printf("BERGAMOTA GPU: SCM busy; no further calls\n");
 +			return false;
 +		}
 +		delay(30000);
@@ -2491,14 +2491,14 @@ index 0000000000000000000000000000000000000000..131355df969cd5b8ddfddca092bce0f1
 +	const struct scm_regs initial = {
 +		{ SCM_64 | SCM_SIP | 0x0200u | cmd, arginfo, SCM_PAS_GPU, arg1, arg2, 0, 0 }
 +	};
-+	printf("SWEET GPU: SCM PAS %s fn=%#llx info=%#x args=%llu/%#llx/%#llx\n",
++	printf("BERGAMOTA GPU: SCM PAS %s fn=%#llx info=%#x args=%llu/%#llx/%#llx\n",
 +	    name, initial.a[0], arginfo, initial.a[2], arg1, arg2);
-+	sweet_log_sync();
++	bergamota_log_sync();
 +	__asm__ volatile ("dsb sy" ::: "memory");
 +	bool done = scm_invoke(&initial, false, &r);
 +	__asm__ volatile ("dsb sy" ::: "memory");
-+	printf("SWEET GPU: SCM PAS %s completed=%u status=%d result=%d\n", name, done, (int32_t)r.a[0], (int32_t)r.a[1]);
-+	sweet_log_sync();
++	printf("BERGAMOTA GPU: SCM PAS %s completed=%u status=%d result=%d\n", name, done, (int32_t)r.a[0], (int32_t)r.a[1]);
++	bergamota_log_sync();
 +	if (!done) {
 +		zap_unfinished = true;
 +		return ZAP_UNFINISHED;
@@ -2529,13 +2529,13 @@ index 0000000000000000000000000000000000000000..131355df969cd5b8ddfddca092bce0f1
 +		struct scm_regs r;
 +		const struct scm_regs init = { { SCM_64 | SCM_INFO_AVAIL, 1, SCM_SIP | 0x0200u | q[i].cmd, 0, 0, 0, 0 } };
 +		if (scm_invoke(&init, false, &r)) {
-+			printf("SWEET GPU: SCM PAS %s available: status=%d result=%llu\n", q[i].name, (int32_t)r.a[0], r.a[1]);
++			printf("BERGAMOTA GPU: SCM PAS %s available: status=%d result=%llu\n", q[i].name, (int32_t)r.a[0], r.a[1]);
 +		}
 +	}
 +}
 +
 +bool
-+sweet_a630_zap_running(void)
++bergamota_a630_zap_running(void)
 +{
 +	return zap_unfinished || zap_authenticated;
 +}
@@ -2543,22 +2543,22 @@ index 0000000000000000000000000000000000000000..131355df969cd5b8ddfddca092bce0f1
 +/*
 + * Load, authenticate and start the zap shader; true when AUTH_AND_RESET
 + * completed with status 0. After a failure the caller must still call
-+ * sweet_a630_zap_shutdown() if sweet_a630_zap_running().
++ * bergamota_a630_zap_shutdown() if bergamota_a630_zap_running().
 + */
 +bool
-+sweet_a630_zap_load(void)
++bergamota_a630_zap_load(void)
 +{
 +	void *mdt = NULL, *seg = NULL;
 +	size_t mdt_size = 0, seg_size = 0;
 +	bool ok = false;
 +
 +	if (zap_attempted) {
-+		printf("SWEET GPU: zap already attempted this boot\n");
++		printf("BERGAMOTA GPU: zap already attempted this boot\n");
 +		return false;
 +	}
 +	zap_attempted = true;
-+	if (!sweet_a630_fw_get("zap-mdt", "a630_zap.mdt", &mdt, &mdt_size) || mdt_size < 52 + 32 || mdt_size > 0x4000) {
-+		printf("SWEET GPU: a630_zap.mdt missing or invalid\n");
++	if (!bergamota_a630_fw_get("zap-mdt", "a630_zap.mdt", &mdt, &mdt_size) || mdt_size < 52 + 32 || mdt_size > 0x4000) {
++		printf("BERGAMOTA GPU: a630_zap.mdt missing or invalid\n");
 +		return false;
 +	}
 +	const uint8_t *e = mdt;
@@ -2566,7 +2566,7 @@ index 0000000000000000000000000000000000000000..131355df969cd5b8ddfddca092bce0f1
 +	unsigned phnum = u16le(e + 44);
 +	if (u32le(e) != 0x464c457f || e[4] != 1 || e[5] != 1 || u16le(e + 42) != 32 || phnum == 0 ||
 +	    phnum > MDT_MAX_PHDRS || phoff < 52 || phoff + 32u * phnum > mdt_size) {
-+		printf("SWEET GPU: a630_zap.mdt is not a Qualcomm ELF32 (magic %#x phnum %u phoff %u)\n", u32le(e), phnum, phoff);
++		printf("BERGAMOTA GPU: a630_zap.mdt is not a Qualcomm ELF32 (magic %#x phnum %u phoff %u)\n", u32le(e), phnum, phoff);
 +		goto out;
 +	}
 +	/* qcom_mdt_load: extent of the loadable, non-hash segments, relocatable or fixed. */
@@ -2575,7 +2575,7 @@ index 0000000000000000000000000000000000000000..131355df969cd5b8ddfddca092bce0f1
 +	for (unsigned i = 0; i < phnum; i++) {
 +		const uint8_t *p = e + phoff + 32 * i;
 +		uint32_t type = u32le(p), paddr = u32le(p + 12), memsz = u32le(p + 20), flags = u32le(p + 24);
-+		printf("SWEET GPU: zap phdr %u: type %u off %#x paddr %#x filesz %#x memsz %#x flags %#x\n",
++		printf("BERGAMOTA GPU: zap phdr %u: type %u off %#x paddr %#x filesz %#x memsz %#x flags %#x\n",
 +		    i, type, u32le(p + 4), paddr, u32le(p + 16), memsz, flags);
 +		if (type != PT_LOAD || (flags & QCOM_MDT_TYPE_MASK) == QCOM_MDT_TYPE_HASH || memsz == 0) {
 +			continue;
@@ -2585,14 +2585,14 @@ index 0000000000000000000000000000000000000000..131355df969cd5b8ddfddca092bce0f1
 +		max_addr = MAX(max_addr, (uint64_t)(paddr + memsz + 0xfff) & ~0xfffull);
 +	}
 +	if (min_addr == ~0ull || max_addr <= min_addr || max_addr - min_addr > ZAP_REGION_SIZE) {
-+		printf("SWEET GPU: zap extent %#llx-%#llx does not fit the 0x%x byte carve-out\n", min_addr, max_addr, ZAP_REGION_SIZE);
++		printf("BERGAMOTA GPU: zap extent %#llx-%#llx does not fit the 0x%x byte carve-out\n", min_addr, max_addr, ZAP_REGION_SIZE);
 +		goto out;
 +	}
 +	uint32_t mem_size = (uint32_t)(max_addr - min_addr);
-+	printf("SWEET GPU: zap: %s image, %u bytes at %#llx (carve-out %#llx)\n", relocate ? "relocatable" : "fixed", mem_size,
++	printf("BERGAMOTA GPU: zap: %s image, %u bytes at %#llx (carve-out %#llx)\n", relocate ? "relocatable" : "fixed", mem_size,
 +	    relocate ? ZAP_REGION_PA : min_addr, ZAP_REGION_PA);
 +	if (!relocate && min_addr != ZAP_REGION_PA) {
-+		printf("SWEET GPU: fixed-address zap outside the carve-out; not loaded\n");
++		printf("BERGAMOTA GPU: fixed-address zap outside the carve-out; not loaded\n");
 +		goto out;
 +	}
 +
@@ -2603,7 +2603,7 @@ index 0000000000000000000000000000000000000000..131355df969cd5b8ddfddca092bce0f1
 +	vm_size_t msize = round_page(mdt_size);
 +	if (kmem_alloc_contig(kernel_map, &kva, msize, PAGE_MASK, 0, 0,
 +	    KMA_DATA | KMA_ZERO | KMA_PERMANENT, VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS) {
-+		printf("SWEET GPU: zap metadata allocation failed\n");
++		printf("BERGAMOTA GPU: zap metadata allocation failed\n");
 +		goto out;
 +	}
 +	ppnum_t pn = pmap_find_phys(kernel_pmap, (addr64_t)kva);
@@ -2612,18 +2612,18 @@ index 0000000000000000000000000000000000000000..131355df969cd5b8ddfddca092bce0f1
 +	}
 +	for (unsigned i = 1; i < msize / PAGE_SIZE; i++) {
 +		if (pmap_find_phys(kernel_pmap, (addr64_t)(kva + i * PAGE_SIZE)) != pn + i) {
-+			printf("SWEET GPU: zap metadata not physically contiguous\n");
++			printf("BERGAMOTA GPU: zap metadata not physically contiguous\n");
 +			goto out;
 +		}
 +	}
 +	memcpy((void *)kva, mdt, mdt_size);
-+	sweet_dma_sync_va((const void *)kva, msize);
++	bergamota_dma_sync_va((const void *)kva, msize);
 +	for (unsigned i = 0; i < msize / PAGE_SIZE; i++) {
 +		pmap_set_cache_attributes(pn + i, VM_WIMG_WCOMB);
 +	}
-+	sweet_dma_sync_va((const void *)kva, msize);
++	bergamota_dma_sync_va((const void *)kva, msize);
 +	uint64_t meta_pa = ptoa_64(pn);
-+	printf("SWEET GPU: zap metadata %lu bytes at PA %#llx\n", (unsigned long)mdt_size, meta_pa);
++	printf("BERGAMOTA GPU: zap metadata %lu bytes at PA %#llx\n", (unsigned long)mdt_size, meta_pa);
 +
 +	/* SCM_ARGS(2, VAL, RW) = 2 | (2 << 6) = 0x82 */
 +	enum zap_result res = zap_call("INIT_IMAGE", 1, 0x82, meta_pa, 0);
@@ -2636,7 +2636,7 @@ index 0000000000000000000000000000000000000000..131355df969cd5b8ddfddca092bce0f1
 +	}
 +	vm_offset_t region = ml_io_map((vm_offset_t)ZAP_REGION_PA, ZAP_REGION_SIZE);
 +	if (!region) {
-+		printf("SWEET GPU: zap carve-out map failed\n");
++		printf("BERGAMOTA GPU: zap carve-out map failed\n");
 +		goto out_shutdown;
 +	}
 +	/* Zero the extent, then copy each segment from a630_zap.bNN (size must equal p_filesz). */
@@ -2653,13 +2653,13 @@ index 0000000000000000000000000000000000000000..131355df969cd5b8ddfddca092bce0f1
 +		snprintf(name, sizeof(name), "a630_zap.b%02u", i);
 +		char prop[16];
 +		snprintf(prop, sizeof(prop), "zap-b%02u", i);
-+		if (!sweet_a630_fw_get(prop, name, &seg, &seg_size) || seg_size != filesz || filesz > memsz) {
-+			printf("SWEET GPU: %s missing or %lu bytes (want %u)\n", name, (unsigned long)seg_size, filesz);
++		if (!bergamota_a630_fw_get(prop, name, &seg, &seg_size) || seg_size != filesz || filesz > memsz) {
++			printf("BERGAMOTA GPU: %s missing or %lu bytes (want %u)\n", name, (unsigned long)seg_size, filesz);
 +			goto out_shutdown;
 +		}
 +		uint64_t off = (relocate ? (uint64_t)paddr - min_addr : (uint64_t)paddr - ZAP_REGION_PA);
 +		if (off + filesz > mem_size) {
-+			printf("SWEET GPU: zap segment %u outside the image\n", i);
++			printf("BERGAMOTA GPU: zap segment %u outside the image\n", i);
 +			goto out_shutdown;
 +		}
 +		const uint8_t *s = seg;
@@ -2670,16 +2670,16 @@ index 0000000000000000000000000000000000000000..131355df969cd5b8ddfddca092bce0f1
 +			}
 +			*(volatile uint32_t *)(region + off + o) = w;
 +		}
-+		printf("SWEET GPU: zap segment %u (%s): %u bytes -> carve-out +%#llx\n", i, name, filesz, off);
-+		sweet_a630_fw_put(seg, seg_size);
++		printf("BERGAMOTA GPU: zap segment %u (%s): %u bytes -> carve-out +%#llx\n", i, name, filesz, off);
++		bergamota_a630_fw_put(seg, seg_size);
 +		seg = NULL;
 +	}
 +	__asm__ volatile ("dsb sy" ::: "memory");
 +	res = zap_call("AUTH_AND_RESET", 5, 1, 0, 0);
 +	if (res == ZAP_OK) {
 +		zap_authenticated = true;
-+		printf("SWEET GPU: signed zap authenticated and started\n");
-+		sweet_log_sync();
++		printf("BERGAMOTA GPU: signed zap authenticated and started\n");
++		bergamota_log_sync();
 +		ok = true;
 +	}
 +	goto out;
@@ -2690,15 +2690,15 @@ index 0000000000000000000000000000000000000000..131355df969cd5b8ddfddca092bce0f1
 +	}
 +out:
 +	if (seg) {
-+		sweet_a630_fw_put(seg, seg_size);
++		bergamota_a630_fw_put(seg, seg_size);
 +	}
-+	sweet_a630_fw_put(mdt, mdt_size);
++	bergamota_a630_fw_put(mdt, mdt_size);
 +	return ok;
 +}
 +
 +/* SHUTDOWN after a successful or partial load; true when quiesced (or never started). */
 +bool
-+sweet_a630_zap_shutdown(void)
++bergamota_a630_zap_shutdown(void)
 +{
 +	if (zap_unfinished) {
 +		return false;
@@ -2707,31 +2707,31 @@ index 0000000000000000000000000000000000000000..131355df969cd5b8ddfddca092bce0f1
 +		return true;
 +	}
 +	bool stopped = zap_call("SHUTDOWN", 6, 1, 0, 0) == ZAP_OK;
-+	printf("SWEET GPU: zap shutdown %s\n", stopped ? "complete" : "FAILED");
-+	sweet_log_sync();
++	printf("BERGAMOTA GPU: zap shutdown %s\n", stopped ? "complete" : "FAILED");
++	bergamota_log_sync();
 +	if (stopped) {
 +		zap_authenticated = false;
 +	}
 +	return stopped;
 +}
-+#endif /* ARM64_BOARD_CONFIG_SWEET */
-diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
++#endif /* ARM64_BOARD_CONFIG_BERGAMOTA */
+diff --git a/bsd/dev/bergamota_ufs.c b/bsd/dev/bergamota_ufs.c
 index 9dc4ba1b812ff24ea1796919ede22ed7da697d3c..6011e91400e3b8477e233c79c78887e085d48757 100644
---- a/bsd/dev/sweet_ufs.c
-+++ b/bsd/dev/sweet_ufs.c
-@@ -56,6 +56,7 @@ extern void sweet_keys_init(void);
- extern void sweet_touch_init(void);
- extern void sweet_usb_probe(void);
- extern void sweet_cpufreq_max(void);
-+extern void sweet_a630_probe(void);
+--- a/bsd/dev/bergamota_ufs.c
++++ b/bsd/dev/bergamota_ufs.c
+@@ -56,6 +56,7 @@ extern void bergamota_keys_init(void);
+ extern void bergamota_touch_init(void);
+ extern void bergamota_usb_probe(void);
+ extern void bergamota_cpufreq_max(void);
++extern void bergamota_a630_probe(void);
  
  #define REG_CAP         0x00
  #define REG_IS          0x20
-@@ -686,6 +687,7 @@ sweet_ufs_init(void)
- 	sweet_keys_init();
- 	sweet_touch_init();
- 	sweet_usb_probe();
-+	sweet_a630_probe();	/* sweetgpu=N, beryllium only, off by default */
+@@ -686,6 +687,7 @@ bergamota_ufs_init(void)
+ 	bergamota_keys_init();
+ 	bergamota_touch_init();
+ 	bergamota_usb_probe();
++	bergamota_a630_probe();	/* bergamotagpu=N, beryllium only, off by default */
  	return 0;
  }
  
@@ -2744,7 +2744,7 @@ index 76a7e1e27b1141e03b39d4e349bffe9af1729d2d..fae3c3bf9b9d6cbeb2eedca54bc67a5b
  	ppnum_t pp)
  {
 -	flush_dcache((vm_offset_t) (pp << PAGE_SHIFT), PAGE_SIZE, TRUE);
-+	/* SWEET: ptoa widens before the shift; (pp << PAGE_SHIFT) dropped bit 32+ and
++	/* BERGAMOTA: ptoa widens before the shift; (pp << PAGE_SHIFT) dropped bit 32+ and
 +	 * panicked in phystokv_range for kernel RAM above 4 GiB (ios-sweet 0083). */
 +	flush_dcache((vm_offset_t) ptoa(pp), PAGE_SIZE, TRUE);
  }

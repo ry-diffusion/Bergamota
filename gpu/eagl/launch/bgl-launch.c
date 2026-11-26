@@ -5,7 +5,7 @@
  * execs plain /usr/libexec/backboardd, exactly as without this wrapper.
  *
  *   boot-arg bglrender=es    inject the GL shim (DEPRECATED ES renderer, explicit only); GPU if the kernel offers it, else softpipe
- *   boot-arg bglrender=soft  inject the GL shim, force softpipe (SWEET_GPU=0)
+ *   boot-arg bglrender=soft  inject the GL shim, force softpipe (BERGAMOTA_GPU=0)
  *   boot-arg bglrender=1     NO LONGER the ES renderer (2026-10-24): Metal (Chlorophyll) when armed, else plain backboardd, whose
  *                            render server then draws with CoreAnimation's own CPU renderer
  *   boot-arg bgldebug=1      additionally EAGL_SHIM_DEBUG=1 (shim logging to the log file below)
@@ -305,7 +305,7 @@ int main(int argc, char **argv)
 		snprintf(lib, sizeof lib, "%s/OpenGLES.framework/OpenGLES", LIBDIR);
 		setenv("DYLD_INSERT_LIBRARIES", lib, 1);
 		if (!strcmp(mode, "soft"))
-			setenv("SWEET_GPU", "0", 1);
+			setenv("BERGAMOTA_GPU", "0", 1);
 		{   /* the render-server hook of the shim (ca_server_hook.m): on unless bglhook=0 (boot-arg) or "nohook" in the marker */
 			char hv[16] = "";
 			if (!g_marker_nohook && !(has_arg(args, "bglhook", hv, sizeof hv) && !strcmp(hv, "0")))
@@ -315,7 +315,7 @@ int main(int argc, char **argv)
 		if ((has_arg(args, "bgldebug", dbg, sizeof dbg) && !strcmp(dbg, "1")) || g_marker_debug) {
 			debug_on = 1;
 			setenv("EAGL_SHIM_DEBUG", g_marker_frames ? "2" : "1", 1);
-			setenv("SWEET_GPU_DEBUG", "1", 1);
+			setenv("BERGAMOTA_GPU_DEBUG", "1", 1);
 			setenv("MESA_DEBUG", "1", 1);   /* GL errors and shader compile/link failures on stderr */
 		}
 		if (g_marker_syncall) setenv("BGL_SYNC_ALL", "1", 1);

@@ -270,9 +270,9 @@ IO80211Controller (V2: still `: IOEthernetController`, now with createWorkQueue(
 * Kernel-side Skywalk (`bsd/skywalk`: nexus, netif, kern pipes, flowswitch) is **in open XNU and already compiled
   into our kernel** ("Skywalk self-tests PASSED" in NOTES.md, `research/bt125/xnu/bsd/skywalk` exists). What is closed
   is **IOSkywalkFamily** (the IOKit objects on top) and everything above it. [V]
-* Our kernel has *no* IONetworkingFamily: `0110-sweet-configd-network-interface.patch` defines minimal stand-in
+* Our kernel has *no* IONetworkingFamily: `0110-bergamota-configd-network-interface.patch` defines minimal stand-in
   classes `IONetworkInterface`, `IOEthernetInterface`, `IONetworkStack` (+ a user client) in
-  `iokit/Kernel/arm/SweetNetwork.cpp` purely so configd adopts `ue0`. [V patch text] Anything inheriting from
+  `iokit/Kernel/arm/BergamotaNetwork.cpp` purely so configd adopts `ue0`. [V patch text] Anything inheriting from
   `IOEthernetController`/`IONetworkController` (all IO80211 classes, and AppleBCMWLAN) therefore has no base class
   today.
 
@@ -298,7 +298,7 @@ We compile the kernel from source, so no kext loading and no ABI matching are ne
 Minimum set to get Settings -> Wi-Fi to list networks and join one, in order:
 1. Base classes the family inherits: `IONetworkController` / `IOEthernetController` / `IONetworkInterface` (open
    source in apple-oss-distributions' `IONetworkingFamily` [U on the exact tag; I did not fetch it]) compiled into the
-   kernel, replacing the stand-ins in `SweetNetwork.cpp`. Without these nothing named `IO80211*` can be a subclass.
+   kernel, replacing the stand-ins in `BergamotaNetwork.cpp`. Without these nothing named `IO80211*` can be a subclass.
 2. `IO80211Controller`-like object publishing `IOMatchCategory WiFiDriver`, `built-in`, `IOMACAddress`, and a
    `IO80211InfraInterface`/`IO80211SkywalkInterface`-like child with BSD name `en0` registered as a real `ifnet`
    (the existing `ue0` code path shows how to publish to configd).
@@ -331,7 +331,7 @@ What it would require, in dependency order (everything here is [U] reasoning unl
 
 1. **Closure of dependencies.** IO80211Family imports IONetworkingFamily (open source), IOSkywalkFamily (closed),
    IOReportFamily, corecapture (`com.apple.driver.corecapture`, closed), CoreAnalyticsFamily, AppleMobileFileIntegrity
-   (we have a stand-in `sweet_amfi`), `com.apple.kec.corecrypto` (we already stub with `BearSSL`/own PRNG),
+   (we have a stand-in `bergamota_amfi`), `com.apple.kec.corecrypto` (we already stub with `BearSSL`/own PRNG),
    IOTimeSyncFamily. Every one of these either has to be extracted and loaded too or stubbed with exact symbol
    names. (All named in the `OSBundleLibraries` of `AppleBCMWLANCore` and IO80211Family, [V] for AppleBCMWLANCore's list.)
 2. **Linking.** The kernelcache is an old-style prelinked image: the kexts' internal and kernel-facing references are
@@ -355,7 +355,7 @@ What it would require, in dependency order (everything here is [U] reasoning unl
    `IO80211Controller` (V2/Skywalk iOS generation) with a vtable we only know from AppleBCMWLANCore and itlwm's
    macOS 13/14 headers: iOS 16.7 vs macOS 13.x header drift is likely [U]. A one-slot error is a kernel panic.
 5. **Code signing / AMFI / entitlements / sandbox** (family user clients check entitlements for
-   `com.apple.wifi.*`; our `sweet_amfi` grants none and 0116 has the sandbox-extension work) - manageable but it is
+   `com.apple.wifi.*`; our `bergamota_amfi` grants none and 0116 has the sandbox-extension work) - manageable but it is
    work on top of the above.
 
 **Assessment:** B delivers Apple's real RSN supplicant, scan manager, flow queues, AWDL/NAN, peer managers for free, but

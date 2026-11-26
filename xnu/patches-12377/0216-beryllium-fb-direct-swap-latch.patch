@@ -1,21 +1,21 @@
-diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
+diff --git a/iokit/Kernel/arm/BergamotaFramebuffer.cpp b/iokit/Kernel/arm/BergamotaFramebuffer.cpp
 index bbe358f7fa2493239f4b4996e2e6aabb9c0008eb..99a38694b7d40c9201471a0758ae734d9422aabb 100644
---- a/iokit/Kernel/arm/SweetFramebuffer.cpp
-+++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
-@@ -55,6 +55,7 @@ extern "C" int sweet_battery_hud(int *percent, int *ma);        /* iokit/Kernel/
- class SweetSurface;
- static void sweet_hold_release(SweetSurface **set);
+--- a/iokit/Kernel/arm/BergamotaFramebuffer.cpp
++++ b/iokit/Kernel/arm/BergamotaFramebuffer.cpp
+@@ -55,6 +55,7 @@ extern "C" int bergamota_battery_hud(int *percent, int *ma);        /* iokit/Kernel/
+ class BergamotaSurface;
+ static void bergamota_hold_release(BergamotaSurface **set);
  static uint32_t get32(const uint8_t *p, uint32_t off);
-+static uint64_t sweet_abs_us(uint64_t abs);
++static uint64_t bergamota_abs_us(uint64_t abs);
  
- #if defined(SWEET)
+ #if defined(BERGAMOTA)
  #include <IOKit/IOService.h>
 @@ -231,6 +232,26 @@ public:
  	uint32_t      fZcCount, fZcNo[8], fZcNoNext, fZcWhySeen;
  	uint64_t      fZcFrames, fCopyFrames;
  	bool          zcPresent(const uint8_t *rec, uint32_t mask);
 +	/*
-+	 * Honest swap completion (patch 0216, boot-arg sweetfb_swapsync, default on in direct mode). backboardd's
++	 * Honest swap completion (patch 0216, boot-arg bergamotafb_swapsync, default on in direct mode). backboardd's
 +	 * CA::WindowServer::IOMFBDisplay::can_update_ calls IOMobileFramebufferSwapWait(swap id) (selector 6) before it starts
 +	 * a frame and treats 0 as "that swap is done, the surface is free"; selector 6 used to return 0 at once, so
 +	 * CoreAnimation rendered the next frame while the previous one was still queued for the panel. Now a swap is
@@ -26,16 +26,16 @@ index bbe358f7fa2493239f4b4996e2e6aabb9c0008eb..99a38694b7d40c9201471a0758ae734d
 +	 */
 +	bool          fSwapSync;
 +	uint32_t      fSwapNewest, fSwapScanID, fSwapPrevScan, fSwapDone, fCurSwapID;
-+	uint32_t      fSwapDepth;       /* sweetfb_swapdepth: 1 = SwapWait(N) waits until N latched, 2 (default) = until N-1 latched */
++	uint32_t      fSwapDepth;       /* bergamotafb_swapdepth: 1 = SwapWait(N) waits until N latched, 2 (default) = until N-1 latched */
 +	bool          fWatching;        /* a frame is queued: the swap timer polls for its latch every 500 us */
 +	void          latchWatch(void);
-+	bool          fVsyncAlign;      /* sweetfb_vsyncalign: the vsync timer follows the latch times SwapWait observed */
++	bool          fVsyncAlign;      /* bergamotafb_vsyncalign: the vsync timer follows the latch times SwapWait observed */
 +	uint64_t      fPhaseAbs;        /* a latch (vsync) as observed by SwapWait, abs time; 0 = none yet */
 +	uint64_t      fPeriodAbs;       /* vsync period, abs units */
 +	IOReturn      swapWait(uint32_t id);
 +	bool          swapReady(uint32_t id);
  	/*
- 	 * Display path statistics (patch 0210, sysctl kern.sweet_fb). Totals since
+ 	 * Display path statistics (patch 0210, sysctl kern.bergamota_fb). Totals since
  	 * boot; once a second the window since the last publish is turned into
 @@ -247,6 +268,7 @@ public:
  		uint64_t copyAbs, copyMaxAbs;   /* copy path, latch waits excluded */
@@ -44,7 +44,7 @@ index bbe358f7fa2493239f4b4996e2e6aabb9c0008eb..99a38694b7d40c9201471a0758ae734d
 +		uint64_t swapWaits, swapWaitAbs, swapWaitTimeouts;      /* SwapWait calls that had to wait, their time, those that gave up */
  	} fSt, fStPrev;
  	/*
- 	 * Direct scanout (sweetfb_direct=1, patch 0211): hw scaler + page flipping + zero-copy
+ 	 * Direct scanout (bergamotafb_direct=1, patch 0211): hw scaler + page flipping + zero-copy
 @@ -502,10 +524,14 @@ AppleCLCD::start(IOService *provider)
  			zcReq = 1;
  		}
@@ -57,7 +57,7 @@ index bbe358f7fa2493239f4b4996e2e6aabb9c0008eb..99a38694b7d40c9201471a0758ae734d
 +			 * the frame is a GPU frame and no write-lock/unlock of the surface came since the last scan.
 +			 */
 +			uint32_t cm = 1;
- 			PE_parse_boot_argn("sweetfb_zcclean", &cm, sizeof(cm));
+ 			PE_parse_boot_argn("bergamotafb_zcclean", &cm, sizeof(cm));
 -			fZcCleanMode = cm > 2 ? 2 : cm;
 +			fZcCleanMode = cm > 3 ? 3 : cm;
  		}
@@ -67,10 +67,10 @@ index bbe358f7fa2493239f4b4996e2e6aabb9c0008eb..99a38694b7d40c9201471a0758ae734d
  			}
  		}
  		if (fZc && fZcOK) {
--			sweet_lowpool_gpu_nosync(fZcCleanMode != 1);
+-			bergamota_lowpool_gpu_nosync(fZcCleanMode != 1);
 +			bool nosync = fZcCleanMode == 0 || fZcCleanMode == 2;
-+			sweet_lowpool_gpu_nosync(nosync);
- 			IOLog("SWEET FB: pool surface cache policy: clean at scan = %s, BO_SYNC of scanned GPU surfaces = %s\n",
++			bergamota_lowpool_gpu_nosync(nosync);
+ 			IOLog("BERGAMOTA FB: pool surface cache policy: clean at scan = %s, BO_SYNC of scanned GPU surfaces = %s\n",
 -			    fZcCleanMode == 0 ? "never" : (fZcCleanMode == 1 ? "always" : "only CPU-drawn frames"),
 -			    fZcCleanMode != 1 ? "skipped" : "clean+invalidate");
 +			    fZcCleanMode == 0 ? "never" : (fZcCleanMode == 1 ? "always" : (fZcCleanMode == 2 ? "only frames nobody announced" :
@@ -80,26 +80,26 @@ index bbe358f7fa2493239f4b4996e2e6aabb9c0008eb..99a38694b7d40c9201471a0758ae734d
  			fEarly = fZc && fZcOK;
 +			{
 +				int ss = 1, va = 1, depth = 2;
-+				PE_parse_boot_argn("sweetfb_swapdepth", &depth, sizeof(depth));
++				PE_parse_boot_argn("bergamotafb_swapdepth", &depth, sizeof(depth));
 +				fSwapDepth = depth <= 1 ? 1 : 2;
-+				PE_parse_boot_argn("sweetfb_swapsync", &ss, sizeof(ss));
-+				PE_parse_boot_argn("sweetfb_vsyncalign", &va, sizeof(va));
++				PE_parse_boot_argn("bergamotafb_swapsync", &ss, sizeof(ss));
++				PE_parse_boot_argn("bergamotafb_vsyncalign", &va, sizeof(va));
 +				fSwapSync = fEarly && ss != 0;
 +				fVsyncAlign = fSwapSync && va != 0;
 +				if (fEarly) {
-+					IOLog("SWEET FB: swap completion %s (depth %u: SwapWait(N) waits for swap N%s to latch; sweetfb_swapsync=0 = answer at once), vsync timer %s\n",
-+					    fSwapSync ? "honest" : "immediate", fSwapDepth, fSwapDepth == 1 ? "" : "-1", fVsyncAlign ? "follows the observed latch (sweetfb_vsyncalign=0 = free running)" : "free running");
++					IOLog("BERGAMOTA FB: swap completion %s (depth %u: SwapWait(N) waits for swap N%s to latch; bergamotafb_swapsync=0 = answer at once), vsync timer %s\n",
++					    fSwapSync ? "honest" : "immediate", fSwapDepth, fSwapDepth == 1 ? "" : "-1", fVsyncAlign ? "follows the observed latch (bergamotafb_vsyncalign=0 = free running)" : "free running");
 +				}
 +			}
  			if (!fEarly) {
- 				IOLog("SWEET FB: sweetfb_direct=1 but zero-copy is not available (%s): every frame is copied at sweetfb_hz\n",
+ 				IOLog("BERGAMOTA FB: bergamotafb_direct=1 but zero-copy is not available (%s): every frame is copied at bergamotafb_hz\n",
  				    !fHw || !fFlip ? "no hardware scaler / page flipping" : (!fZcOK ? "MDP SMMU not verified bypass" : "no low pool"));
 @@ -612,9 +652,37 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
  	uint64_t now = mach_absolute_time();
  	uint64_t count = ++fb->fVsyncCount;
  	fb->fSt.ticks++;
 +	/*
-+	 * 0216: with sweetfb_vsyncalign the notification carries the time of the latest panel vsync that SwapWait saw (the
++	 * 0216: with bergamotafb_vsyncalign the notification carries the time of the latest panel vsync that SwapWait saw (the
 +	 * MDP latch, a real vsync of the panel) projected forward by whole periods, and the timer is re-armed for the next
 +	 * one, so CoreAnimation's display link runs on the panel's phase instead of on a free-running 60 Hz clock.
 +	 */
@@ -120,7 +120,7 @@ index bbe358f7fa2493239f4b4996e2e6aabb9c0008eb..99a38694b7d40c9201471a0758ae734d
 +			if (left < per / 4) {
 +				left += per;    /* too close to the boundary we just served: aim for the next one */
 +			}
-+			nextUS = (uint32_t)sweet_abs_us(left);
++			nextUS = (uint32_t)bergamota_abs_us(left);
 +			if (nextUS < 1000) {
 +				nextUS = 1000;
 +			}
@@ -143,7 +143,7 @@ index bbe358f7fa2493239f4b4996e2e6aabb9c0008eb..99a38694b7d40c9201471a0758ae734d
  	}
  	bool flush = fb->fDirty && (count % fb->fFlushTicks) == 0;
 @@ -670,7 +738,7 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
- 	sweet_hold_release(taken);      /* copied: CA may render into them again */
+ 	bergamota_hold_release(taken);      /* copied: CA may render into them again */
  	fb->statsTick(now);
  	fb->hudTick(now);
 -	sender->setTimeoutUS(fb->fVsyncUS);
@@ -163,18 +163,18 @@ index bbe358f7fa2493239f4b4996e2e6aabb9c0008eb..99a38694b7d40c9201471a0758ae734d
 @@ -702,6 +772,7 @@ AppleCLCD::swapFired(OSObject *owner, IOTimerEventSource *)
  	fb->quietConsole();
  	if (fb->zcPresent(fb->fEarlyRec, get32(fb->fEarlyRec, 0x104))) {
- 		sweet_hold_release(taken);      /* zcPresent holds the surface itself until its frame latched */
+ 		bergamota_hold_release(taken);      /* zcPresent holds the surface itself until its frame latched */
 +		fb->latchWatch();
  		return;
  	}
- 	SweetSurface *dropped[4] = {};
+ 	BergamotaSurface *dropped[4] = {};
 @@ -762,6 +833,8 @@ AppleCLCD::statsTick(uint64_t now)
- 	uint64_t copyAvg = dCopy ? sweet_abs_us(c.copyAbs - p.copyAbs) * 100 / dCopy : 0;
- 	uint64_t zcAvg = dZc ? sweet_abs_us(c.zcAbs - p.zcAbs) * 100 / dZc : 0;
- 	uint64_t clAvg = dCl ? sweet_abs_us(c.cleanAbs - p.cleanAbs) * 100 / dCl : 0;
+ 	uint64_t copyAvg = dCopy ? bergamota_abs_us(c.copyAbs - p.copyAbs) * 100 / dCopy : 0;
+ 	uint64_t zcAvg = dZc ? bergamota_abs_us(c.zcAbs - p.zcAbs) * 100 / dZc : 0;
+ 	uint64_t clAvg = dCl ? bergamota_abs_us(c.cleanAbs - p.cleanAbs) * 100 / dCl : 0;
 +	uint64_t dSwW = c.swapWaits - p.swapWaits;
-+	uint64_t swAvg = dSwW ? sweet_abs_us(c.swapWaitAbs - p.swapWaitAbs) * 100 / dSwW : 0;
- 	uint64_t lwAvg = dLw ? sweet_abs_us(c.latchWaitAbs - p.latchWaitAbs) * 100 / dLw : 0;
++	uint64_t swAvg = dSwW ? bergamota_abs_us(c.swapWaitAbs - p.swapWaitAbs) * 100 / dSwW : 0;
+ 	uint64_t lwAvg = dLw ? bergamota_abs_us(c.latchWaitAbs - p.latchWaitAbs) * 100 / dLw : 0;
  	const char *mode = fZc && fZcOK ? (fDirect ? "direct" : "zc") : "copy";
  	const char *smmu = fSmmuA == -2 ? "untested" : ((fSmmuA == 1 && fSmmuB == 1) ? "bypass" : "translate-or-unknown");
 @@ -776,14 +849,16 @@ AppleCLCD::statsTick(uint64_t now)
@@ -186,17 +186,17 @@ index bbe358f7fa2493239f4b4996e2e6aabb9c0008eb..99a38694b7d40c9201471a0758ae734d
 +	    "pool_used=%u pool_total=%u pool_surfaces=%llu pool_fallbacks=%llu "
 +	    "swapsync=%d swap_waits=%llu swap_wait_us=%u.%02u swap_wait_timeouts=%llu\n",
 +	    mode, hz, fFlushTicks, fHw ? 1 : 0, fFlip ? 1 : 0, smmu, fZcCleanMode == 0 ? "never" : (fZcCleanMode == 1 ? "always" : (fZcCleanMode == 2 ? "auto" : "tracked")),
- 	    sweet_abs_us(now) / 1000000, winUS / 1000,
+ 	    bergamota_abs_us(now) / 1000000, winUS / 1000,
  	    swaps, SW_F2(PER_S(dSwaps)), coalesced, SW_F2(PER_S(dCoal)),
  	    c.zc, SW_F2(PER_S(dZc)), c.copy, SW_F2(PER_S(dCopy)), c.scanReplaced, SW_F2(PER_S(dRepl)),
- 	    SW_F2(copyAvg), sweet_abs_us(c.copyMaxAbs), SW_F2(zcAvg), sweet_abs_us(c.zcMaxAbs), SW_F2(clAvg), c.cleans, c.cleanSkips,
+ 	    SW_F2(copyAvg), bergamota_abs_us(c.copyMaxAbs), SW_F2(zcAvg), bergamota_abs_us(c.zcMaxAbs), SW_F2(clAvg), c.cleans, c.cleanSkips,
  	    c.latchWaits, SW_F2(lwAvg), c.latchTimeouts, SW_F2(PER_S(dTicks)),
 -	    used, total, pallocs, pfails);
 +	    used, total, pallocs, pfails,
 +	    fSwapSync ? 1 : 0, c.swapWaits, SW_F2(swAvg), c.swapWaitTimeouts);
  	#undef PER_S
- 	sweet_fb_stats_publish(line);
- 	if (fStLogSecs != 0 && (fStLogT == 0 || sweet_abs_us(now - fStLogT) >= (uint64_t)fStLogSecs * 1000000)) {
+ 	bergamota_fb_stats_publish(line);
+ 	if (fStLogSecs != 0 && (fStLogT == 0 || bergamota_abs_us(now - fStLogT) >= (uint64_t)fStLogSecs * 1000000)) {
 @@ -878,6 +953,7 @@ AppleCLCD::swap(const uint8_t *rec)
  	}
  	IOLockLock(fLock);
@@ -206,7 +206,7 @@ index bbe358f7fa2493239f4b4996e2e6aabb9c0008eb..99a38694b7d40c9201471a0758ae734d
  		fSt.coalesced++;        /* the previous swap never reached the panel */
  	}
 @@ -1363,6 +1439,10 @@ AppleCLCD::scanAddr(uint32_t pa, uint32_t stride, bool hwFrame)
- 	    (*(volatile uint32_t *)(fMdp + SWEET_MDP_CTL0 + SWEET_MDP_CTL_FLUSH) & fLastFlush) != 0) {
+ 	    (*(volatile uint32_t *)(fMdp + BERGAMOTA_MDP_CTL0 + BERGAMOTA_MDP_CTL_FLUSH) & fLastFlush) != 0) {
  		fSt.scanReplaced++;     /* the previous address was still waiting for its vsync: that frame is never shown */
  	}
 +	if (fCurSwapID != fSwapScanID) {
@@ -216,26 +216,26 @@ index bbe358f7fa2493239f4b4996e2e6aabb9c0008eb..99a38694b7d40c9201471a0758ae734d
  	__asm__ volatile ("dsb sy" ::: "memory");      /* WC writes of the frame land first */
  	p[SSPP_SRC0_ADDR / 4] = pa;
  	p[SSPP_YSTRIDE0 / 4] = stride;
-@@ -1442,17 +1522,17 @@ sweet_dcache_clean_va(const void *va, size_t len)
+@@ -1442,17 +1522,17 @@ bergamota_dcache_clean_va(const void *va, size_t len)
  void
  AppleCLCD::zcPoll(void)
  {
 -	if (fZcCount == 0) {
-+	volatile uint32_t *flush = (volatile uint32_t *)(fMdp + SWEET_MDP_CTL0 + SWEET_MDP_CTL_FLUSH);
++	volatile uint32_t *flush = (volatile uint32_t *)(fMdp + BERGAMOTA_MDP_CTL0 + BERGAMOTA_MDP_CTL_FLUSH);
 +	if (fZcCount == 0 && !fSwapSync) {
  		return;
  	}
--	volatile uint32_t *flush = (volatile uint32_t *)(fMdp + SWEET_MDP_CTL0 + SWEET_MDP_CTL_FLUSH);
+-	volatile uint32_t *flush = (volatile uint32_t *)(fMdp + BERGAMOTA_MDP_CTL0 + BERGAMOTA_MDP_CTL_FLUSH);
  	if (*flush & fLastFlush) {
  		return;         /* the newest frame is not on the panel yet */
  	}
  	/* the newest scan is on the panel: everything older is free; if a copied frame
  	 * replaced the pooled one, that one is free as well */
  	uint32_t keep = fZcFront ? fZcCount - 1 : fZcCount;
--	SweetSurface *newest = fZcFront ? fZcHeld[fZcCount - 1] : NULL;
-+	SweetSurface *newest = fZcFront && fZcCount != 0 ? fZcHeld[fZcCount - 1] : NULL;
+-	BergamotaSurface *newest = fZcFront ? fZcHeld[fZcCount - 1] : NULL;
++	BergamotaSurface *newest = fZcFront && fZcCount != 0 ? fZcHeld[fZcCount - 1] : NULL;
  	for (uint32_t i = 0; i < keep; i++) {
- 		sweet_hold(fZcHeld[i], false);
+ 		bergamota_hold(fZcHeld[i], false);
  		fZcHeld[i]->release();
 @@ -1461,6 +1541,111 @@ AppleCLCD::zcPoll(void)
  	fZcHeld[0] = newest;
@@ -254,8 +254,8 @@ index bbe358f7fa2493239f4b4996e2e6aabb9c0008eb..99a38694b7d40c9201471a0758ae734d
 + * again every 100 us until its own timeout (swap_wait_timeout), so waiting here for up to a frame only saves it
 + * the polling. The wait polls the CTL flush bits (a register read) every 250 us; when it sees them clear it kicks the
 + * work loop (swapFired -> zcPoll) to release the holds and records the time as a real panel vsync (fPhaseAbs) when it
-+ * watched the bits go from set to clear. Not in copy mode (frames are paced by sweetfb_hz there), with the display off,
-+ * for ids that were never swapped, or with sweetfb_swapsync=0.
++ * watched the bits go from set to clear. Not in copy mode (frames are paced by bergamotafb_hz there), with the display off,
++ * for ids that were never swapped, or with bergamotafb_swapsync=0.
 + */
 +/*
 + * Swap `id` may be answered "complete" (0217, one frame in flight): it was latched, or (depth 2) it is the frame now
@@ -287,7 +287,7 @@ index bbe358f7fa2493239f4b4996e2e6aabb9c0008eb..99a38694b7d40c9201471a0758ae734d
 +void
 +AppleCLCD::latchWatch(void)
 +{
-+	volatile uint32_t *flush = (volatile uint32_t *)(fMdp + SWEET_MDP_CTL0 + SWEET_MDP_CTL_FLUSH);
++	volatile uint32_t *flush = (volatile uint32_t *)(fMdp + BERGAMOTA_MDP_CTL0 + BERGAMOTA_MDP_CTL_FLUSH);
 +	uint32_t lf = fLastFlush;
 +	if (lf != 0 && (*flush & lf) != 0) {
 +		fWatching = true;
@@ -315,7 +315,7 @@ index bbe358f7fa2493239f4b4996e2e6aabb9c0008eb..99a38694b7d40c9201471a0758ae734d
 +	if (swapReady(id)) {
 +		return kIOReturnSuccess;
 +	}
-+	volatile uint32_t *flush = (volatile uint32_t *)(fMdp + SWEET_MDP_CTL0 + SWEET_MDP_CTL_FLUSH);
++	volatile uint32_t *flush = (volatile uint32_t *)(fMdp + BERGAMOTA_MDP_CTL0 + BERGAMOTA_MDP_CTL_FLUSH);
 +	uint64_t t0 = mach_absolute_time(), limit;
 +	bool sawBusy = false, kicked = false;
 +	nanoseconds_to_absolutetime((uint64_t)fVsyncUS * 1500, &limit);        /* 1.5 frames */
@@ -354,18 +354,18 @@ index bbe358f7fa2493239f4b4996e2e6aabb9c0008eb..99a38694b7d40c9201471a0758ae734d
  {
  	int only = -1;
 +	fCurSwapID = get32(rec, 0x50);
- 	for (uint32_t layer = 0; layer < SWEET_FB_LAYERS; layer++) {
+ 	for (uint32_t layer = 0; layer < BERGAMOTA_FB_LAYERS; layer++) {
  		if ((mask & (1u << layer)) && get32(rec, 0x54 + 4 * layer) != 0) {
  			if (only >= 0) {
 @@ -1589,7 +1775,11 @@ AppleCLCD::zcPresent(const uint8_t *rec, uint32_t mask)
  	uint32_t gpuBlits = __atomic_load_n(&s->gpuBlits, __ATOMIC_ACQUIRE);
  	bool gpuFrame = gpuBlits != s->gpuBlitsSeen;    /* the GPU wrote it since the last scan (BO_SYNC) */
  	s->gpuBlitsSeen = gpuBlits;
--	bool clean = sweet_lowpool_cacheable() && (fZcCleanMode == 1 || (fZcCleanMode == 2 && !gpuFrame));
+-	bool clean = bergamota_lowpool_cacheable() && (fZcCleanMode == 1 || (fZcCleanMode == 2 && !gpuFrame));
 +	uint32_t cpuWrites = __atomic_load_n(&s->cpuWrites, __ATOMIC_ACQUIRE);
 +	bool cpuWrote = cpuWrites != s->cpuWritesSeen;  /* a write-unlock (IOSurfaceUnlock without ReadOnly) since the last scan */
 +	s->cpuWritesSeen = cpuWrites;
-+	bool clean = sweet_lowpool_cacheable() && (fZcCleanMode == 1 || (fZcCleanMode == 2 && !gpuFrame) ||
++	bool clean = bergamota_lowpool_cacheable() && (fZcCleanMode == 1 || (fZcCleanMode == 2 && !gpuFrame) ||
 +	    (fZcCleanMode == 3 && (!gpuFrame || cpuWrote)));
  	if (clean) {
  		/* the CPU drew through its cache (write-back mapping): the MDP reads DRAM */
@@ -381,7 +381,7 @@ index bbe358f7fa2493239f4b4996e2e6aabb9c0008eb..99a38694b7d40c9201471a0758ae734d
 @@ -2611,6 +2802,10 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
  		}
  		break;
- 	case kSweetFBSwapWait:
+ 	case kBergamotaFBSwapWait:
 +		if (args->scalarInputCount >= 1) {
 +			ret = fFB->swapWait((uint32_t)args->scalarInput[0]);   /* 0216: done = latched on the panel */
 +		}
@@ -389,27 +389,27 @@ index bbe358f7fa2493239f4b4996e2e6aabb9c0008eb..99a38694b7d40c9201471a0758ae734d
  	default:
  		break;
  	}
-diff --git a/iokit/Kernel/arm/SweetSurface.cpp b/iokit/Kernel/arm/SweetSurface.cpp
+diff --git a/iokit/Kernel/arm/BergamotaSurface.cpp b/iokit/Kernel/arm/BergamotaSurface.cpp
 index 4eb32dcacc6f7f03985cf870459ec27591008b77..c6d49eadd4335d42a159d3f9c06fd6bc1e8bf71a 100644
---- a/iokit/Kernel/arm/SweetSurface.cpp
-+++ b/iokit/Kernel/arm/SweetSurface.cpp
+--- a/iokit/Kernel/arm/BergamotaSurface.cpp
++++ b/iokit/Kernel/arm/BergamotaSurface.cpp
 @@ -1645,6 +1645,9 @@ IOSurfaceRootUserClient::trapUnlock(void *id, void *options, void *seedOut,
  	if (s == NULL) {
  		return kIOReturnNotFound;
  	}
 +	if (!((uintptr_t)options & kIOSurfaceLockReadOnly)) {
-+		__atomic_add_fetch(&s->cpuWrites, 1, __ATOMIC_RELEASE);        /* the CPU may have written pixels: sweetfb_zcclean=3 cleans */
++		__atomic_add_fetch(&s->cpuWrites, 1, __ATOMIC_RELEASE);        /* the CPU may have written pixels: bergamotafb_zcclean=3 cleans */
 +	}
- 	IOReturn ret = sweet_surface_seed_out(s, seedOut,
+ 	IOReturn ret = bergamota_surface_seed_out(s, seedOut,
  	    !((uintptr_t)options & kIOSurfaceLockReadOnly));
  	s->release();
-diff --git a/iokit/Kernel/arm/SweetSurface.h b/iokit/Kernel/arm/SweetSurface.h
+diff --git a/iokit/Kernel/arm/BergamotaSurface.h b/iokit/Kernel/arm/BergamotaSurface.h
 index c44020b1d389302d39616bfb57c9911c1e0b60b2..171ed1e0dc1869c11f4f5687331347e22d5752e7 100644
---- a/iokit/Kernel/arm/SweetSurface.h
-+++ b/iokit/Kernel/arm/SweetSurface.h
+--- a/iokit/Kernel/arm/BergamotaSurface.h
++++ b/iokit/Kernel/arm/BergamotaSurface.h
 @@ -50,8 +50,10 @@ public:
  	bool                      scanned;      /* pooled: the framebuffer has scanned this surface in place (patch 0212) */
- 	uint32_t                  gpuBlits;     /* GPU writes announced through BO_SYNC (SweetAdreno), patch 0212 */
+ 	uint32_t                  gpuBlits;     /* GPU writes announced through BO_SYNC (BergamotaAdreno), patch 0212 */
  	uint32_t                  gpuBlitsSeen; /* ... of which the framebuffer has already presented */
 +	uint32_t                  cpuWrites;    /* write-unlocks (IOSurfaceUnlock without ReadOnly), patch 0216 */
 +	uint32_t                  cpuWritesSeen;        /* ... of which the framebuffer has already scanned */

@@ -1,7 +1,7 @@
-diff --git a/bsd/dev/sweet_a630.c b/bsd/dev/sweet_a630.c
+diff --git a/bsd/dev/bergamota_a630.c b/bsd/dev/bergamota_a630.c
 index 20b05a4ab017407924d24b8897d4ab7ef7d7eab4..b7acd48b3877afbf7e993a404257d291fe013b21 100644
---- a/bsd/dev/sweet_a630.c
-+++ b/bsd/dev/sweet_a630.c
+--- a/bsd/dev/bergamota_a630.c
++++ b/bsd/dev/bergamota_a630.c
 @@ -2483,9 +2483,16 @@ gpu_cp_fill_test(void)
  #define GVM_BASE                0x80000000ull
  #define GVM_END                 0x100000000ull
@@ -21,7 +21,7 @@ index 20b05a4ab017407924d24b8897d4ab7ef7d7eab4..b7acd48b3877afbf7e993a404257d291
  
  static struct {
  	bool     ready;         /* GPU up and the interface usable */
-@@ -3517,11 +3524,11 @@ sweet_gpu_sysctl SYSCTL_HANDLER_ARGS
+@@ -3517,11 +3524,11 @@ bergamota_gpu_sysctl SYSCTL_HANDLER_ARGS
  	}
  	n = snprintf(buf, sizeof(buf),
  	    "state=%s level=%u mhz=%u max_level=%u freq=%s busy_pct=%llu clients=%u pids=%s submitted=%u completed=%u "

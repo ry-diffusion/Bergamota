@@ -1,8 +1,8 @@
-diff --git a/bsd/dev/sweet_charger.c b/bsd/dev/sweet_charger.c
+diff --git a/bsd/dev/bergamota_charger.c b/bsd/dev/bergamota_charger.c
 index a7298a33dd761ec6e48502c85ab49dcdb6e1cca9..b88e29fd55a026dfbbe2875d7c27a097be401744 100644
---- a/bsd/dev/sweet_charger.c
-+++ b/bsd/dev/sweet_charger.c
-@@ -94,6 +94,7 @@ void sweet_charger_start(void);
+--- a/bsd/dev/bergamota_charger.c
++++ b/bsd/dev/bergamota_charger.c
+@@ -94,6 +94,7 @@ void bergamota_charger_start(void);
  #define SC_ICL_CDP_MA           1500u
  #define SC_ICL_HVDCP_MA         1500u
  #define SC_ICL_OCP_MA           1800u   /* OCP treated as DCP, Rp not 3.0 A (downstream DCP_CURRENT_UA) */

@@ -60,8 +60,8 @@ def make(root, tools):
         w(root, f'private/var/staged_system_apps/{app}/Contents/Info.plist', app.encode())
     w(root, 'private/var/staged_system_apps/README', b'not an app')
     w(root, 'usr/local/share/renegade/register-apps', b'Old.app\n')
-    w(tools, 'sweetnetcfg', b'\xcf\xfa\xed\xfe fake netcfg', 0o755)
-    w(tools, 'sweetreboot', b'\xcf\xfa\xed\xfe fake reboot', 0o700)
+    w(tools, 'bergamotanetcfg', b'\xcf\xfa\xed\xfe fake netcfg', 0o755)
+    w(tools, 'bergamotareboot', b'\xcf\xfa\xed\xfe fake reboot', 0o700)
 
 
 SSH_KEY = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAItestkey test@bergamota'
@@ -73,19 +73,19 @@ def make_tools(tools):
         ('ssh/dropbear', b'\xcf\xfa\xed\xfe dropbear', 0o755),
         ('ssh/dash', b'\xcf\xfa\xed\xfe dash', 0o755),
         ('ssh/toybox', b'\xcf\xfa\xed\xfe toybox\0ls\0cat\0test\0netcat\0uname\0sleep\0ps\0nothere\0', 0o755),
-        ('sweetnet/bluetool-stub', b'\xcf\xfa\xed\xfe bluetool stub', 0o755),
-        ('sweetnet/hcitest', b'\xcf\xfa\xed\xfe hcitest', 0o755),
-        ('sweetnet/ios18/sweetuicache', b'\xcf\xfa\xed\xfe uicache', 0o755),
-        ('sweetnet/ios18/sweetposterset', b'\xcf\xfa\xed\xfe posterset', 0o755),
-        ('sweetnet/ios18/sweeticonstyle', b'\xcf\xfa\xed\xfe iconstyle', 0o755),
-        ('sweetnet/ios18/sweetopen', b'\xcf\xfa\xed\xfe open', 0o755),
-        ('sweetnet/ios18/sweetfp.dylib', b'\xcf\xfa\xed\xfe fp', 0o755),
-        ('sweetnet/ios18/sweetprefs', b'\xcf\xfa\xed\xfe prefs', 0o755),
-        ('sweetnet/ios18/sweetshot', b'\xcf\xfa\xed\xfe shot', 0o755),
-        ('sweetnet/ios18/sweettouch', b'\xcf\xfa\xed\xfe touch', 0o755),
-        ('sweetnet/ios18/SweetRun.app/SweetRun', b'\xcf\xfa\xed\xfe sweetrun', 0o755),
-        ('sweetnet/ios18/SweetRun.app/Info.plist', b'<plist/>', 0o644),
-        ('sweetnet/ios18/SweetRun.app/_CodeSignature/CodeResources', b'<plist>res</plist>', 0o644),
+        ('bergamotanet/bluetool-stub', b'\xcf\xfa\xed\xfe bluetool stub', 0o755),
+        ('bergamotanet/hcitest', b'\xcf\xfa\xed\xfe hcitest', 0o755),
+        ('bergamotanet/ios18/bergamotauicache', b'\xcf\xfa\xed\xfe uicache', 0o755),
+        ('bergamotanet/ios18/bergamotaposterset', b'\xcf\xfa\xed\xfe posterset', 0o755),
+        ('bergamotanet/ios18/bergamotaiconstyle', b'\xcf\xfa\xed\xfe iconstyle', 0o755),
+        ('bergamotanet/ios18/bergamotaopen', b'\xcf\xfa\xed\xfe open', 0o755),
+        ('bergamotanet/ios18/bergamotafp.dylib', b'\xcf\xfa\xed\xfe fp', 0o755),
+        ('bergamotanet/ios18/bergamotaprefs', b'\xcf\xfa\xed\xfe prefs', 0o755),
+        ('bergamotanet/ios18/bergamotashot', b'\xcf\xfa\xed\xfe shot', 0o755),
+        ('bergamotanet/ios18/bergamotatouch', b'\xcf\xfa\xed\xfe touch', 0o755),
+        ('bergamotanet/ios18/BergamotaRun.app/BergamotaRun', b'\xcf\xfa\xed\xfe bergamotarun', 0o755),
+        ('bergamotanet/ios18/BergamotaRun.app/Info.plist', b'<plist/>', 0o644),
+        ('bergamotanet/ios18/BergamotaRun.app/_CodeSignature/CodeResources', b'<plist>res</plist>', 0o644),
         ('bergamota-gl/bgl-launch', b'\xcf\xfa\xed\xfe launch', 0o755),
         ('bergamota-gl/OpenGLES.framework/OpenGLES', b'\xcf\xfa\xed\xfe gles', 0o755),
         ('bergamota-gl/libOSMesa.8.dylib', b'\xcf\xfa\xed\xfe mesa', 0o755),
@@ -111,13 +111,13 @@ def run(root, tools, quiet, with_tools=False):
     sys.path.insert(0, RENEGADE)
     import root_tweaks18 as rt
     rt.BUILD, rt.VERSION = '22H352', '18.7.8'
-    rt.NETCFG = os.path.join(tools, 'sweetnetcfg')
-    rt.REBOOT_TOOL = os.path.join(tools, 'sweetreboot')
+    rt.NETCFG = os.path.join(tools, 'bergamotanetcfg')
+    rt.REBOOT_TOOL = os.path.join(tools, 'bergamotareboot')
     rt.BLUETOOL_STUB = '/nonexistent/bluetool-stub'
-    rt.SWEETNET_DIRS = []
+    rt.BERGAMOTANET_DIRS = []
     if with_tools:
         rt.BLUETOOL_STUB = None
-        rt.SWEETNET_DIRS = [os.path.join(tools, 'sweetnet')]
+        rt.BERGAMOTANET_DIRS = [os.path.join(tools, 'bergamotanet')]
         rt.BGL_DIRS = [os.path.join(tools, 'bergamota-gl')]
         rt.SSH_OUT = os.path.join(tools, 'ssh')
         rt.mac_user_pubkey = lambda: ('test.pub', SSH_KEY)
@@ -134,7 +134,7 @@ def run(root, tools, quiet, with_tools=False):
     rt.event_timing(root)          # develop: N841 -> D22 (the ios18 case)
     rt.usbnet(root)
     rt.netcfg(root)
-    rt.sweetreboot(root)
+    rt.bergamotareboot(root)
     if with_tools:
         rt.ssh(root)
     rt.audio(root)
@@ -147,7 +147,7 @@ def run(root, tools, quiet, with_tools=False):
         rt.posterboard(root)
         rt.firstboot(root, appreg=True, jb=False, wallpaper=True, metal=False)
         rt.bglrender(root)
-        rt.sweetprefs_tool(root)
+        rt.bergamotaprefs_tool(root)
         console_job(rt, root)
     for p, (u, g) in sorted(rec.owners.items()):
         print(f'OWNER {os.path.relpath(p, root)} {u} {g}')
@@ -159,10 +159,10 @@ def console_job(rt, root):
     lpath = os.path.join(root, 'System/Library/xpc/launchd.plist')
     st = os.stat(lpath)
     plist = rt.load(lpath)
-    label = 'org.sweet.ios18.hello'
+    label = 'org.bergamota.ios18.hello'
     jpath = f'/System/Library/LaunchDaemons/{label}.plist'
     if os.path.exists(os.path.join(root, 'bin/sh')):
-        args = ('/bin/sh', '-c', 'echo "SWEET iOS18 full root: launchd runs jobs, 6*7=$((6*7))"; '
+        args = ('/bin/sh', '-c', 'echo "BERGAMOTA iOS18 full root: launchd runs jobs, 6*7=$((6*7))"; '
                 '/usr/local/bin/toybox uname -a; /usr/local/bin/toybox cat /etc/master.passwd')
         xml = JOB.format(label=label, args=''.join(f'<string>{x}</string>' for x in args))
         open(os.path.join(root, jpath.lstrip('/')), 'w').write(xml)

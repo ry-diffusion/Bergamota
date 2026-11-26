@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""berga-tools: the prebuilt on-device binaries of Bergamota (sweetnet tools, the bglrender payload), as a release asset.
+"""berga-tools: the prebuilt on-device binaries of Bergamota (bergamotanet tools, the bglrender payload), as a release asset.
 
   berga_tools.py [--tag berga-tools-vN] [--repo OWNER/REPO] [--cache DIR] [--sha256 HEX] [--force]
                                           download berga-tools.zip from the GitHub release (the newest berga-tools-v* one
@@ -17,8 +17,8 @@ Verification, in this order (a failure removes everything it extracted and exits
 
 The cache is $RENEGADE_TOOLS_CACHE, else $XDG_CACHE_HOME/bergamota/berga-tools, else ~/.cache/bergamota/berga-tools. It holds one
 directory per tag plus `current`, the tag in use. $RENEGADE_BERGA_TOOLS points at an already extracted directory instead.
-root_tweaks18.py looks in local builds first (research/sweetnet, research/bergamota-gl, $RENEGADE_SWEETNET, $RENEGADE_BGL) and
-only then in <cache>/<current>/sweetnet and <cache>/<current>/bergamota-gl.
+root_tweaks18.py looks in local builds first (research/bergamotanet, research/bergamota-gl, $RENEGADE_BERGAMOTANET, $RENEGADE_BGL) and
+only then in <cache>/<current>/bergamotanet and <cache>/<current>/bergamota-gl.
 """
 import argparse
 import hashlib
@@ -72,11 +72,11 @@ def current_dir(cache=None):
 
 
 def search_dirs(cache=None):
-    """(sweetnet dir, bergamota-gl dir) of the berga-tools in use, each None when absent. Looked up AFTER local builds."""
+    """(bergamotanet dir, bergamota-gl dir) of the berga-tools in use, each None when absent. Looked up AFTER local builds."""
     d = current_dir(cache)
     if not d:
         return None, None
-    sn, gl = os.path.join(d, 'sweetnet'), os.path.join(d, 'bergamota-gl')
+    sn, gl = os.path.join(d, 'bergamotanet'), os.path.join(d, 'bergamota-gl')
     return (sn if os.path.isdir(sn) else None), (gl if os.path.isdir(gl) else None)
 
 
@@ -314,7 +314,7 @@ def status(cache=None, log=print):
         m = json.load(f)
     log('current: %s (%s, commit %s, %d files)' % (m.get('tag'), d, str(m.get('commit', '?'))[:12], len(m['files'])))
     sn, gl = search_dirs(cache)
-    log('  sweetnet     -> %s' % (sn or 'absent'))
+    log('  bergamotanet     -> %s' % (sn or 'absent'))
     log('  bergamota-gl -> %s' % (gl or 'absent'))
     log('  ssh          -> %s' % (ssh_dir(cache) or 'absent (berga-tools-v2 and later: dropbear, dash = /bin/sh, toybox)'))
     return 0

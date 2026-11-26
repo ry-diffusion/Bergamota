@@ -2,40 +2,40 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 --- a/bsd/dev/beryllium_wlan.c
 +++ b/bsd/dev/beryllium_wlan.c
 @@ -63,6 +63,7 @@
- extern int sweet_ufs_part_size(const char *name, uint8_t *lun, uint64_t *bytes);
- extern int sweet_rpmh_vreg_set(const char *res, unsigned mv, bool enable);
- extern int sweet_smmu_map_sid(unsigned sid);
-+extern int sweet_rpmh_rfclk_enable(const char *res);
- extern int sweet_rpmh_lookup(const char *res, uint32_t *address);
+ extern int bergamota_ufs_part_size(const char *name, uint8_t *lun, uint64_t *bytes);
+ extern int bergamota_rpmh_vreg_set(const char *res, unsigned mv, bool enable);
+ extern int bergamota_smmu_map_sid(unsigned sid);
++extern int bergamota_rpmh_rfclk_enable(const char *res);
+ extern int bergamota_rpmh_lookup(const char *res, uint32_t *address);
  void beryllium_wlan_init(void);
  /* bsd/dev/beryllium_bt_hci.c: the kernel control the iOS userland talks to */
 @@ -3695,6 +3696,18 @@
  		wl_sleep(2);
  	}
- 	printf("SWEET IPC: wlfw: WCN3990 rails voted on:%s%s\n", log, ok ? "" : ": FAILED, no WLFW client (ath10k probe fails)");
+ 	printf("BERGAMOTA IPC: wlfw: WCN3990 rails voted on:%s%s\n", log, ok ? "" : ": FAILED, no WLFW client (ath10k probe fails)");
 +	/*
-+	 * sweetrfclk=1: then the reference clock, as ath10k_hw_power_on() enables cxo_ref_clk_pin (RPMH_RF_CLK2) right
++	 * bergamotarfclk=1: then the reference clock, as ath10k_hw_power_on() enables cxo_ref_clk_pin (RPMH_RF_CLK2) right
 +	 * after the regulators. Off by default to compare scans with and without it (boot 47 had none).
 +	 */
 +	int rfclk = 0;
-+	(void)PE_parse_boot_argn("sweetrfclk", &rfclk, sizeof(rfclk));
++	(void)PE_parse_boot_argn("bergamotarfclk", &rfclk, sizeof(rfclk));
 +	if (ok && rfclk == 1) {
-+		int err = sweet_rpmh_rfclk_enable("rfclka2");
-+		printf("SWEET IPC: wlfw: RF reference clock rfclka2 -> %d\n", err);
++		int err = bergamota_rpmh_rfclk_enable("rfclka2");
++		printf("BERGAMOTA IPC: wlfw: RF reference clock rfclka2 -> %d\n", err);
 +		ipc_note(" rfclk %d;", err);
 +		ok = err == 0;
 +	}
  	return ok;
  }
  
-diff --git a/bsd/dev/sweet_rpmh.c b/bsd/dev/sweet_rpmh.c
---- a/bsd/dev/sweet_rpmh.c
-+++ b/bsd/dev/sweet_rpmh.c
+diff --git a/bsd/dev/bergamota_rpmh.c b/bsd/dev/bergamota_rpmh.c
+--- a/bsd/dev/bergamota_rpmh.c
++++ b/bsd/dev/bergamota_rpmh.c
 @@ -15,6 +15,7 @@
- int sweet_rpmh_vreg_enable(const char *res, unsigned mv);
- int sweet_rpmh_vreg_set(const char *res, unsigned mv, bool enable);
- int sweet_rpmh_arc_vote(const char *res, bool max);
-+int sweet_rpmh_rfclk_enable(const char *res);
+ int bergamota_rpmh_vreg_enable(const char *res, unsigned mv);
+ int bergamota_rpmh_vreg_set(const char *res, unsigned mv, bool enable);
+ int bergamota_rpmh_arc_vote(const char *res, bool max);
++int bergamota_rpmh_rfclk_enable(const char *res);
  
  /* Live downstream DT has two positional reg entries, no reg-names. */
  #define RH_RSC_PA       0x18220000u
@@ -49,10 +49,10 @@ diff --git a/bsd/dev/sweet_rpmh.c b/bsd/dev/sweet_rpmh.c
 + * Active-set vote only, like the rail votes; never voted off. Only "rfclka2" is accepted.
 + */
 +int
-+sweet_rpmh_rfclk_enable(const char *res)
++bergamota_rpmh_rfclk_enable(const char *res)
 +{
-+	if (!sweet_board_beryllium() || !res || strcmp(res, "rfclka2")) {
-+		printf("SWEET RPMH: %s is not an allowed RF clock\n", res ? res : "(null)");
++	if (!bergamota_board_beryllium() || !res || strcmp(res, "rfclka2")) {
++		printf("BERGAMOTA RPMH: %s is not an allowed RF clock\n", res ? res : "(null)");
 +		return EINVAL;
 +	}
 +	if (__atomic_exchange_n(&rh_lock, 1, __ATOMIC_ACQUIRE)) {
@@ -61,7 +61,7 @@ diff --git a/bsd/dev/sweet_rpmh.c b/bsd/dev/sweet_rpmh.c
 +	int error = EIO;
 +	uint32_t address = 0;
 +	if (rh_poisoned) {
-+		printf("SWEET RPMH: previous uncertain transaction; refusing further access\n");
++		printf("BERGAMOTA RPMH: previous uncertain transaction; refusing further access\n");
 +		goto out;
 +	}
 +	error = rh_map();
@@ -70,12 +70,12 @@ diff --git a/bsd/dev/sweet_rpmh.c b/bsd/dev/sweet_rpmh.c
 +	}
 +	if (!error) {
 +		const uint32_t a[1] = { address + 4 }, v[1] = { 1 };
-+		printf("SWEET RPMH: RF clock %s enable at %#x\n", res, address + 4);
++		printf("BERGAMOTA RPMH: RF clock %s enable at %#x\n", res, address + 4);
 +		error = rh_cmds(a, v, 1);
 +	}
 +out:
 +	if (error) {
-+		printf("SWEET RPMH: RF clock %s enable failed errno=%d\n", res, error);
++		printf("BERGAMOTA RPMH: RF clock %s enable failed errno=%d\n", res, error);
 +	}
 +	__atomic_store_n(&rh_lock, 0, __ATOMIC_RELEASE);
 +	return error;
@@ -83,4 +83,4 @@ diff --git a/bsd/dev/sweet_rpmh.c b/bsd/dev/sweet_rpmh.c
 +
  /* Read-only: RSC geometry check, cmd-db lookup, no TCS access. */
  int
- sweet_rpmh_lookup(const char *res, uint32_t *address)
+ bergamota_rpmh_lookup(const char *res, uint32_t *address)

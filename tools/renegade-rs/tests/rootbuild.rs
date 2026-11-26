@@ -195,7 +195,7 @@ fn synthetic_ipsw_builds_a_root() {
     }
     // the same IPSW with a tools bundle and an SSH key: the SSH server, its key and the first-boot job are in the image
     let tools_zip = work.join("berga-tools.zip");
-    let mk = "import sys,zipfile,hashlib,json\nz=zipfile.ZipFile(sys.argv[1],'w',zipfile.ZIP_DEFLATED)\nfiles=[]\nfor n,d in [('ssh/dropbear',b'db\\0'),('ssh/dash',b'sh'),('ssh/toybox',b'tb\\0ls\\0cat\\0'),('sweetnet/sweetnetcfg',b'cfg'),('sweetnet/ios18/sweetuicache',b'uic')]:\n    z.writestr(n,d); files.append({'path':n,'sha256':hashlib.sha256(d).hexdigest()})\nz.writestr('berga-tools.json',json.dumps({'files':files}))\nz.close()\n";
+    let mk = "import sys,zipfile,hashlib,json\nz=zipfile.ZipFile(sys.argv[1],'w',zipfile.ZIP_DEFLATED)\nfiles=[]\nfor n,d in [('ssh/dropbear',b'db\\0'),('ssh/dash',b'sh'),('ssh/toybox',b'tb\\0ls\\0cat\\0'),('bergamotanet/bergamotanetcfg',b'cfg'),('bergamotanet/ios18/bergamotauicache',b'uic')]:\n    z.writestr(n,d); files.append({'path':n,'sha256':hashlib.sha256(d).hexdigest()})\nz.writestr('berga-tools.json',json.dumps({'files':files}))\nz.close()\n";
     assert!(run(Command::new("python3").args(["-I", "-c", mk]).arg(&tools_zip)));
     let mut cfg = renegade::rootbuild::Config { now: 1_700_000_000, volume_size: Some(64 << 20), ..Default::default() };
     cfg.tools = Some(renegade::tools::Tools::from_zip(Rc::new(FileAt::open(&tools_zip).unwrap())).unwrap());

@@ -2,10 +2,10 @@ diff --git a/bsd/conf/files b/bsd/conf/files
 index daa0bed330e3bae7aa01d7c1619c3af4d3bdb60a..c7eeabd22ff85718ebb054cf9ba9be8882f1a0bd 100644
 --- a/bsd/conf/files
 +++ b/bsd/conf/files
-@@ -114,6 +114,7 @@ bsd/dev/sweet_cpufreq.c			standard
- bsd/dev/sweet_smmu.c			standard
- bsd/dev/sweet_a630.c			standard
- bsd/dev/sweet_a630_pas.c			standard
+@@ -114,6 +114,7 @@ bsd/dev/bergamota_cpufreq.c			standard
+ bsd/dev/bergamota_smmu.c			standard
+ bsd/dev/bergamota_a630.c			standard
+ bsd/dev/bergamota_a630_pas.c			standard
 +bsd/dev/beryllium_wlan.c		standard
  bsd/dev/mem.c				standard
  bsd/dev/munge.c 			optional config_requires_u32_munging
@@ -19,8 +19,8 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +/*
 + * Poco F1 (beryllium, SDM845 + WCN3990) Wi-Fi / Bluetooth bring-up ladder.
 + *
-+ * OFF by default. Boot-arg sweetwlan=N selects ONE stage (each stage runs the
-+ * read-only probe first); sweetwlandelay=S waits S seconds after the root
++ * OFF by default. Boot-arg bergamotawlan=N selects ONE stage (each stage runs the
++ * read-only probe first); bergamotawlandelay=S waits S seconds after the root
 + * device is up (default 90) so the persistent log and the UI are alive if a
 + * register access hangs the SoC.
 + *
@@ -53,7 +53,7 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +#define MAX(a, b) ((a) > (b) ? (a) : (b))
 +int wl_host_read(const char *part, uint64_t off, void *dst, uint64_t len);
 +#define WL_PART_READ(p, o, d, l)  wl_host_read((p), (o), (d), (l))
-+#elif defined(ARM64_BOARD_CONFIG_SWEET)
++#elif defined(ARM64_BOARD_CONFIG_BERGAMOTA)
 +#include <sys/param.h>
 +#include <sys/systm.h>
 +#include <sys/errno.h>
@@ -62,19 +62,19 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +#include <kern/sched_prim.h>
 +#include <machine/machine_routines.h>
 +#include <pexpert/pexpert.h>
-+#include "sweet_board.h"
++#include "bergamota_board.h"
 +
 +extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
 +extern kern_return_t thread_terminate(thread_t);
-+extern int sweet_ufs_read_part(const char *name, uint64_t off, void *dst, uint64_t len);
-+extern int sweet_ufs_part_size(const char *name, uint8_t *lun, uint64_t *bytes);
-+extern int sweet_rpmh_vreg_set(const char *res, unsigned mv, bool enable);
-+extern int sweet_rpmh_lookup(const char *res, uint32_t *address);
++extern int bergamota_ufs_read_part(const char *name, uint64_t off, void *dst, uint64_t len);
++extern int bergamota_ufs_part_size(const char *name, uint8_t *lun, uint64_t *bytes);
++extern int bergamota_rpmh_vreg_set(const char *res, unsigned mv, bool enable);
++extern int bergamota_rpmh_lookup(const char *res, uint32_t *address);
 +void beryllium_wlan_init(void);
-+#define WL_PART_READ(p, o, d, l)  sweet_ufs_read_part((p), (o), (d), (l))
++#define WL_PART_READ(p, o, d, l)  bergamota_ufs_read_part((p), (o), (d), (l))
 +#endif
 +
-+#if defined(WLAN_HOST_TEST) || defined(ARM64_BOARD_CONFIG_SWEET)
++#if defined(WLAN_HOST_TEST) || defined(ARM64_BOARD_CONFIG_BERGAMOTA)
 +
 +/* ======================================================================== */
 +/* Portable part: FAT16 reader + ELF32 .mdt parser (host-tested on backup/)   */
@@ -351,16 +351,16 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +	uint32_t cl, size;
 +	int err = fat_open(f, path, &cl, &size);
 +	if (err) {
-+		printf("SWEET WLAN: %s: %s not found (%d)\n", tag, path, err);
++		printf("BERGAMOTA WLAN: %s: %s not found (%d)\n", tag, path, err);
 +		return err;
 +	}
 +	if (size < sizeof(struct elf32_ehdr) || size > sizeof(mdt)) {
-+		printf("SWEET WLAN: %s: %s size %u unexpected\n", tag, path, size);
++		printf("BERGAMOTA WLAN: %s: %s size %u unexpected\n", tag, path, size);
 +		return EFBIG;
 +	}
 +	err = fat_read_chain(f, cl, 0, mdt, size);
 +	if (err) {
-+		printf("SWEET WLAN: %s: read %s failed %d\n", tag, path, err);
++		printf("BERGAMOTA WLAN: %s: read %s failed %d\n", tag, path, err);
 +		return err;
 +	}
 +	struct elf32_ehdr eh;
@@ -368,14 +368,14 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +	if (memcmp(eh.e_ident, "\x7f" "ELF", 4) != 0 || eh.e_ident[4] != 1 ||
 +	    eh.e_phentsize != sizeof(struct elf32_phdr) ||
 +	    (uint64_t)eh.e_phoff + (uint64_t)eh.e_phnum * sizeof(struct elf32_phdr) > size) {
-+		printf("SWEET WLAN: %s: %s is not a 32-bit ELF .mdt\n", tag, path);
++		printf("BERGAMOTA WLAN: %s: %s is not a 32-bit ELF .mdt\n", tag, path);
 +		return ENOEXEC;
 +	}
 +	memset(out, 0, sizeof(*out));
 +	out->nphdr = eh.e_phnum;
 +	out->hash_idx = ~0u;
 +	out->lo = ~0u;
-+	printf("SWEET WLAN: %s: %s %u bytes, %u program headers, entry %#x\n", tag, path, size,
++	printf("BERGAMOTA WLAN: %s: %s %u bytes, %u program headers, entry %#x\n", tag, path, size,
 +	    eh.e_phnum, eh.e_entry);
 +	for (uint32_t i = 0; i < eh.e_phnum; i++) {
 +		struct elf32_phdr ph;
@@ -394,12 +394,12 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +			out->relocatable |= (ph.p_flags & MDT_RELOCATABLE) != 0;
 +		}
 +		if (i < 6 || hash || i + 1 == eh.e_phnum) {
-+			printf("SWEET WLAN: %s:  ph%u type %u paddr %#x filesz %#x memsz %#x flags %#x%s%s\n",
++			printf("BERGAMOTA WLAN: %s:  ph%u type %u paddr %#x filesz %#x memsz %#x flags %#x%s%s\n",
 +			    tag, i, ph.p_type, ph.p_paddr, ph.p_filesz, ph.p_memsz, ph.p_flags,
 +			    hash ? " HASH" : "", load ? "" : " (not loaded)");
 +		}
 +	}
-+	printf("SWEET WLAN: %s: %u loadable segments span %#x..%#x (%u MiB), hash segment ph%d %u bytes, %s\n",
++	printf("BERGAMOTA WLAN: %s: %u loadable segments span %#x..%#x (%u MiB), hash segment ph%d %u bytes, %s\n",
 +	    tag, out->nload, out->lo, out->hi, (out->hi - out->lo) >> 20, (int)out->hash_idx,
 +	    out->hash_size, out->relocatable ? "RELOCATABLE" : "fixed address");
 +	return 0;
@@ -573,10 +573,10 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +	};
 +	for (unsigned i = 0; i < sizeof(clk) / sizeof(clk[0]); i++) {
 +		uint32_t v = wl_rd(wl.gcc, clk[i].off);
-+		printf("SWEET WLAN: GCC %-18s CBCR %#x = %#010x (%s)\n", clk[i].name, clk[i].off, v,
++		printf("BERGAMOTA WLAN: GCC %-18s CBCR %#x = %#010x (%s)\n", clk[i].name, clk[i].off, v,
 +		    (v & (1u << 31)) ? "off" : "on");
 +	}
-+	printf("SWEET WLAN: GCC vote 0x5200c=%#x 0x52004=%#x (mss_gpll0_div bit17)\n",
++	printf("BERGAMOTA WLAN: GCC vote 0x5200c=%#x 0x52004=%#x (mss_gpll0_div bit17)\n",
 +	    wl_rd(wl.gcc, GCC_VOTE_WRAP0), wl_rd(wl.gcc, 0x52004));
 +}
 +
@@ -607,10 +607,10 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +wl_dump_dfs(void)
 +{
 +	uint32_t dfs = wl_rd(wl.gcc, RCG_S6 + 0x14);
-+	printf("SWEET WLAN: S6 RCG cmd=%#x cfg=%#x dfs-cmd=%#x (%s)\n", wl_rd(wl.gcc, RCG_S6),
++	printf("BERGAMOTA WLAN: S6 RCG cmd=%#x cfg=%#x dfs-cmd=%#x (%s)\n", wl_rd(wl.gcc, RCG_S6),
 +	    wl_rd(wl.gcc, RCG_S6 + 4), dfs, (dfs & 1) ? "DFS on" : "DFS off: plain RCG");
 +	for (unsigned l = 0; l < 8; l++) {
-+		printf("SWEET WLAN: S6 DFS level %u: cfg %#x m %#x n %#x -> %llu Hz\n", l,
++		printf("BERGAMOTA WLAN: S6 DFS level %u: cfg %#x m %#x n %#x -> %llu Hz\n", l,
 +		    wl_rd(wl.gcc, RCG_S6 + 0x1c + 0x24 * l), wl_rd(wl.gcc, RCG_S6 + 0x20 + 0x24 * l),
 +		    wl_rd(wl.gcc, RCG_S6 + 0x24 + 0x24 * l), wl_dfs_level_hz(l));
 +	}
@@ -623,7 +623,7 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +	for (unsigned i = 0; i < 4; i++) {
 +		uint32_t cfg = wl_rd(wl.tlmm, (45 + i) * 0x1000u);
 +		uint32_t io = wl_rd(wl.tlmm, (45 + i) * 0x1000u + 4);
-+		printf("SWEET WLAN: TLMM EAST gpio%u (%s) ctl=%#x func=%u pull=%u drv=%u oe=%u in=%u\n",
++		printf("BERGAMOTA WLAN: TLMM EAST gpio%u (%s) ctl=%#x func=%u pull=%u drv=%u oe=%u in=%u\n",
 +		    45 + i, role[i], cfg, (cfg >> 2) & 0xf, cfg & 3, (cfg >> 6) & 7, (cfg >> 9) & 1, io & 1);
 +	}
 +}
@@ -638,15 +638,15 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +wl_dump_se(void)
 +{
 +	if (!wl_se_clocks_ok()) {
-+		printf("SWEET WLAN: SE6 clocks are gated (ABL left them off): SE6 registers NOT read\n");
++		printf("BERGAMOTA WLAN: SE6 clocks are gated (ABL left them off): SE6 registers NOT read\n");
 +		return;
 +	}
 +	uint32_t fw = wl_rd(wl.se, SE_FW_REV);
 +	uint32_t hw0 = wl_rd(wl.se, SE_HW_PARAM_0), hw1 = wl_rd(wl.se, SE_HW_PARAM_1);
-+	printf("SWEET WLAN: SE6 fw-rev %#x protocol %u (2 = UART) if-disable %#x status %#x clk-sel %#x\n",
++	printf("BERGAMOTA WLAN: SE6 fw-rev %#x protocol %u (2 = UART) if-disable %#x status %#x clk-sel %#x\n",
 +	    fw, (fw >> 8) & 0xff, wl_rd(wl.se, SE_IF_DISABLE), wl_rd(wl.se, SE_STATUS),
 +	    wl_rd(wl.se, SE_CLK_SEL));
-+	printf("SWEET WLAN: SE6 hw-param0 %#x hw-param1 %#x\n", hw0, hw1);
++	printf("BERGAMOTA WLAN: SE6 hw-param0 %#x hw-param1 %#x\n", hw0, hw1);
 +}
 +
 +static void
@@ -655,8 +655,8 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +	static const char *const rails[] = { "smpa4", "ldoa5", "ldoa7", "ldoa17", "ldoa23", "ldoa25" };
 +	for (unsigned i = 0; i < sizeof(rails) / sizeof(rails[0]); i++) {
 +		uint32_t addr = 0;
-+		int err = sweet_rpmh_lookup(rails[i], &addr);
-+		printf("SWEET WLAN: cmd-db %s -> %s %#x\n", rails[i], err ? "lookup failed" : "VRM address", addr);
++		int err = bergamota_rpmh_lookup(rails[i], &addr);
++		printf("BERGAMOTA WLAN: cmd-db %s -> %s %#x\n", rails[i], err ? "lookup failed" : "VRM address", addr);
 +		if (err == EBUSY || err == ENODEV || err == EINVAL) {
 +			if (i == 0) {
 +				break;      /* RSC/cmd-db unusable: do not repeat the failure five times */
@@ -677,10 +677,10 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +{
 +	uint32_t top = WL_SMEM_SIZE - 0x1000;
 +	uint32_t magic = smem_u32(top), version = smem_u32(top + 4), n = smem_u32(top + 8);
-+	printf("SWEET WLAN: SMEM table magic %#x (\"$TOC\" = 0x434f5424) version %u entries %u\n",
++	printf("BERGAMOTA WLAN: SMEM table magic %#x (\"$TOC\" = 0x434f5424) version %u entries %u\n",
 +	    magic, version, n);
 +	if (magic != 0x434f5424u || n > 32) {
-+		printf("SWEET WLAN: SMEM table not recognised\n");
++		printf("BERGAMOTA WLAN: SMEM table not recognised\n");
 +		return;
 +	}
 +	for (uint32_t i = 0; i < n; i++) {
@@ -689,26 +689,26 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +		if (!offset || !size) {
 +			continue;
 +		}
-+		printf("SWEET WLAN: SMEM partition %u: offset %#x size %#x hosts %u<->%u\n", i, offset, size,
++		printf("BERGAMOTA WLAN: SMEM partition %u: offset %#x size %#x hosts %u<->%u\n", i, offset, size,
 +		    hosts & 0xffff, hosts >> 16);
 +		if ((hosts & 0xffff) == 0 && (hosts >> 16) == 1 && offset + 32 < WL_SMEM_SIZE &&
 +		    smem_u32(offset) == 0x54525024u) {
 +			/* apps<->modem: list the items (the modem is cold if 435 is absent) */
 +			uint32_t free_u = smem_u32(offset + 16), pos = offset + 32;
 +			unsigned items = 0;
-+			printf("SWEET WLAN: apps<->modem partition: free-uncached %#x\n", free_u);
++			printf("BERGAMOTA WLAN: apps<->modem partition: free-uncached %#x\n", free_u);
 +			while (pos + 16 <= offset + free_u && pos + 16 < WL_SMEM_SIZE && items < 16) {
 +				uint32_t w0 = smem_u32(pos), size_e = smem_u32(pos + 4), w2 = smem_u32(pos + 8);
 +				if ((w0 & 0xffff) != 0xa5a5) {
 +					break;
 +				}
-+				printf("SWEET WLAN:   item %u size %u\n", w0 >> 16, size_e - (w2 & 0xffff));
++				printf("BERGAMOTA WLAN:   item %u size %u\n", w0 >> 16, size_e - (w2 & 0xffff));
 +				pos += 16 + (w2 >> 16) + size_e;
 +				items++;
 +			}
 +		}
 +	}
-+	printf("SWEET WLAN: TCSR mutex 3 (SMEM hwlock) reads %#x\n", wl_rd(wl.mutex, WL_SMEM_HWLOCK * 0x1000));
++	printf("BERGAMOTA WLAN: TCSR mutex 3 (SMEM hwlock) reads %#x\n", wl_rd(wl.mutex, WL_SMEM_HWLOCK * 0x1000));
 +}
 +
 +static void
@@ -716,7 +716,7 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +{
 +	uint32_t id0 = wl_rd(wl.smmu, 0x20), id1 = wl_rd(wl.smmu, 0x24), id2 = wl_rd(wl.smmu, 0x28);
 +	unsigned nsmr = id0 & 0xff, ncb = id1 & 0xff;
-+	printf("SWEET WLAN: apps_smmu sCR0 %#x IDR0 %#x IDR1 %#x IDR2 %#x (%u SMRs, %u context banks)\n",
++	printf("BERGAMOTA WLAN: apps_smmu sCR0 %#x IDR0 %#x IDR1 %#x IDR2 %#x (%u SMRs, %u context banks)\n",
 +	    wl_rd(wl.smmu, 0), id0, id1, id2, nsmr, ncb);
 +	if (nsmr == 0 || nsmr > 256 || 0xc00 + nsmr * 4 > 0x2000) {
 +		return;
@@ -731,13 +731,13 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +			}
 +			uint32_t id = smr & 0x7fff, mask = (smr >> 16) & 0x7fff;
 +			if (((sids[s] ^ id) & ~mask & 0x7fff) == 0) {
-+				printf("SWEET WLAN: SMMU sid %#x matched by SMR%u id %#x mask %#x -> S2CR %#x (type %u cb %u)\n",
++				printf("BERGAMOTA WLAN: SMMU sid %#x matched by SMR%u id %#x mask %#x -> S2CR %#x (type %u cb %u)\n",
 +				    sids[s], i, id, mask, s2cr, (s2cr >> 16) & 3, s2cr & 0xff);
 +				found = true;
 +			}
 +		}
 +		if (!found) {
-+			printf("SWEET WLAN: SMMU sid %#x: no valid SMR matches\n", sids[s]);
++			printf("BERGAMOTA WLAN: SMMU sid %#x: no valid SMR matches\n", sids[s]);
 +		}
 +	}
 +}
@@ -745,7 +745,7 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +static void
 +wl_probe(void)
 +{
-+	printf("SWEET WLAN: probe (read-only), stage %u\n", wl.stage);
++	printf("BERGAMOTA WLAN: probe (read-only), stage %u\n", wl.stage);
 +	wl_dump_gcc();
 +	wl_dump_dfs();
 +	wl_dump_gpio();
@@ -753,7 +753,7 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +	wl_dump_rails();
 +	wl_dump_smem();
 +	wl_dump_smmu();
-+	printf("SWEET WLAN: probe done (RMB 0x4180000 / QDSP6 0x4080000 deliberately not read: gated)\n");
++	printf("BERGAMOTA WLAN: probe done (RMB 0x4180000 / QDSP6 0x4080000 deliberately not read: gated)\n");
 +}
 +
 +/* ---------------------------------------------------------------- stage 3: inventory */
@@ -764,17 +764,17 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +	uint8_t lun = 0;
 +	uint64_t bytes = 0;
 +	uint8_t head[16];
-+	int err = sweet_ufs_part_size(name, &lun, &bytes);
++	int err = bergamota_ufs_part_size(name, &lun, &bytes);
 +	if (err) {
-+		printf("SWEET WLAN: partition \"%s\": not found (%d)\n", name, err);
++		printf("BERGAMOTA WLAN: partition \"%s\": not found (%d)\n", name, err);
 +		return;
 +	}
-+	err = sweet_ufs_read_part(name, 0, head, sizeof(head));
++	err = bergamota_ufs_read_part(name, 0, head, sizeof(head));
 +	bool nonzero = false;
 +	for (unsigned i = 0; i < sizeof(head); i++) {
 +		nonzero |= head[i] != 0;
 +	}
-+	printf("SWEET WLAN: partition \"%s\": LUN %u, %llu KiB, first 16 bytes %s%s\n", name, lun,
++	printf("BERGAMOTA WLAN: partition \"%s\": LUN %u, %llu KiB, first 16 bytes %s%s\n", name, lun,
 +	    bytes >> 10, err ? "unreadable" : nonzero ? "non-zero" : "all zero", "");
 +}
 +
@@ -784,9 +784,9 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +	uint32_t cl, size;
 +	int err = fat_open(f, path, &cl, &size);
 +	if (err) {
-+		printf("SWEET WLAN: %s:%s not found (%d)\n", f->part, path, err);
++		printf("BERGAMOTA WLAN: %s:%s not found (%d)\n", f->part, path, err);
 +	} else {
-+		printf("SWEET WLAN: %s:%s cluster %u size %u\n", f->part, path, cl, size);
++		printf("BERGAMOTA WLAN: %s:%s cluster %u size %u\n", f->part, path, cl, size);
 +	}
 +}
 +
@@ -800,13 +800,13 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +	int err;
 +
 +	(void)mba_unused;
-+	printf("SWEET WLAN: inventory (read-only UFS reads; nothing is written)\n");
++	printf("BERGAMOTA WLAN: inventory (read-only UFS reads; nothing is written)\n");
 +	static const char *const parts[] = { "modemst1", "modemst2", "fsg", "fsc", "persist", "dsp" };
 +	for (unsigned i = 0; i < sizeof(parts) / sizeof(parts[0]); i++) {
 +		wl_part_info(parts[i]);
 +	}
 +	err = fat_mount(&fat, "modem");
-+	printf("SWEET WLAN: modem partition FAT16 mount: %d", err);
++	printf("BERGAMOTA WLAN: modem partition FAT16 mount: %d", err);
 +	if (!err) {
 +		printf(" (bytes/sector %u, sectors/cluster %u, clusters %u, FAT %u sectors)\n", fat.bps,
 +		    fat.spc, fat.ncl, fat.fatsz);
@@ -814,28 +814,28 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +		wl_file_info(&fat, "image/wlanmdsp.mbn");
 +		wl_file_info(&fat, "image/qdsp6m.qdb");
 +		if (!fat_count_prefix(&fat, "image", "bdwlan", &cnt)) {
-+			printf("SWEET WLAN: modem:image/bdwlan.* %u files\n", cnt);
++			printf("BERGAMOTA WLAN: modem:image/bdwlan.* %u files\n", cnt);
 +		}
 +		if (!fat_count_prefix(&fat, "image", "bdf_", &cnt)) {
-+			printf("SWEET WLAN: modem:image/bdf_*.bin %u files\n", cnt);
++			printf("BERGAMOTA WLAN: modem:image/bdf_*.bin %u files\n", cnt);
 +		}
 +		err = mdt_summarise(&fat, "image/modem.mdt", "MPSS", &mdt);
 +		if (!err) {
 +			/* DT carve-outs (live DT = Linux beryllium dtsi): mpss 0x8e400000+0x7800000,
 +			 * mba 0x96900000+0x200000, wlan msa 0x8e300000+0x100000 */
-+			printf("SWEET WLAN: MPSS image %#x..%#x vs carve-out 0x8e400000..0x95c00000: %s\n", mdt.lo, mdt.hi,
++			printf("BERGAMOTA WLAN: MPSS image %#x..%#x vs carve-out 0x8e400000..0x95c00000: %s\n", mdt.lo, mdt.hi,
 +			    mdt.relocatable ? "relocatable (loader picks the base)" :
 +			    (mdt.lo >= 0x8e400000u && mdt.hi <= 0x95c00000u) ? "fits" : "DOES NOT FIT at its fixed address");
 +		}
 +		if (!fat_open(&fat, "image/mba.mbn", &cl, &size)) {
-+			printf("SWEET WLAN: MBA %u bytes vs 2 MiB carve-out (0x96900000): %s\n", size,
++			printf("BERGAMOTA WLAN: MBA %u bytes vs 2 MiB carve-out (0x96900000): %s\n", size,
 +			    size <= 0x200000 ? "fits" : "TOO BIG");
 +		}
 +	} else {
 +		printf("\n");
 +	}
 +	err = fat_mount(&fat, "bluetooth");
-+	printf("SWEET WLAN: bluetooth partition FAT16 mount: %d\n", err);
++	printf("BERGAMOTA WLAN: bluetooth partition FAT16 mount: %d\n", err);
 +	if (!err) {
 +		static const char *const bt[] = {
 +			"image/crbtfw21.tlv", "image/crnv21.bin", "image/crbtfw20.tlv", "image/crnv20.bin",
@@ -845,7 +845,7 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +			wl_file_info(&fat, bt[i]);
 +		}
 +	}
-+	printf("SWEET WLAN: inventory done\n");
++	printf("BERGAMOTA WLAN: inventory done\n");
 +}
 +
 +/* ---------------------------------------------------------------- stage 2: Bluetooth */
@@ -869,7 +869,7 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +		delay(10);
 +	}
 +	if (!wl_se_clocks_ok()) {
-+		printf("SWEET WLAN: SE6 clock branches did not come on: m_ahb %#x s_ahb %#x s6 %#x\n",
++		printf("BERGAMOTA WLAN: SE6 clock branches did not come on: m_ahb %#x s_ahb %#x s6 %#x\n",
 +		    wl_rd(wl.gcc, CBCR_M_AHB), wl_rd(wl.gcc, CBCR_S_AHB), wl_rd(wl.gcc, CBCR_S6));
 +		return false;
 +	}
@@ -892,7 +892,7 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +	unsigned best_l = 8, best_div = 0;
 +	uint64_t best_err = ~0ull;
 +	if (!(wl_rd(wl.gcc, RCG_S6 + 0x14) & 1)) {
-+		printf("SWEET WLAN: S6 root clock is not in DFS mode: need RCG programming, aborting\n");
++		printf("BERGAMOTA WLAN: S6 root clock is not in DFS mode: need RCG programming, aborting\n");
 +		return false;
 +	}
 +	for (unsigned l = 0; l < 8; l++) {
@@ -914,13 +914,13 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +		}
 +	}
 +	if (best_l == 8) {
-+		printf("SWEET WLAN: no DFS level of S6 gives %u baud within 0.5 %%\n", baud);
++		printf("BERGAMOTA WLAN: no DFS level of S6 gives %u baud within 0.5 %%\n", baud);
 +		return false;
 +	}
 +	wl_wr(wl.se, SE_CLK_SEL, best_l);
 +	wl_wr(wl.se, SE_M_CLK_CFG, (best_div << 4) | 1u);
 +	wl_wr(wl.se, SE_S_CLK_CFG, (best_div << 4) | 1u);
-+	printf("SWEET WLAN: UART %u baud: DFS level %u (%llu Hz), divider %u\n", baud, best_l,
++	printf("BERGAMOTA WLAN: UART %u baud: DFS level %u (%llu Hz), divider %u\n", baud, best_l,
 +	    wl_dfs_level_hz(best_l), best_div);
 +	return true;
 +}
@@ -955,18 +955,18 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +{
 +	uint32_t fw = wl_rd(wl.se, SE_FW_REV);
 +	if (((fw >> 8) & 0xff) != SE_PROTO_UART) {
-+		printf("SWEET WLAN: SE6 protocol is %u, not UART (QUP firmware not loaded for UART): stop\n",
++		printf("BERGAMOTA WLAN: SE6 protocol is %u, not UART (QUP firmware not loaded for UART): stop\n",
 +		    (fw >> 8) & 0xff);
 +		return false;
 +	}
 +	if (wl_rd(wl.se, SE_STATUS) & ((1u << 0) | (1u << 12))) {
-+		printf("SWEET WLAN: SE6 busy (status %#x): stop\n", wl_rd(wl.se, SE_STATUS));
++		printf("BERGAMOTA WLAN: SE6 busy (status %#x): stop\n", wl_rd(wl.se, SE_STATUS));
 +		return false;
 +	}
 +	wl.tx_depth = (wl_rd(wl.se, SE_HW_PARAM_0) >> 16) & 0x3f;
 +	wl.rx_depth = (wl_rd(wl.se, SE_HW_PARAM_1) >> 16) & 0x3f;
 +	if (wl.tx_depth < 8 || wl.rx_depth < 8) {
-+		printf("SWEET WLAN: odd FIFO depths tx %u rx %u (hw-param %#x/%#x): stop\n", wl.tx_depth,
++		printf("BERGAMOTA WLAN: odd FIFO depths tx %u rx %u (hw-param %#x/%#x): stop\n", wl.tx_depth,
 +		    wl.rx_depth, wl_rd(wl.se, SE_HW_PARAM_0), wl_rd(wl.se, SE_HW_PARAM_1));
 +		return false;
 +	}
@@ -1080,7 +1080,7 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +			delay(10);
 +		}
 +		wl_wr(wl.se, SE_M_IRQ_CLEAR, M_CMD_ABORT);
-+		printf("SWEET WLAN: UART TX of %u bytes timed out (aborted)\n", len);
++		printf("BERGAMOTA WLAN: UART TX of %u bytes timed out (aborted)\n", len);
 +		return false;
 +	}
 +	wl_wr(wl.se, SE_M_IRQ_CLEAR, M_CMD_DONE);
@@ -1161,7 +1161,7 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +	for (unsigned i = 0; i < n && o + 3 < sizeof(line); i++) {
 +		o += (unsigned)snprintf(line + o, sizeof(line) - o, "%02x ", b[i]);
 +	}
-+	printf("SWEET WLAN: HCI %s: %s\n", what, line);
++	printf("BERGAMOTA WLAN: HCI %s: %s\n", what, line);
 +}
 +
 +static const struct { const char *res; unsigned mv; } wl_bt_rails[] = {
@@ -1188,8 +1188,8 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +		goto out_clocks;
 +	}
 +	for (n = 0; n < sizeof(wl_bt_rails) / sizeof(wl_bt_rails[0]); n++) {
-+		err = sweet_rpmh_vreg_set(wl_bt_rails[n].res, wl_bt_rails[n].mv, true);
-+		printf("SWEET WLAN: rail %s %u mV -> %d\n", wl_bt_rails[n].res, wl_bt_rails[n].mv, err);
++		err = bergamota_rpmh_vreg_set(wl_bt_rails[n].res, wl_bt_rails[n].mv, true);
++		printf("BERGAMOTA WLAN: rail %s %u mV -> %d\n", wl_bt_rails[n].res, wl_bt_rails[n].mv, err);
 +		if (err) {
 +			goto out_rails;
 +		}
@@ -1208,18 +1208,18 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +	wl_power_pulse(true, 115200);
 +	wl_flow(true);
 +	wl_rx_poll();
-+	printf("SWEET WLAN: after power-on pulse: %u stray RX bytes\n", wl.rxn);
++	printf("BERGAMOTA WLAN: after power-on pulse: %u stray RX bytes\n", wl.rxn);
 +	wl.rxn = 0;
 +
 +	err = wl_hci_cmd(0x0c03, NULL, 0, rsp, &rlen, 1000);        /* HCI_Reset */
 +	if (err) {
-+		printf("SWEET WLAN: HCI Reset: no event (%d)\n", err);
++		printf("BERGAMOTA WLAN: HCI Reset: no event (%d)\n", err);
 +	} else {
 +		wl_print_hex("Reset event", rsp, rlen);
 +	}
 +	err = wl_hci_cmd(0x1001, NULL, 0, rsp, &rlen, 1000);        /* Read_Local_Version_Information */
 +	if (err) {
-+		printf("SWEET WLAN: HCI Read Local Version: no event (%d)\n", err);
++		printf("BERGAMOTA WLAN: HCI Read Local Version: no event (%d)\n", err);
 +	} else {
 +		wl_print_hex("Read Local Version", rsp, rlen);
 +	}
@@ -1227,7 +1227,7 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +		static const uint8_t ver_req[1] = { 0x19 };             /* EDL_PATCH_VER_REQ_CMD */
 +		err = wl_hci_cmd(0xfc00, ver_req, 1, rsp, &rlen, 1000);
 +		if (err) {
-+			printf("SWEET WLAN: QCA read patch version: no event (%d)\n", err);
++			printf("BERGAMOTA WLAN: QCA read patch version: no event (%d)\n", err);
 +		} else {
 +			wl_print_hex("QCA patch version (product/patch/rom/soc follow the 0x19 header)", rsp, rlen);
 +		}
@@ -1240,22 +1240,22 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +out_rails:
 +	{
 +		unsigned keep = 0;
-+		(void)PE_parse_boot_argn("sweetwlankeep", &keep, sizeof(keep));
++		(void)PE_parse_boot_argn("bergamotawlankeep", &keep, sizeof(keep));
 +		if (!keep) {
 +			for (unsigned i = n >= sizeof(wl_bt_rails) / sizeof(wl_bt_rails[0]) ?
 +			    (unsigned)(sizeof(wl_bt_rails) / sizeof(wl_bt_rails[0])) : n; i-- > 0;) {
-+				err = sweet_rpmh_vreg_set(wl_bt_rails[i].res, wl_bt_rails[i].mv, false);
-+				printf("SWEET WLAN: rail %s off -> %d\n", wl_bt_rails[i].res, err);
++				err = bergamota_rpmh_vreg_set(wl_bt_rails[i].res, wl_bt_rails[i].mv, false);
++				printf("BERGAMOTA WLAN: rail %s off -> %d\n", wl_bt_rails[i].res, err);
 +				wl_sleep(2);
 +			}
 +		} else {
-+			printf("SWEET WLAN: sweetwlankeep=1: rails left on\n");
++			printf("BERGAMOTA WLAN: bergamotawlankeep=1: rails left on\n");
 +		}
 +	}
 +out_clocks:
 +	wl_rx_stop();
 +	wl_clocks_off();
-+	printf("SWEET WLAN: bluetooth stage done\n");
++	printf("BERGAMOTA WLAN: bluetooth stage done\n");
 +}
 +
 +/* ---------------------------------------------------------------- thread */
@@ -1265,10 +1265,10 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +{
 +	(void)arg;
 +	(void)wr;
-+	printf("SWEET WLAN: stage %u starts in %u s\n", wl.stage, wl.delay_s);
++	printf("BERGAMOTA WLAN: stage %u starts in %u s\n", wl.stage, wl.delay_s);
 +	wl_sleep(wl.delay_s * 1000u);
 +	if (!wl_map()) {
-+		printf("SWEET WLAN: MMIO mapping failed\n");
++		printf("BERGAMOTA WLAN: MMIO mapping failed\n");
 +		goto out;
 +	}
 +	wl_probe();
@@ -1288,39 +1288,39 @@ index 0000000000000000000000000000000000000000..b3d87b2ee10fb1232602818ec6b37975
 +	unsigned stage = 0, delay_s = 90;
 +	thread_t thread;
 +
-+	if (wl.started || !sweet_board_beryllium()) {
++	if (wl.started || !bergamota_board_beryllium()) {
 +		return;
 +	}
-+	(void)PE_parse_boot_argn("sweetwlan", &stage, sizeof(stage));
++	(void)PE_parse_boot_argn("bergamotawlan", &stage, sizeof(stage));
 +	if (stage == 0) {
 +		return;                 /* off by default: no log line, no mapping */
 +	}
-+	(void)PE_parse_boot_argn("sweetwlandelay", &delay_s, sizeof(delay_s));
++	(void)PE_parse_boot_argn("bergamotawlandelay", &delay_s, sizeof(delay_s));
 +	wl.started = true;
 +	wl.stage = stage;
 +	wl.delay_s = delay_s;
 +	if (kernel_thread_start(wl_thread, NULL, &thread) == KERN_SUCCESS) {
 +		thread_deallocate(thread);
 +	} else {
-+		printf("SWEET WLAN: kernel_thread_start failed\n");
++		printf("BERGAMOTA WLAN: kernel_thread_start failed\n");
 +	}
 +}
 +
 +#endif /* !WLAN_HOST_TEST */
-+#endif /* WLAN_HOST_TEST || ARM64_BOARD_CONFIG_SWEET */
-diff --git a/bsd/dev/sweet_rpmh.c b/bsd/dev/sweet_rpmh.c
++#endif /* WLAN_HOST_TEST || ARM64_BOARD_CONFIG_BERGAMOTA */
+diff --git a/bsd/dev/bergamota_rpmh.c b/bsd/dev/bergamota_rpmh.c
 index 4da50d882002fd92489b73494a5803f1e3ede3c9..2d88a344fd3a07f81f5afda97e4930a6b99deb96 100644
---- a/bsd/dev/sweet_rpmh.c
-+++ b/bsd/dev/sweet_rpmh.c
+--- a/bsd/dev/bergamota_rpmh.c
++++ b/bsd/dev/bergamota_rpmh.c
 @@ -9,13 +9,25 @@
  #include <sys/errno.h>
  #include <kern/clock.h>
  #include <machine/machine_routines.h>
-+#include "sweet_board.h"
++#include "bergamota_board.h"
  
  extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
- int sweet_rpmh_vreg_enable(const char *res, unsigned mv);
-+int sweet_rpmh_vreg_set(const char *res, unsigned mv, bool enable);
+ int bergamota_rpmh_vreg_enable(const char *res, unsigned mv);
++int bergamota_rpmh_vreg_set(const char *res, unsigned mv, bool enable);
  
  /* Live downstream DT has two positional reg entries, no reg-names. */
  #define RH_RSC_PA       0x18220000u
@@ -1338,7 +1338,7 @@ index 4da50d882002fd92489b73494a5803f1e3ede3c9..2d88a344fd3a07f81f5afda97e4930a6
  #define RH_TCS_SIZE     0x3000u
  #define RH_DICT_PA      0x0c3f000cu
  #define RH_DRV          2u
-@@ -47,6 +59,7 @@ int sweet_rpmh_vreg_enable(const char *res, unsigned mv);
+@@ -47,6 +59,7 @@ int bergamota_rpmh_vreg_enable(const char *res, unsigned mv);
  #define RH_TIMEOUT_US   100000u
  
  static vm_offset_t rh_rsc, rh_tcs, rh_dict, rh_db;
@@ -1350,7 +1350,7 @@ index 4da50d882002fd92489b73494a5803f1e3ede3c9..2d88a344fd3a07f81f5afda97e4930a6
  static int
  rh_map(void)
  {
-+	rh_be = sweet_board_beryllium();
++	rh_be = bergamota_board_beryllium();
  	if (!rh_rsc) {
 -		rh_rsc = ml_io_map(RH_RSC_PA, 0x100);
 +		rh_rsc = ml_io_map(rh_be ? RH_BE_RSC_PA : RH_RSC_PA, 0x100);
@@ -1365,13 +1365,13 @@ index 4da50d882002fd92489b73494a5803f1e3ede3c9..2d88a344fd3a07f81f5afda97e4930a6
  	}
 -	if (!rh_rsc || !rh_tcs || !rh_dict) {
 +	if (!rh_rsc || !rh_tcs || (!rh_dict && !rh_be)) {
- 		printf("SWEET RPMH: RSC/locator mapping failed\n");
+ 		printf("BERGAMOTA RPMH: RSC/locator mapping failed\n");
  		return ENOMEM;
  	}
 @@ -120,7 +134,8 @@ rh_map(void)
  	unsigned count = (config >> (6u * RH_DRV)) & 0x3fu;
  	rh_ncpt = (config >> 27) & 0x1fu;
- 	printf("SWEET RPMH: rsc=%#x tcs=%#x DRV=%u id=%#x solver=%#x config=%#x TCS=%u ncpt=%u\n",
+ 	printf("BERGAMOTA RPMH: rsc=%#x tcs=%#x DRV=%u id=%#x solver=%#x config=%#x TCS=%u ncpt=%u\n",
 -	    RH_RSC_PA, RH_TCS_PA, RH_DRV, id, solver, config, count, rh_ncpt);
 +	    rh_be ? RH_BE_RSC_PA : RH_RSC_PA, rh_be ? RH_BE_TCS_PA : RH_TCS_PA, RH_DRV, id, solver,
 +	    config, count, rh_ncpt);
@@ -1384,10 +1384,10 @@ index 4da50d882002fd92489b73494a5803f1e3ede3c9..2d88a344fd3a07f81f5afda97e4930a6
  	if (!rh_db) {
 -		uint32_t pa = rh_read(rh_dict, 0);
 -		uint32_t size = rh_read(rh_dict, 4);
--		printf("SWEET RPMH: cmd-db locator=%#x pa=%#x size=%#x\n", RH_DICT_PA, pa, size);
+-		printf("BERGAMOTA RPMH: cmd-db locator=%#x pa=%#x size=%#x\n", RH_DICT_PA, pa, size);
 +		uint32_t pa = rh_be ? RH_BE_DB_PA : rh_read(rh_dict, 0);
 +		uint32_t size = rh_be ? RH_BE_DB_SIZE : rh_read(rh_dict, 4);
-+		printf("SWEET RPMH: cmd-db locator=%#x pa=%#x size=%#x\n", rh_be ? 0u : RH_DICT_PA, pa, size);
++		printf("BERGAMOTA RPMH: cmd-db locator=%#x pa=%#x size=%#x\n", rh_be ? 0u : RH_DICT_PA, pa, size);
  		/* Firmware supplies the reserved RAM address; never scan physical RAM. */
  		if (pa < 0x80000000u || (pa & 3u) || (size & 3u) ||
  		    size < RH_DB_HEADER || size > RH_DB_MAX ||
@@ -1406,11 +1406,11 @@ index 4da50d882002fd92489b73494a5803f1e3ede3c9..2d88a344fd3a07f81f5afda97e4930a6
  	/* HPM (raw 7) is supported by this PMIC5 LDO; enable comes last. */
  	const uint32_t offsets[3] = {0, 8, 4};
  	const uint32_t values[3] = {mv, 7, 1};
--	printf("SWEET RPMH: TCS%u ACTIVE %u mV mode=7 enable=1 irq-enable=%#x\n", t, mv, irq_en);
+-	printf("BERGAMOTA RPMH: TCS%u ACTIVE %u mV mode=7 enable=1 irq-enable=%#x\n", t, mv, irq_en);
 -	for (unsigned c = 0; c < 3; ++c) {
 +	const unsigned ncmd = enable ? 3 : 1;
 +	const uint32_t cmdmask = (1u << ncmd) - 1u;
-+	printf("SWEET RPMH: TCS%u ACTIVE %u mV mode=7 enable=%d irq-enable=%#x\n", t, mv, enable, irq_en);
++	printf("BERGAMOTA RPMH: TCS%u ACTIVE %u mV mode=7 enable=%d irq-enable=%#x\n", t, mv, enable, irq_en);
 +	for (unsigned c = 0; c < ncmd; ++c) {
  		uint32_t cmd = b + c * RH_CMD_STRIDE;
 +		uint32_t off = enable ? offsets[c] : 4u;
@@ -1441,8 +1441,8 @@ index 4da50d882002fd92489b73494a5803f1e3ede3c9..2d88a344fd3a07f81f5afda97e4930a6
  		return EIO;
  	}
  	rh_poisoned = false;
--	printf("SWEET RPMH: L11C ACTIVE vote complete (rail voltage requires hardware verification)\n");
-+	printf("SWEET RPMH: ACTIVE vote complete (rail voltage requires hardware verification)\n");
+-	printf("BERGAMOTA RPMH: L11C ACTIVE vote complete (rail voltage requires hardware verification)\n");
++	printf("BERGAMOTA RPMH: ACTIVE vote complete (rail voltage requires hardware verification)\n");
  	return 0;
  }
  
@@ -1460,7 +1460,7 @@ index 4da50d882002fd92489b73494a5803f1e3ede3c9..2d88a344fd3a07f81f5afda97e4930a6
 +
 +/* Read-only: RSC geometry check, cmd-db lookup, no TCS access. */
 +int
-+sweet_rpmh_lookup(const char *res, uint32_t *address)
++bergamota_rpmh_lookup(const char *res, uint32_t *address)
 +{
 +	int error = EBUSY;
 +	if (__atomic_exchange_n(&rh_lock, 1, __ATOMIC_ACQUIRE)) {
@@ -1475,10 +1475,10 @@ index 4da50d882002fd92489b73494a5803f1e3ede3c9..2d88a344fd3a07f81f5afda97e4930a6
 +}
 +
 +int
-+sweet_rpmh_vreg_set(const char *res, unsigned mv, bool enable)
++bergamota_rpmh_vreg_set(const char *res, unsigned mv, bool enable)
 +{
 +	unsigned i;
-+	if (!sweet_board_beryllium() || !res) {
++	if (!bergamota_board_beryllium() || !res) {
 +		return EINVAL;
 +	}
 +	for (i = 0; i < sizeof(rh_wcn_rails) / sizeof(rh_wcn_rails[0]); ++i) {
@@ -1488,7 +1488,7 @@ index 4da50d882002fd92489b73494a5803f1e3ede3c9..2d88a344fd3a07f81f5afda97e4930a6
 +		}
 +	}
 +	if (i == sizeof(rh_wcn_rails) / sizeof(rh_wcn_rails[0])) {
-+		printf("SWEET RPMH: %s %u mV is not an allowed WCN3990 rail\n", res, mv);
++		printf("BERGAMOTA RPMH: %s %u mV is not an allowed WCN3990 rail\n", res, mv);
 +		return EINVAL;
 +	}
 +	if (__atomic_exchange_n(&rh_lock, 1, __ATOMIC_ACQUIRE)) {
@@ -1497,7 +1497,7 @@ index 4da50d882002fd92489b73494a5803f1e3ede3c9..2d88a344fd3a07f81f5afda97e4930a6
 +	int error = EIO;
 +	uint32_t address = 0;
 +	if (rh_poisoned) {
-+		printf("SWEET RPMH: previous uncertain transaction; refusing further access\n");
++		printf("BERGAMOTA RPMH: previous uncertain transaction; refusing further access\n");
 +		goto out;
 +	}
 +	error = rh_map();
@@ -1509,16 +1509,16 @@ index 4da50d882002fd92489b73494a5803f1e3ede3c9..2d88a344fd3a07f81f5afda97e4930a6
 +	}
 +out:
 +	if (error) {
-+		printf("SWEET RPMH: %s %s failed errno=%d\n", res, enable ? "enable" : "disable", error);
++		printf("BERGAMOTA RPMH: %s %s failed errno=%d\n", res, enable ? "enable" : "disable", error);
 +	}
 +	__atomic_store_n(&rh_lock, 0, __ATOMIC_RELEASE);
 +	return error;
 +}
 +
  int
- sweet_rpmh_vreg_enable(const char *res, unsigned mv)
+ bergamota_rpmh_vreg_enable(const char *res, unsigned mv)
  {
-@@ -346,7 +435,7 @@ sweet_rpmh_vreg_enable(const char *res, unsigned mv)
+@@ -346,7 +435,7 @@ bergamota_rpmh_vreg_enable(const char *res, unsigned mv)
  		error = rh_lookup(res, &address);
  	}
  	if (!error) {
@@ -1527,19 +1527,19 @@ index 4da50d882002fd92489b73494a5803f1e3ede3c9..2d88a344fd3a07f81f5afda97e4930a6
  	}
  out:
  	if (error) {
-diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
+diff --git a/bsd/dev/bergamota_ufs.c b/bsd/dev/bergamota_ufs.c
 index 6011e91400e3b8477e233c79c78887e085d48757..5c4086fd50003669bbe02a1f159c80fbed22571e 100644
---- a/bsd/dev/sweet_ufs.c
-+++ b/bsd/dev/sweet_ufs.c
-@@ -54,6 +54,7 @@ static void sweet_log_start(void);
- extern void sweet_sample_start(void);
- extern void sweet_keys_init(void);
- extern void sweet_touch_init(void);
+--- a/bsd/dev/bergamota_ufs.c
++++ b/bsd/dev/bergamota_ufs.c
+@@ -54,6 +54,7 @@ static void bergamota_log_start(void);
+ extern void bergamota_sample_start(void);
+ extern void bergamota_keys_init(void);
+ extern void bergamota_touch_init(void);
 +extern void beryllium_wlan_init(void);
- extern void sweet_usb_probe(void);
- extern void sweet_cpufreq_max(void);
- extern void sweet_a630_probe(void);
-@@ -599,6 +600,163 @@ static const struct cdevsw sweet_ufs_cdevsw = {
+ extern void bergamota_usb_probe(void);
+ extern void bergamota_cpufreq_max(void);
+ extern void bergamota_a630_probe(void);
+@@ -599,6 +600,163 @@ static const struct cdevsw bergamota_ufs_cdevsw = {
  	.d_type       = D_DISK,
  };
  
@@ -1559,7 +1559,7 @@ index 6011e91400e3b8477e233c79c78887e085d48757..5c4086fd50003669bbe02a1f159c80fb
 +} part_cache[PART_CACHE_N];
 +static unsigned part_cache_n;
 +
-+/* Caller holds sweet_ufs_lock and has set su.lun. */
++/* Caller holds bergamota_ufs_lock and has set su.lun. */
 +static int
 +ufs_gpt_find_on_lun(const char *want, uint64_t *first, uint64_t *nblocks)
 +{
@@ -1611,7 +1611,7 @@ index 6011e91400e3b8477e233c79c78887e085d48757..5c4086fd50003669bbe02a1f159c80fb
 +	return ENOENT;
 +}
 +
-+/* Caller holds sweet_ufs_lock. */
++/* Caller holds bergamota_ufs_lock. */
 +static int
 +ufs_part_locate(const char *want, uint8_t *lun, uint64_t *first, uint64_t *nblocks)
 +{
@@ -1648,16 +1648,16 @@ index 6011e91400e3b8477e233c79c78887e085d48757..5c4086fd50003669bbe02a1f159c80fb
 +}
 +
 +int
-+sweet_ufs_part_size(const char *name, uint8_t *lun, uint64_t *bytes)
++bergamota_ufs_part_size(const char *name, uint8_t *lun, uint64_t *bytes)
 +{
 +	uint64_t first, nblocks;
 +	uint8_t l = 0;
 +	if (!su.ready) {
 +		return ENXIO;
 +	}
-+	lck_mtx_lock(&sweet_ufs_lock);
++	lck_mtx_lock(&bergamota_ufs_lock);
 +	int error = ufs_part_locate(name, &l, &first, &nblocks);
-+	lck_mtx_unlock(&sweet_ufs_lock);
++	lck_mtx_unlock(&bergamota_ufs_lock);
 +	if (!error) {
 +		if (lun) {
 +			*lun = l;
@@ -1670,14 +1670,14 @@ index 6011e91400e3b8477e233c79c78887e085d48757..5c4086fd50003669bbe02a1f159c80fb
 +}
 +
 +int
-+sweet_ufs_read_part(const char *name, uint64_t off, void *dst, uint64_t len)
++bergamota_ufs_read_part(const char *name, uint64_t off, void *dst, uint64_t len)
 +{
 +	uint64_t first, nblocks;
 +	uint8_t lun = 0, saved;
 +	if (!su.ready) {
 +		return ENXIO;
 +	}
-+	lck_mtx_lock(&sweet_ufs_lock);
++	lck_mtx_lock(&bergamota_ufs_lock);
 +	int error = ufs_part_locate(name, &lun, &first, &nblocks);
 +	if (!error && (off > nblocks * UFS_BLOCK || len > nblocks * UFS_BLOCK - off)) {
 +		error = EINVAL;
@@ -1696,18 +1696,18 @@ index 6011e91400e3b8477e233c79c78887e085d48757..5c4086fd50003669bbe02a1f159c80fb
 +		}
 +	}
 +	su.lun = saved;
-+	lck_mtx_unlock(&sweet_ufs_lock);
++	lck_mtx_unlock(&bergamota_ufs_lock);
 +	return error;
 +}
 +
  static int
- sweet_ufs_init(void)
+ bergamota_ufs_init(void)
  {
-@@ -688,6 +846,7 @@ sweet_ufs_init(void)
- 	sweet_touch_init();
- 	sweet_usb_probe();
- 	sweet_a630_probe();	/* sweetgpu=N, beryllium only, off by default */
-+	beryllium_wlan_init();      /* boot-arg sweetwlan=N, off by default */
+@@ -688,6 +846,7 @@ bergamota_ufs_init(void)
+ 	bergamota_touch_init();
+ 	bergamota_usb_probe();
+ 	bergamota_a630_probe();	/* bergamotagpu=N, beryllium only, off by default */
++	beryllium_wlan_init();      /* boot-arg bergamotawlan=N, off by default */
  	return 0;
  }
  

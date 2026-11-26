@@ -40,7 +40,7 @@ enum DesignPreview {
         items.append(item("", 0, .pending, nil, flash: "ios26-root-full.simg"))
         app.queue.items = items
         app.queue.armed = scenario == "bergamota"
-        app.tools.installed = [InstalledApp(name: "GlassTest.app", recorded: true, apple: false), InstalledApp(name: "SweetRun.app", recorded: true, apple: false),
+        app.tools.installed = [InstalledApp(name: "GlassTest.app", recorded: true, apple: false), InstalledApp(name: "BergamotaRun.app", recorded: true, apple: false),
                                InstalledApp(name: "MobileSafari.app", recorded: false, apple: true), InstalledApp(name: "Preferences.app", recorded: false, apple: true)]
 
         // CI
@@ -58,13 +58,13 @@ enum DesignPreview {
         // kernel log
         app.logs.injectPreview([
             "[   0.000] ENXERTO beryllium, payload 16.9 MiB, MMU on",
-            "[   1.204] SWEET USB: dwc3 configured, ncm up 02:00:5e:77:ee:01",
-            "[   4.880] SWEET FB: simplefb 1080x2246 handoff",
-            "[   9.017] SWEET GPU: A630 zap shader loaded, SCM resume ok",
-            "[  11.932] SWEET WLAN: MPSS ready over SMP2P",
-            "[  12.044] SWEET WLAN: WLFW up after 7 pd-mapper requests",
+            "[   1.204] BERGAMOTA USB: dwc3 configured, ncm up 02:00:5e:77:ee:01",
+            "[   4.880] BERGAMOTA FB: simplefb 1080x2246 handoff",
+            "[   9.017] BERGAMOTA GPU: A630 zap shader loaded, SCM resume ok",
+            "[  11.932] BERGAMOTA WLAN: MPSS ready over SMP2P",
+            "[  12.044] BERGAMOTA WLAN: WLFW up after 7 pd-mapper requests",
             "[  14.311] launchd: backboardd[64] on Crimson",
-            "[  21.902] SWEET GPU: fence 0x3f1 signalled in 3.1 ms",
+            "[  21.902] BERGAMOTA GPU: fence 0x3f1 signalled in 3.1 ms",
             "[  22.410] SpringBoard: lock screen presented",
         ])
 
@@ -82,7 +82,7 @@ enum DesignPreview {
             m.stateSince = now.addingTimeInterval(-2540)
             m.ifaceName = "en7"; m.ifaceUp = true; m.ifaceHasIP = true; m.pingOK = true; m.sshOpen = true
             m.info = IOSInfo(uname: "Darwin iPhone 25.0.0 Darwin Kernel Version 25.0.0: Heartwood xnu-12377/RELEASE_ARM64_T8020 arm64",
-                             uptime: 2575, batteryPercent: 86, isCharging: true, powerSource: "USB", sweetrebootBergamota: true)
+                             uptime: 2575, batteryPercent: 86, isCharging: true, powerSource: "USB", bergamotarebootBergamota: true)
             for k in stride(from: 60, through: 0, by: -1) {
                 let t = now.addingTimeInterval(-Double(k) * 2)
                 let wave = sin(Double(k) / 6)

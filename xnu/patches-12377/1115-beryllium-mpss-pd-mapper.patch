@@ -2,12 +2,12 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 --- a/bsd/dev/beryllium_wlan.c
 +++ b/bsd/dev/beryllium_wlan.c
 @@ -1023,7 +1023,8 @@
-  * and waits 1.5 s for the USB console; sweetmssstep=N stops after step N (then tears down).
+  * and waits 1.5 s for the USB console; bergamotamssstep=N stops after step N (then tears down).
   * Steps: 1 map, 2 read mba.mbn, 3 copy MBA, 4 QMP, 5 ARC votes, 6 clocks + alt reset, 7 SCM assign,
-  * 8 QDSP6 boot; with sweetmpss=1: 9 SMP2P outbound item, 10 modem.mdt, 11 metadata auth, 12 segments,
-- * 13 AUTH_COMPLETE, 14 SMP2P watch; with sweetrmtfs=1: 15 rmtfs over QRTR over GLINK.
-+ * 13 AUTH_COMPLETE, 14 SMP2P watch; with sweetrmtfs=1: 15 rmtfs over QRTR over GLINK (+ TFTP with
-+ * sweettftp=1, the pd-mapper with sweetpdm=1).
+  * 8 QDSP6 boot; with bergamotampss=1: 9 SMP2P outbound item, 10 modem.mdt, 11 metadata auth, 12 segments,
+- * 13 AUTH_COMPLETE, 14 SMP2P watch; with bergamotarmtfs=1: 15 rmtfs over QRTR over GLINK.
++ * 13 AUTH_COMPLETE, 14 SMP2P watch; with bergamotarmtfs=1: 15 rmtfs over QRTR over GLINK (+ TFTP with
++ * bergamotatftp=1, the pd-mapper with bergamotapdm=1).
   */
  static int ms_step_max = 99;
  
@@ -37,16 +37,16 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
  	vm_offset_t win;                /* kernel window over the rmtfs buffer */
  	uint64_t win_base, win_len;
 @@ -2676,6 +2686,12 @@
- 		printf("SWEET IPC: qrtr: tftp announced as service 4096 instance 1 at %u:0x4001 %s\n", QRTR_NODE_LOCAL,
+ 		printf("BERGAMOTA IPC: qrtr: tftp announced as service 4096 instance 1 at %u:0x4001 %s\n", QRTR_NODE_LOCAL,
  		    c ? "" : "(FAILED)");
  	}
 +	if (ipc.pdm) {
 +		uint32_t psrv[5] = { Q_NEW_SERVER, PDM_SERVICE, PDM_INSTANCE, QRTR_NODE_LOCAL, QRTR_PDM_PORT };
 +		bool d = ipc_qrtr_send(Q_NEW_SERVER, QRTR_PORT_CTRL, ipc.node, QRTR_PORT_CTRL, psrv, sizeof(psrv));
-+		printf("SWEET IPC: qrtr: pd-mapper announced as service %#x instance field %#x at %u:%#x %s\n", PDM_SERVICE,
++		printf("BERGAMOTA IPC: qrtr: pd-mapper announced as service %#x instance field %#x at %u:%#x %s\n", PDM_SERVICE,
 +		    PDM_INSTANCE, QRTR_NODE_LOCAL, QRTR_PDM_PORT, d ? "" : "(FAILED)");
 +	}
- 	printf("SWEET IPC: qrtr: hello %s, rmtfs announced as service %u instance %u at %u:%#x %s\n", a ? "sent" : "FAILED",
+ 	printf("BERGAMOTA IPC: qrtr: hello %s, rmtfs announced as service %u instance %u at %u:%#x %s\n", a ? "sent" : "FAILED",
  	    RMTFS_SERVICE, RMTFS_INSTANCE, QRTR_NODE_LOCAL, QRTR_RMTFS_PORT, b ? "" : "(FAILED)");
  }
 @@ -3404,7 +3420,154 @@
@@ -54,7 +54,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
  }
  
 +/*
-+ * ---- pd-mapper (sweetpdm=1): the service locator the modem asks before it starts a protection domain.
++ * ---- pd-mapper (bergamotapdm=1): the service locator the modem asks before it starts a protection domain.
 + * QMI SERVREG_LOCATOR (service 0x40, version 0x101, instance 0) answering GET_DOMAIN_LIST from the sdm845
 + * table of Linux drivers/soc/qcom/qcom_pd_mapper.c (v6.12); every domain also serves "tms/servreg". The
 + * WLAN PD (msm/modem/wlan_pd) is the one that loads wlanmdsp.mbn over TFTP and then offers WLFW (0x45).
@@ -92,7 +92,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +pdm_rx(uint32_t node, uint32_t port, const uint8_t *p, uint32_t len)
 +{
 +	if (len < 7 || p[0] != 0) {
-+		printf("SWEET IPC: pd-mapper: %u-byte message of type %u ignored\n", len, len ? p[0] : 0);
++		printf("BERGAMOTA IPC: pd-mapper: %u-byte message of type %u ignored\n", len, len ? p[0] : 0);
 +		return;
 +	}
 +	uint16_t txn, msg, mlen;
@@ -133,7 +133,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		memcpy(r + n + 5, &err, 2);
 +		n += 7;
 +		if (res) {
-+			printf("SWEET IPC: pd-mapper: malformed domain-list request (name %u bytes)\n", l1);
++			printf("BERGAMOTA IPC: pd-mapper: malformed domain-list request (name %u bytes)\n", l1);
 +			break;
 +		}
 +		/* TLV 0x10 at n, 0x11 at n + 5, 0x12 at n + 10: {u8 count, count x entry} */
@@ -178,12 +178,12 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			r[cnt_at] = (uint8_t)cnt;
 +			n = list_at;
 +		}
-+		printf("SWEET IPC: pd-mapper: \"%s\" offset %u -> %u of %u domains%s%s\n", name, offset, cnt, ndom,
++		printf("BERGAMOTA IPC: pd-mapper: \"%s\" offset %u -> %u of %u domains%s%s\n", name, offset, cnt, ndom,
 +		    cnt ? ": " : "", list);
 +		break;
 +	}
 +	case PDM_PFR:                   /* service (TLV 1) and reason (TLV 2) of a protection-domain crash */
-+		printf("SWEET IPC: pd-mapper: PD failure report from %s: \"%s\"\n", name, reason);
++		printf("BERGAMOTA IPC: pd-mapper: PD failure report from %s: \"%s\"\n", name, reason);
 +		r[n] = 2;
 +		memcpy(r + n + 1, &four, 2);
 +		memcpy(r + n + 3, &res, 2);
@@ -191,13 +191,13 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		n += 7;
 +		break;
 +	default:
-+		printf("SWEET IPC: pd-mapper: unknown request %#x (%u bytes)\n", msg, len);
++		printf("BERGAMOTA IPC: pd-mapper: unknown request %#x (%u bytes)\n", msg, len);
 +		return;
 +	}
 +	uint16_t body = (uint16_t)(n - 7);
 +	memcpy(r + 5, &body, 2);
 +	(void)ipc_qrtr_send(Q_DATA, QRTR_PDM_PORT, node, port, r, n);
-+	sweet_log_sync();
++	bergamota_log_sync();
 +}
 +
 +static void
@@ -205,12 +205,12 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
  {
  	uint32_t h[8], type, snode, sport, confirm, size, dnode, dport, hdrlen;
 @@ -3457,11 +3620,17 @@
- 			printf("SWEET IPC: qrtr: %s service %u (%#x) version %u instance %u at %u:%#x\n",
+ 			printf("BERGAMOTA IPC: qrtr: %s service %u (%#x) version %u instance %u at %u:%#x\n",
  			    type == Q_NEW_SERVER ? "modem offers" : "modem removes", s[1], s[1], s[2] & 0xff, s[2] >> 8, s[3],
  			    s[4]);
 +			if (s[1] == WLFW_SERVICE && type == Q_NEW_SERVER) {
 +				ipc.wlfw_seen = true;
-+				printf("SWEET IPC: WLFW is up at %u:%#x: the WLAN PD runs\n", s[3], s[4]);
++				printf("BERGAMOTA IPC: WLFW is up at %u:%#x: the WLAN PD runs\n", s[3], s[4]);
 +			}
  		}
  		break;
@@ -224,10 +224,10 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
  		} else {
 @@ -3500,6 +3669,9 @@
  	int tftp = 0;
- 	(void)PE_parse_boot_argn("sweettftp", &tftp, sizeof(tftp));
+ 	(void)PE_parse_boot_argn("bergamotatftp", &tftp, sizeof(tftp));
  	ipc.tftp = tftp == 1;
 +	int pdm = 0;
-+	(void)PE_parse_boot_argn("sweetpdm", &pdm, sizeof(pdm));
++	(void)PE_parse_boot_argn("bergamotapdm", &pdm, sizeof(pdm));
 +	ipc.pdm = pdm == 1;
  	ipc.features = GLINK_FEATURE_REUSE;
  	ipc.node = 0;
@@ -235,7 +235,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 @@ -3560,9 +3732,10 @@
  		wl_sleep(1);
  	}
- 	printf("SWEET IPC: %u s: glink %s, IPCRTR %s, qrtr hello %s; %u packets in, %u out; rmtfs %u reads (%llu bytes), "
+ 	printf("BERGAMOTA IPC: %u s: glink %s, IPCRTR %s, qrtr hello %s; %u packets in, %u out; rmtfs %u reads (%llu bytes), "
 -	    "%u writes kept in RAM (%llu bytes)\n", (unsigned)((ms_now_ms() - t0) / 1000), ipc.version_acked ? "versioned" : "no version-ack",
 -	    ipc.open_acked ? "open" : "not open", ipc.hello_seen ? "seen" : "not seen", ipc.rx_pkts, ipc.tx_pkts, ipc.reads,
 -	    ipc.read_bytes, ipc.writes, ipc.write_bytes);
@@ -243,6 +243,6 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	    ipc.version_acked ? "versioned" : "no version-ack", ipc.open_acked ? "open" : "not open",
 +	    ipc.hello_seen ? "seen" : "not seen", ipc.rx_pkts, ipc.tx_pkts, ipc.reads, ipc.read_bytes, ipc.writes,
 +	    ipc.write_bytes, ipc.pdm_reqs, ipc.wlfw_seen ? "up" : "not seen");
- 	sweet_log_sync();
+ 	bergamota_log_sync();
  	return alive;
  }

@@ -100,7 +100,7 @@ static const char *cmdline_opt(uintptr_t dtb, const char *key)
 	return 0;
 }
 
-#define RR_BERGAMOTA	0x42455247U	/* 'BERG': written by the kernel for `sweetreboot bergamota` */
+#define RR_BERGAMOTA	0x42455247U	/* 'BERG': written by the kernel for `bergamotareboot bergamota` */
 
 static char entry_why[16];	/* an array: a static string pointer would need an ABS64 relocation */
 
@@ -426,7 +426,7 @@ static void p_idle(void *ctx, struct fb *fb)
 	ui_tick();
 }
 
-/* [off, off + size) of the SWEETXNU payload inside the download, or a reason. */
+/* [off, off + size) of the BERGAMOTAXNU payload inside the download, or a reason. */
 static const char *payload_range(const uint8_t *img, uint64_t len, uintptr_t *lo, uintptr_t *hi)
 {
 	uint64_t off = 0, size = 0;

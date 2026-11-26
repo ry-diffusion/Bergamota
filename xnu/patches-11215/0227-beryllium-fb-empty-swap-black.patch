@@ -1,6 +1,6 @@
-diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
---- a/iokit/Kernel/arm/SweetFramebuffer.cpp
-+++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+diff --git a/iokit/Kernel/arm/BergamotaFramebuffer.cpp b/iokit/Kernel/arm/BergamotaFramebuffer.cpp
+--- a/iokit/Kernel/arm/BergamotaFramebuffer.cpp
++++ b/iokit/Kernel/arm/BergamotaFramebuffer.cpp
 @@ -2687,7 +2687,23 @@
  	fDraw = fFlip ? fBufVA[back] : fPixels;
  	if (fFlip) {
@@ -13,7 +13,7 @@ diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFrame
 +	 * before its wake animation started (the animation seemed to jump forward, back, forward). Once per wake.
 +	 */
 +	bool any = false;
-+	for (uint32_t layer = 0; layer < SWEET_FB_LAYERS; layer++) {
++	for (uint32_t layer = 0; layer < BERGAMOTA_FB_LAYERS; layer++) {
 +		if ((mask & (1u << layer)) && get32(rec, 0x54 + 4 * layer) != 0) {
 +			any = true;
 +		}
@@ -23,5 +23,5 @@ diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFrame
 +		fBarsMask |= (uint8_t)(1u << fDrawIdx);      /* its scaling bars are black too */
 +	}
  
- 	for (uint32_t layer = 0; layer < SWEET_FB_LAYERS; layer++) {
+ 	for (uint32_t layer = 0; layer < BERGAMOTA_FB_LAYERS; layer++) {
  		uint32_t id = get32(rec, 0x54 + 4 * layer);

@@ -129,7 +129,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = org.sweet.bergamota.performance;
+				PRODUCT_BUNDLE_IDENTIFIER = org.bergamota.bergamota.performance;
 				PRODUCT_NAME = Bergamota;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 6.0;
@@ -268,7 +268,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = org.sweet.bergamota.performance;
+				PRODUCT_BUNDLE_IDENTIFIER = org.bergamota.bergamota.performance;
 				PRODUCT_NAME = Bergamota;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 6.0;

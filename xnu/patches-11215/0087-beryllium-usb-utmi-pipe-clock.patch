@@ -1,16 +1,16 @@
-diff --git a/bsd/dev/sweet_usb.c b/bsd/dev/sweet_usb.c
+diff --git a/bsd/dev/bergamota_usb.c b/bsd/dev/bergamota_usb.c
 index 225a021784a9eff78d2047fb5a59c113b73f8ebb..fb3ac6e4c7db89ad5605e0e3f9e657a8cacecf6e 100644
---- a/bsd/dev/sweet_usb.c
-+++ b/bsd/dev/sweet_usb.c
+--- a/bsd/dev/bergamota_usb.c
++++ b/bsd/dev/bergamota_usb.c
 @@ -21,6 +21,7 @@
  #include <vm/pmap.h>
  #include <vm/vm_kern.h>
  #include <pexpert/pexpert.h>
-+#include "sweet_board.h"
++#include "bergamota_board.h"
  #include <kern/locks.h>
  #include <sys/kpi_mbuf.h>
  #include <sys/kpi_socket.h>
-@@ -867,6 +868,30 @@ sweet_usb_gadget_start(vm_offset_t dwc)
+@@ -867,6 +868,30 @@ bergamota_usb_gadget_start(vm_offset_t dwc)
  	ud.dma_pa = ptoa_64(pn);
  	ud_if_create();
  
@@ -20,7 +20,7 @@ index 225a021784a9eff78d2047fb5a59c113b73f8ebb..fb3ac6e4c7db89ad5605e0e3f9e657a8
 +	 * from the QUSB2 UTMI clock instead, as Linux dwc3_qcom_select_utmi_clk()
 +	 * does for "qcom,select-utmi-as-pipe-clk" (QSCRATCH_GENERAL_CFG).
 +	 */
-+	if (sweet_board_beryllium()) {
++	if (bergamota_board_beryllium()) {
 +		vm_offset_t qs = ml_io_map(QSCRATCH_PA, 0x100);
 +		if (qs != 0) {
 +			volatile uint32_t *cfg = (volatile uint32_t *)(qs + 0x08);
@@ -34,7 +34,7 @@ index 225a021784a9eff78d2047fb5a59c113b73f8ebb..fb3ac6e4c7db89ad5605e0e3f9e657a8
 +			*cfg = *cfg & ~(1u << 8);
 +			__asm__ volatile ("dsb sy" ::: "memory");
 +			delay(1000);
-+			printf("SWEET USB: UTMI clock as PIPE clock, GENERAL_CFG 0x%08x -> 0x%08x\n", before, *cfg);
++			printf("BERGAMOTA USB: UTMI clock as PIPE clock, GENERAL_CFG 0x%08x -> 0x%08x\n", before, *cfg);
 +		}
 +	}
 +

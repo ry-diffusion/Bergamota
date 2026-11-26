@@ -7,9 +7,9 @@
 //! seal stage writes them into the catalog.
 //!
 //! Ported: launchd (PanicOnCrash, no-baseband jobs, CommCenter), quiet, containers, launchservices, event_timing,
-//! usbnet, netcfg, sweetreboot, sweetmetrics, activation, audio, merge_pref (+ the stage's preference set), the
+//! usbnet, netcfg, bergamotareboot, bergamotametrics, activation, audio, merge_pref (+ the stage's preference set), the
 //! bluetoothd environment, staged apps, add_job. Not yet: ssh (dropbear + host-generated keys), the BlueTool stub,
-//! PosterBoard/sweetfp (addlc.py), bgmtl, bglrender, the first-boot job, the jailbreak userland, sweetprefs.
+//! PosterBoard/bergamotafp (addlc.py), bgmtl, bglrender, the first-boot job, the jailbreak userland, bergamotaprefs.
 
 use crate::io::bad;
 use crate::plist::{self, Value};
@@ -242,7 +242,7 @@ pub const QUIET_THROTTLE: [(&str, i64); 9] = [
 ];
 pub const QUIET_REMOVE: [&str; 1] = ["com.apple.security.cryptexd"];
 
-/// quiet(): crash-looping jobs out / throttled (SWEET_QUIET=1).
+/// quiet(): crash-looping jobs out / throttled (BERGAMOTA_QUIET=1).
 pub fn quiet(fs: &mut dyn Fs, log: &mut Log) -> Result<()> {
     let (uid, gid, mode) = fs.stat(LAUNCHD_PLIST)?;
     let mut pl = load(fs, LAUNCHD_PLIST)?;
@@ -423,18 +423,18 @@ pub(crate) fn install(fs: &mut dyn Fs, data: &[u8], dst: &str, mode: u32) -> Res
     fs.chmod(dst, mode)
 }
 
-pub const NETCFG_LABEL: &str = "org.sweet.netcfg";
+pub const NETCFG_LABEL: &str = "org.bergamota.netcfg";
 
-/// netcfg(): /usr/local/bin/sweetnetcfg (from the tool build) and its launchd job. `tool`: None = not built.
+/// netcfg(): /usr/local/bin/bergamotanetcfg (from the tool build) and its launchd job. `tool`: None = not built.
 pub fn netcfg(fs: &mut dyn Fs, log: &mut Log, tool: Option<&[u8]>) -> Result<()> {
     let Some(tool) = tool else {
-        log.push("netcfg: skipped, build it first (tools/sweetnet/build.sh)".into());
+        log.push("netcfg: skipped, build it first (tools/bergamotanet/build.sh)".into());
         return Ok(());
     };
-    install(fs, tool, "usr/local/bin/sweetnetcfg", 0o755)?;
+    install(fs, tool, "usr/local/bin/bergamotanetcfg", 0o755)?;
     let job = dict(vec![
         ("Label", s(NETCFG_LABEL)),
-        ("ProgramArguments", strs(&["/usr/local/bin/sweetnetcfg"])),
+        ("ProgramArguments", strs(&["/usr/local/bin/bergamotanetcfg"])),
         ("RunAtLoad", Value::Bool(true)),
         ("KeepAlive", dict(vec![("SuccessfulExit", Value::Bool(false))])),
         ("ThrottleInterval", Value::Integer(5)),
@@ -442,29 +442,29 @@ pub fn netcfg(fs: &mut dyn Fs, log: &mut Log, tool: Option<&[u8]>) -> Result<()>
         ("StandardErrorPath", s("/dev/console")),
     ]);
     add_job(fs, NETCFG_LABEL, &job)?;
-    log.push(format!("netcfg: /usr/local/bin/sweetnetcfg + launchd job {NETCFG_LABEL}"));
+    log.push(format!("netcfg: /usr/local/bin/bergamotanetcfg + launchd job {NETCFG_LABEL}"));
     Ok(())
 }
 
-/// sweetreboot(): /usr/local/bin/sweetreboot (no job).
-pub fn sweetreboot(fs: &mut dyn Fs, log: &mut Log, tool: Option<&[u8]>) -> Result<()> {
+/// bergamotareboot(): /usr/local/bin/bergamotareboot (no job).
+pub fn bergamotareboot(fs: &mut dyn Fs, log: &mut Log, tool: Option<&[u8]>) -> Result<()> {
     let Some(tool) = tool else {
-        log.push("sweetreboot: skipped, build it first (tools/sweetnet/build.sh)".into());
+        log.push("bergamotareboot: skipped, build it first (tools/bergamotanet/build.sh)".into());
         return Ok(());
     };
-    install(fs, tool, "usr/local/bin/sweetreboot", 0o755)?;
-    log.push("sweetreboot: /usr/local/bin/sweetreboot".into());
+    install(fs, tool, "usr/local/bin/bergamotareboot", 0o755)?;
+    log.push("bergamotareboot: /usr/local/bin/bergamotareboot".into());
     Ok(())
 }
 
-/// sweetmetrics(): /usr/local/bin/sweetmetrics (no job).
-pub fn sweetmetrics(fs: &mut dyn Fs, log: &mut Log, tool: Option<&[u8]>) -> Result<()> {
+/// bergamotametrics(): /usr/local/bin/bergamotametrics (no job).
+pub fn bergamotametrics(fs: &mut dyn Fs, log: &mut Log, tool: Option<&[u8]>) -> Result<()> {
     let Some(tool) = tool else {
-        log.push("sweetmetrics: not built (tools/sweetnet/build.sh): skipped".into());
+        log.push("bergamotametrics: not built (tools/bergamotanet/build.sh): skipped".into());
         return Ok(());
     };
-    install(fs, tool, "usr/local/bin/sweetmetrics", 0o755)?;
-    log.push("sweetmetrics: /usr/local/bin/sweetmetrics".into());
+    install(fs, tool, "usr/local/bin/bergamotametrics", 0o755)?;
+    log.push("bergamotametrics: /usr/local/bin/bergamotametrics".into());
     Ok(())
 }
 
@@ -602,7 +602,7 @@ pub fn bluetooth_env(fs: &mut dyn Fs, log: &mut Log, stub_available: bool) -> Re
     save(fs, LAUNCHD_PLIST, &pl, uid, gid, mode, Fmt::Binary)?;
     log.push(format!("bluetooth: BT_HCI_TRANSPORT set for {BT_LABEL}"));
     if !stub_available {
-        log.push("bluetooth: BlueTool stub not built (tools/sweetnet/build.sh): BlueTool left alone".into());
+        log.push("bluetooth: BlueTool stub not built (tools/bergamotanet/build.sh): BlueTool left alone".into());
     }
     Ok(())
 }
@@ -638,7 +638,7 @@ pub struct Config {
     pub adt_target: String,
     pub quiet: bool,
     pub netcfg: Option<Vec<u8>>,
-    pub sweetreboot: Option<Vec<u8>>,
+    pub bergamotareboot: Option<Vec<u8>>,
     /// How paths are shown in messages (Python prints absolute paths under the root it was given).
     pub root_display: String,
     /// The prebuilt on-device tools (berga-tools.zip); None: every feature that installs one is skipped.
@@ -649,7 +649,7 @@ pub struct Config {
     pub ssh_key_name: Option<String>,
 }
 
-/// The ported part of root_tweaks18.base() + auto(), in their order (ssh, sweetprefs, PosterBoard, bgmtl, the
+/// The ported part of root_tweaks18.base() + auto(), in their order (ssh, bergamotaprefs, PosterBoard, bgmtl, the
 /// first-boot job and bglrender are not ported yet).
 pub fn run(fs: &mut dyn Fs, cfg: &Config, log: &mut Log) -> Result<()> {
     let r = cfg.root_display.as_str();
@@ -662,7 +662,7 @@ pub fn run(fs: &mut dyn Fs, cfg: &Config, log: &mut Log) -> Result<()> {
     event_timing(fs, log, r, &cfg.board, &cfg.adt_target)?;
     usbnet(fs, log)?;
     netcfg(fs, log, cfg.netcfg.as_deref())?;
-    sweetreboot(fs, log, cfg.sweetreboot.as_deref())?;
+    bergamotareboot(fs, log, cfg.bergamotareboot.as_deref())?;
     crate::tools::run_ssh(fs, cfg, log)?;
     audio(fs, log)?;
     activation(fs, log, r, &cfg.build, &cfg.version)?;

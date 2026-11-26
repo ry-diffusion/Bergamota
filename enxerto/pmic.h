@@ -3,13 +3,13 @@
 
 /*
  * Minimal polled SPMI access for the off-mode charging screen (docs/BERGAMOTA_CHARGE.md).
- * Port of the read paths of xnu/patches 0062/0092/0095/0126/0137 (bsd/dev/sweet_spmi.c):
+ * Port of the read paths of xnu/patches 0062/0092/0095/0126/0137 (bsd/dev/bergamota_spmi.c):
  * PMIC arbiter v5, apps EE observer reads, MMU-off safe, aligned 32-bit MMIO, no interrupts.
  *
  * Everything is READ ONLY (battery fuel gauge + SCHG status on PMI8998 = SID 2, PM8998 PON =
  * SID 0) except (a) the PMI8998 WLED backlight brightness (SID 3, peripheral 0xd9), which
  * pmic_wled_set() writes through the arbiter's write channel (the five registers of the kernel's
- * backlight fade) and (b) the seven SMB2 charger registers of the kernel's sweetcharger=2 control,
+ * backlight fade) and (b) the seven SMB2 charger registers of the kernel's bergamotacharger=2 control,
  * through pmic_chg_write() (charger.c). No other write is reachable.
  */
 

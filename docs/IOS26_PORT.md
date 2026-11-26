@@ -7,23 +7,23 @@ Why iOS 26 and what was measured: `docs/IOS26_FEASIBILITY.md`. Kernel: `docs/XNU
 
 | Piece | File (git-ignored) | How |
 | --- | --- | --- |
-| Kernel | `research/ios26/kernel/kernel.development.sweet` (xnu-12377.121.6, sha256 `d1afbfd8...`) | `USE_KDK=1 tools/xnu-local-build.sh 26.5` |
+| Kernel | `research/ios26/kernel/kernel.development.bergamota` (xnu-12377.121.6, sha256 `d1afbfd8...`) | `USE_KDK=1 tools/xnu-local-build.sh 26.5` |
 | ADT, iPhone 11 | `enxerto/out/beryllium-n104-2x.adt` (N104AP / iPhone12,1, 414x896 @2x = 828x1792, sRGB) | `tools/mkadt.py OUT --board beryllium --highmem --display-scale 2 --points 414x896 --identity n104ap` (needs `research/ios26/n104ap.adt`) |
 | Root | `research/ios26/ios26-root-full.simg` (17.9 GB sparse, iOS **26.6.2 23G90**, iPhone12,1) | `tools/renegade/fetch-root.sh`, then `RENEGADE_MIN_FREE_GB=10 tools/renegade/mkroot-full.sh --delete-sources --size 24g` |
-| Boot image | `research/ios26/enxerto-boot-ios26full.img` | `tools/renegade/mkboot-full.sh` (iOS 18 boot-args, `rd=ufsroot0`, `sweetarm64e=1`) |
+| Boot image | `research/ios26/enxerto-boot-ios26full.img` | `tools/renegade/mkboot-full.sh` (iOS 18 boot-args, `rd=ufsroot0`, `bergamotaarm64e=1`) |
 
 **Why 26.6.2, not 26.7.1:** 26.7/26.7.1 exist only as OTAs, where the root is `payloadv2` Apple Archives instead of a disk
 image; Renegade's copy stage reads IPSW disk images (and their owners). An OTA path is future work; the kernel is the same.
 
 Root verify stage, all OK: owners (3000-path spot check), no HFS compression, `codesign -v` sample, identity/CS flags of all
 2986 re-signed Mach-Os, every boot-task program present, chained fixups of 3792 Mach-Os, no PAC words left, shared cache signatures.
-Skipped features (prebuilt tools not in this worktree; `renegade fetch-tools` or `tools/sweetnet/build.sh`): app registration
-(`sweetuicache`), default wallpaper, PosterBoard `sweetfp.dylib`, `sweetprefs`, Chlorophyll payload (`research/bgmtl`). In:
-dropbear SSH (key-only), USB Ethernet 192.168.7.2, `sweetnetcfg`, `sweetreboot`, jailbreak userland.
+Skipped features (prebuilt tools not in this worktree; `renegade fetch-tools` or `tools/bergamotanet/build.sh`): app registration
+(`bergamotauicache`), default wallpaper, PosterBoard `bergamotafp.dylib`, `bergamotaprefs`, Chlorophyll payload (`research/bgmtl`). In:
+dropbear SSH (key-only), USB Ethernet 192.168.7.2, `bergamotanetcfg`, `bergamotareboot`, jailbreak userland.
 
 **Kernel update (2026-10-25):** develop's iOS 18 work (0233-0250: RTC wall clock, GPU page-table pool, scan-out copy/blit, panel
-power and backlight service (`sweetfb_blsvc` stays OFF by default), charger, Bluetooth AKS/HCI/Skywalk) is in `xnu/patches-12377`
-(`docs/XNU12377_MIGRATION.md`). The `kernel.development.sweet` above predates it; take the CI kernel and rebuild the boot image with
+power and backlight service (`bergamotafb_blsvc` stays OFF by default), charger, Bluetooth AKS/HCI/Skywalk) is in `xnu/patches-12377`
+(`docs/XNU12377_MIGRATION.md`). The `kernel.development.bergamota` above predates it; take the CI kernel and rebuild the boot image with
 `tools/renegade/mkboot-full.sh` before the first boot.
 **Chlorophyll on 26:** `gpu/metal` branch `ios26`, `IOS26.md`; the image above has no Chlorophyll payload (CPU renderer).
 
@@ -86,7 +86,7 @@ Neither is done yet; the user picks one before the flash is queued.
      * a MobileGestalt Wi-Fi MAC;
      * development keystore and lock-state behaviour.
 3. Expected first problems (iOS 18 -> 26 userland drift): IOSurface / IOMobileFramebuffer user-client layouts (0157/0159 style),
-   MobileGestalt answers for iPhone12,1, new launchd boot tasks, AKS selectors. Logs: `tools/sweet-log-pull.sh`, SSH once USB
+   MobileGestalt answers for iPhone12,1, new launchd boot tasks, AKS selectors. Logs: `tools/bergamota-log-pull.sh`, SSH once USB
    networking is up.
 
 ## 4. Milestone: touch works on iOS 26 (2026-10-25, boot 27)
@@ -107,11 +107,11 @@ Our xnu-12377 `IOHIDEvent` wrote the older queue format: one element, legacy rec
 
 | patch | what |
 |---|---|
-| 1010 | NT36672A reset pulse before reading params (`sweettouchnvtrst=1`); fixed controller frames and IRQs |
-| 1013 | `sweethidlog=1` dumps the first touch events' `createBytes` |
+| 1010 | NT36672A reset pulse before reading params (`bergamotatouchnvtrst=1`); fixed controller frames and IRQs |
+| 1013 | `bergamotahidlog=1` dumps the first touch events' `createBytes` |
 | 1014 | collection `childEventMask` = OR of the fingers' masks (as `IOHIDEventAppendEvent`); harmless, backboardd doesn't read it |
 | 1015 | touch events carry `IsBuiltIn` (backboardd forwards it to SpringBoard) |
-| 1016 | `sweetdenypath=SUFFIX` makes matching path lookups fail (recovery switch for a crash-looping debug dylib) |
+| 1016 | `bergamotadenypath=SUFFIX` makes matching path lookups fail (recovery switch for a crash-looping debug dylib) |
 | **1017** | queued digitizer records in the 160-byte double layout; `createBytes` stays legacy |
 | **1018** | one `IOHIDSystemQueueElement` per child (depth 1, total in the parent's `eventCount`) |
 
@@ -130,7 +130,7 @@ they are needed is not tested.
   * restarting backboardd breaks touch delivery until reboot, and 3-4 restarts in a few minutes make launchd shut the system down
     (on our kernel that ends in the "initproc exited" panic), so the hook is armed from boot (`/usr/libexec/bbhook2.arm`);
   * never hook a selector in both a class and its subclass (an override calling super recursed: stack overflow at boot);
-  * recovery: boot with `sweetdenypath=/var/root/bbhook2.dylib` (weak load -> backboardd starts clean), then restore over SSH.
+  * recovery: boot with `bergamotadenypath=/var/root/bbhook2.dylib` (weak load -> backboardd starts clean), then restore over SSH.
   After boot 27 the arm file is removed and the original backboardd is back on disk (`/usr/libexec/backboardd.orig` kept).
 
-**Next:** drop 1011/1012 if not needed and make `sweettouchnvtrst=1` the default; Wi-Fi (sweet80211, paused); Metal/Chlorophyll.
+**Next:** drop 1011/1012 if not needed and make `bergamotatouchnvtrst=1` the default; Wi-Fi (bergamota80211, paused); Metal/Chlorophyll.

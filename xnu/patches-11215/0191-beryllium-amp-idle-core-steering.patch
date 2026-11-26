@@ -1,26 +1,26 @@
-diff --git a/bsd/dev/sweet_cpufreq.c b/bsd/dev/sweet_cpufreq.c
+diff --git a/bsd/dev/bergamota_cpufreq.c b/bsd/dev/bergamota_cpufreq.c
 index 954b5fc..1ca3f56 100644
---- a/bsd/dev/sweet_cpufreq.c
-+++ b/bsd/dev/sweet_cpufreq.c
+--- a/bsd/dev/bergamota_cpufreq.c
++++ b/bsd/dev/bergamota_cpufreq.c
 @@ -48,6 +48,12 @@
-  *   sweetcpufreq_log=<seconds>         time-in-state summary period (default
+  *   bergamotacpufreq_log=<seconds>         time-in-state summary period (default
   *                                      10, 0 = none)
-  *   sweetcpufreq_force=1               also act when ENABLE bit 0 is clear
-+ *   sweetamp=0|1                       idle-core steering in the scheduler (default 1)
-+ *   sweetamp_prio=<n>                  base_pri threshold (default 31)
+  *   bergamotacpufreq_force=1               also act when ENABLE bit 0 is clear
++ *   bergamotaamp=0|1                       idle-core steering in the scheduler (default 1)
++ *   bergamotaamp_prio=<n>                  base_pri threshold (default 31)
 + * Core-class steering (independent of the cpufreq mode): once all CPUs are up,
 + * osfmk/kern/sched_prim.c is told which CPUs are A75 (MPIDR Aff1 >= 4) and which A55;
-+ * choose_processor() then gives user threads with base_pri >= sweetamp_prio an idle A75
++ * choose_processor() then gives user threads with base_pri >= bergamotaamp_prio an idle A75
 + * first and all other threads (low QoS, kernel threads) an idle A55 first.
   * The closest LUT entry to the percentage is used (100 = highest index).
-  * Starts once every selected CPU is up (after iokit/Kernel/arm/SweetCPU.cpp's
-  * SMP bring-up). All logs start with "SWEET CPUFREQ:".
+  * Starts once every selected CPU is up (after iokit/Kernel/arm/BergamotaCPU.cpp's
+  * SMP bring-up). All logs start with "BERGAMOTA CPUFREQ:".
 @@ -55,7 +61,8 @@
-  * sysctl kern.sweet_cpufreq (read-only string, stable format "v1", for the
+  * sysctl kern.bergamota_cpufreq (read-only string, stable format "v1", for the
   * Bergamota metrics panel). Lines are separated by '\n'; each line is a
   * sequence of space-separated key=value words:
-- *   line 1:  sweet_cpufreq v1 mode=<gov|fixed|off> period_ms=<sample period>
-+ *   line 1:  sweet_cpufreq v1 mode=<gov|fixed|off> period_ms=<sample period> amp=<on|off>
+- *   line 1:  bergamota_cpufreq v1 mode=<gov|fixed|off> period_ms=<sample period>
++ *   line 1:  bergamota_cpufreq v1 mode=<gov|fixed|off> period_ms=<sample period> amp=<on|off>
 + *            amp_big=<A75 cpu mask, hex> amp_pri=<base_pri threshold>
   *   line 2:  cluster0 name=A55 cpus=0-3 state=<applied|off|skipped|pending>
   *            mode=<gov|fixed|off> idx=<current LUT index> cur_khz=<current>
@@ -28,11 +28,11 @@ index 954b5fc..1ca3f56 100644
 @@ -81,6 +88,7 @@
  
  extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
- extern uint64_t sweet_processor_idle_time(int cpu);
-+extern void sweet_amp_enable(uint64_t big, uint64_t little, int pri);
+ extern uint64_t bergamota_processor_idle_time(int cpu);
++extern void bergamota_amp_enable(uint64_t big, uint64_t little, int pri);
  extern kern_return_t thread_terminate(thread_t);
- extern boolean_t sweet_cpu_signal_is_enabled(unsigned int cpu);
- void sweet_cpufreq_max(void);
+ extern boolean_t bergamota_cpu_signal_is_enabled(unsigned int cpu);
+ void bergamota_cpufreq_max(void);
 @@ -135,6 +143,10 @@ static int cf_mode = MODE_OFF;
  static unsigned cf_ncpus;
  static unsigned cf_log_secs = 10;
@@ -63,13 +63,13 @@ index 954b5fc..1ca3f56 100644
 +		}
 +	}
 +	if (big == 0 || little == 0) {
-+		printf("SWEET AMP: only one core class online (big 0x%llx little 0x%llx), steering off\n", big, little);
++		printf("BERGAMOTA AMP: only one core class online (big 0x%llx little 0x%llx), steering off\n", big, little);
 +		return;
 +	}
-+	sweet_amp_enable(big, little, cf_amp_pri);
++	bergamota_amp_enable(big, little, cf_amp_pri);
 +	cf_amp_big = big;
 +	cf_amp_on = true;
-+	printf("SWEET AMP: idle-core steering on: A75 mask 0x%llx, A55 mask 0x%llx, base_pri >= %d takes an A75 first\n",
++	printf("BERGAMOTA AMP: idle-core steering on: A75 mask 0x%llx, A55 mask 0x%llx, base_pri >= %d takes an A75 first\n",
 +	    big, little, cf_amp_pri);
 +}
 +
@@ -86,29 +86,29 @@ index 954b5fc..1ca3f56 100644
 +	if (cf_mode == MODE_OFF) {
 +		goto out;
 +	}
- 	printf("SWEET CPUFREQ: %u CPUs up; mode %s; A55 %d%%, A75 %d%% of max\n", cf_ncpus,
+ 	printf("BERGAMOTA CPUFREQ: %u CPUs up; mode %s; A55 %d%%, A75 %d%% of max\n", cf_ncpus,
  	    cf_mode == MODE_GOV ? "gov" : "fixed", cf_dom[0].percent, cf_dom[1].percent);
  	for (unsigned i = 0; i < 2; i++) {
-@@ -460,10 +503,15 @@ sweet_cpufreq_max(void)
+@@ -460,10 +503,15 @@ bergamota_cpufreq_max(void)
  	}
  	cf_started = true;
- 	(void)PE_parse_boot_argn("sweetcpufreq", arg, sizeof(arg));
-+	(void)PE_parse_boot_argn("sweetamp", &cf_amp, sizeof(cf_amp));
-+	(void)PE_parse_boot_argn("sweetamp_prio", &cf_amp_pri, sizeof(cf_amp_pri));
+ 	(void)PE_parse_boot_argn("bergamotacpufreq", arg, sizeof(arg));
++	(void)PE_parse_boot_argn("bergamotaamp", &cf_amp, sizeof(cf_amp));
++	(void)PE_parse_boot_argn("bergamotaamp_prio", &cf_amp_pri, sizeof(cf_amp_pri));
  	if (!strcmp(arg, "off") || !strcmp(arg, "0")) {
  		cf_mode = MODE_OFF;
  		cf_dom[0].state = cf_dom[1].state = CF_OFF;
- 		printf("SWEET CPUFREQ: off (sweetcpufreq=%s), frequencies left as the firmware set them\n", arg);
+ 		printf("BERGAMOTA CPUFREQ: off (bergamotacpufreq=%s), frequencies left as the firmware set them\n", arg);
 +		if (cf_amp) {
 +			goto start;     /* the thread only does the core steering */
 +		}
  		return;
  	}
  	if (!strcmp(arg, "fixed")) {
-@@ -482,6 +530,7 @@ sweet_cpufreq_max(void)
- 	(void)PE_parse_boot_argn("sweetcpufreq_log", &v, sizeof(v));
+@@ -482,6 +530,7 @@ bergamota_cpufreq_max(void)
+ 	(void)PE_parse_boot_argn("bergamotacpufreq_log", &v, sizeof(v));
  	cf_log_secs = v < 0 ? 0 : (unsigned)v;
- 	(void)PE_parse_boot_argn("sweetcpufreq_force", &cf_force, sizeof(cf_force));
+ 	(void)PE_parse_boot_argn("bergamotacpufreq_force", &cf_force, sizeof(cf_force));
 +start:
  	if (kernel_thread_start((thread_continue_t)cf_thread, NULL, &thread) == KERN_SUCCESS) {
  		thread_deallocate(thread);
@@ -117,9 +117,9 @@ index 954b5fc..1ca3f56 100644
  	size_t n = 0;
  	const char *modes[] = { "off", "gov", "fixed" };
  
--	n = cf_cat(buf, sizeof(buf), n, "sweet_cpufreq v1 mode=%s period_ms=%u\n", modes[cf_mode],
+-	n = cf_cat(buf, sizeof(buf), n, "bergamota_cpufreq v1 mode=%s period_ms=%u\n", modes[cf_mode],
 -	    cf_mode == MODE_GOV ? GOV_PERIOD_MS : FIXED_PERIOD_MS);
-+	n = cf_cat(buf, sizeof(buf), n, "sweet_cpufreq v1 mode=%s period_ms=%u amp=%s amp_big=0x%llx amp_pri=%d\n",
++	n = cf_cat(buf, sizeof(buf), n, "bergamota_cpufreq v1 mode=%s period_ms=%u amp=%s amp_big=0x%llx amp_pri=%d\n",
 +	    modes[cf_mode], cf_mode == MODE_GOV ? GOV_PERIOD_MS : FIXED_PERIOD_MS,
 +	    cf_amp_on ? "on" : "off", cf_amp_big, cf_amp_pri);
  	for (unsigned i = 0; i < 2; i++) {
@@ -133,45 +133,45 @@ index 7b2a377..a52b50f 100644
  	return nset;
  }
  
-+#if defined(ARM64_BOARD_CONFIG_SWEET)
++#if defined(ARM64_BOARD_CONFIG_BERGAMOTA)
 +/*
 + * Poco F1 (SDM845): CPU 0-3 are Cortex-A55, CPU 4-7 Cortex-A75, but the ADT/topology
 + * publishes one SMP cluster (MAX_CPU_CLUSTERS == 1, no __ARM_AMP__, so the Clutch SMP
 + * scheduler: the Edge/AMP scheduler is a compile-time choice). This steers the choice
-+ * among IDLE processors in choose_processor(): user threads with base_pri >= sweet_amp_pri
++ * among IDLE processors in choose_processor(): user threads with base_pri >= bergamota_amp_pri
 + * (default BASEPRI_DEFAULT: default QoS and above) take an idle A75 first, everything
 + * else (low QoS, kernel threads) an idle A55 first; the other class is still used when
 + * the preferred one has no idle core. Masks stay 0 (= stock behaviour) until
-+ * bsd/dev/sweet_cpufreq.c enables them after the SMP bring-up (boot-arg sweetamp=0 keeps
++ * bsd/dev/bergamota_cpufreq.c enables them after the SMP bring-up (boot-arg bergamotaamp=0 keeps
 + * them off). Only idle-processor selection is affected; running threads are not moved.
 + */
-+uint64_t sweet_amp_big_mask;
-+uint64_t sweet_amp_little_mask;
-+int sweet_amp_pri = BASEPRI_DEFAULT;
++uint64_t bergamota_amp_big_mask;
++uint64_t bergamota_amp_little_mask;
++int bergamota_amp_pri = BASEPRI_DEFAULT;
 +
-+void sweet_amp_enable(uint64_t big, uint64_t little, int pri);
++void bergamota_amp_enable(uint64_t big, uint64_t little, int pri);
 +void
-+sweet_amp_enable(uint64_t big, uint64_t little, int pri)
++bergamota_amp_enable(uint64_t big, uint64_t little, int pri)
 +{
-+	sweet_amp_pri = pri;
-+	os_atomic_store(&sweet_amp_little_mask, little, relaxed);
-+	os_atomic_store(&sweet_amp_big_mask, big, release);
++	bergamota_amp_pri = pri;
++	os_atomic_store(&bergamota_amp_little_mask, little, relaxed);
++	os_atomic_store(&bergamota_amp_big_mask, big, release);
 +}
 +
 +/* CPUs the thread should use first, 0 if the steering is off. */
 +static inline uint64_t
-+sweet_amp_wanted_map(thread_t thread)
++bergamota_amp_wanted_map(thread_t thread)
 +{
-+	uint64_t big = os_atomic_load(&sweet_amp_big_mask, acquire);
++	uint64_t big = os_atomic_load(&bergamota_amp_big_mask, acquire);
 +	if (big == 0) {
 +		return 0;
 +	}
-+	if (thread->base_pri >= sweet_amp_pri && get_threadtask(thread) != kernel_task) {
++	if (thread->base_pri >= bergamota_amp_pri && get_threadtask(thread) != kernel_task) {
 +		return big;
 +	}
-+	return os_atomic_load(&sweet_amp_little_mask, relaxed);
++	return os_atomic_load(&bergamota_amp_little_mask, relaxed);
 +}
-+#endif /* ARM64_BOARD_CONFIG_SWEET */
++#endif /* ARM64_BOARD_CONFIG_BERGAMOTA */
 +
  /*
   *	choose_processor:
@@ -182,13 +182,13 @@ index 7b2a377..a52b50f 100644
  					 */
 -					if (!(bit_test(processor->processor_set->perfcontrol_cpu_migration_bitmask, processor->cpu_id) && non_avoided_idle_primary_map != 0)) {
 +					bool keep_hint = true;
-+#if defined(ARM64_BOARD_CONFIG_SWEET)
++#if defined(ARM64_BOARD_CONFIG_BERGAMOTA)
 +					/* Wrong core class for this thread and an idle core of the right class exists. */
-+					uint64_t amp_want = sweet_amp_wanted_map(thread);
++					uint64_t amp_want = bergamota_amp_wanted_map(thread);
 +					if (amp_want != 0 && !bit_test(amp_want, processor->cpu_id) && (idle_primary_map & amp_want) != 0) {
 +						keep_hint = false;
 +					}
-+#endif /* ARM64_BOARD_CONFIG_SWEET */
++#endif /* ARM64_BOARD_CONFIG_BERGAMOTA */
 +					if (keep_hint && !(bit_test(processor->processor_set->perfcontrol_cpu_migration_bitmask, processor->cpu_id) && non_avoided_idle_primary_map != 0)) {
  						return processor;
  					}
@@ -197,9 +197,9 @@ index 7b2a377..a52b50f 100644
  		/* there shouldn't be a pending AST if the processor is idle */
  		assert((idle_primary_map & pset->pending_AST_URGENT_cpu_mask) == 0);
  
-+#if defined(ARM64_BOARD_CONFIG_SWEET)
++#if defined(ARM64_BOARD_CONFIG_BERGAMOTA)
 +		/* Idle cores of the class this thread should use first (round robin). */
-+		uint64_t amp_want_idle = idle_primary_map & sweet_amp_wanted_map(thread);
++		uint64_t amp_want_idle = idle_primary_map & bergamota_amp_wanted_map(thread);
 +		if (amp_want_idle != 0) {
 +			int amp_cpu = lsb_next(amp_want_idle, pset->cpu_preferred_last_chosen);
 +			if (amp_cpu < 0) {
@@ -208,7 +208,7 @@ index 7b2a377..a52b50f 100644
 +			pset->cpu_preferred_last_chosen = amp_cpu;
 +			return processor_array[amp_cpu];
 +		}
-+#endif /* ARM64_BOARD_CONFIG_SWEET */
++#endif /* ARM64_BOARD_CONFIG_BERGAMOTA */
 +
  		/*
  		 * Look at the preferred cores first.

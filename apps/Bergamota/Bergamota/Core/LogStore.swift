@@ -3,16 +3,16 @@ import Observation
 import Darwin
 
 enum LogTag: String, CaseIterable, Identifiable, Sendable {
-    case usb = "SWEET USB", gpu = "SWEET GPU", wlan = "SWEET WLAN", fb = "SWEET FB", crash = "CRASH"
+    case usb = "BERGAMOTA USB", gpu = "BERGAMOTA GPU", wlan = "BERGAMOTA WLAN", fb = "BERGAMOTA FB", crash = "CRASH"
     var id: String { rawValue }
     var bit: UInt8 { 1 << UInt8(LogTag.allCases.firstIndex(of: self)!) }
 
     static func classify(_ s: String) -> UInt8 {
         var m: UInt8 = 0
-        if s.contains("SWEET USB") { m |= LogTag.usb.bit }
-        if s.contains("SWEET GPU") { m |= LogTag.gpu.bit }
-        if s.contains("SWEET WLAN") { m |= LogTag.wlan.bit }
-        if s.contains("SWEET FB") { m |= LogTag.fb.bit }
+        if s.contains("BERGAMOTA USB") { m |= LogTag.usb.bit }
+        if s.contains("BERGAMOTA GPU") { m |= LogTag.gpu.bit }
+        if s.contains("BERGAMOTA WLAN") { m |= LogTag.wlan.bit }
+        if s.contains("BERGAMOTA FB") { m |= LogTag.fb.bit }
         if s.range(of: "panic", options: .caseInsensitive) != nil || s.range(of: "crash", options: .caseInsensitive) != nil
             || s.range(of: "fatal", options: .caseInsensitive) != nil || s.contains("Data Abort")
             || s.range(of: "assertion failed", options: .caseInsensitive) != nil { m |= LogTag.crash.bit }
@@ -121,8 +121,8 @@ final class LogStore {
     /// Kernel-log hints for the activity banner.
     var lastPanicLine: String?
     var lastPanicAt: Date?
-    var lastSweetLine: String?
-    var lastSweetAt: Date?
+    var lastBergamotaLine: String?
+    var lastBergamotaAt: Date?
 
     @ObservationIgnored private var ring: [LogLine] = []
     @ObservationIgnored private var nextID = 0
@@ -183,7 +183,7 @@ final class LogStore {
         for (t, tags) in new {
             batch.append(LogLine(id: nextID, text: t, tags: tags)); nextID += 1
             if tags & LogTag.crash.bit != 0, t.contains("panic(") || t.contains("Kernel panic") || t.contains("panicked") { lastPanicLine = t; lastPanicAt = Date() }
-            if t.contains("SWEET ") { lastSweetLine = t; lastSweetAt = Date() }
+            if t.contains("BERGAMOTA ") { lastBergamotaLine = t; lastBergamotaAt = Date() }
         }
         ring.append(contentsOf: batch)
         if ring.count > Self.capacity + 30_000 { ring.removeFirst(ring.count - Self.capacity) }

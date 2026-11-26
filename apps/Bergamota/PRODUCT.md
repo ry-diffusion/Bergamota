@@ -19,11 +19,11 @@ The single control panel between the Mac and the phone: know at a glance what st
 
 ## Positioning
 
-It drives a phone that runs a bootloader (Enxerto, "Bergamota fastboot") and a kernel written in this repository: it knows the project's own states (Bergamota vs ABL fastboot, the BERG reboot reason, sweetreboot, sweetmetrics, the UDP 5140 kernel console) and the project's safety rules. No generic device tool knows these.
+It drives a phone that runs a bootloader (Enxerto, "Bergamota fastboot") and a kernel written in this repository: it knows the project's own states (Bergamota vs ABL fastboot, the BERG reboot reason, bergamotareboot, bergamotametrics, the UDP 5140 kernel console) and the project's safety rules. No generic device tool knows these.
 
 ## Operating Context
 
-- Sections: Dashboard (state, detection, Mac side, fastboot actions, performance metrics, iOS device card), Live Log (UDP 5140 kernel console, 300k-line ring, tag filters SWEET USB/GPU/WLAN/FB/CRASH, record/save), CI (`gh run list` of xnu.yml, kernel download), Boot Queue (Queue / Images / Build / Flash tabs), Apps (IPA sideloading), Media (photos/files to the phone), Settings.
+- Sections: Dashboard (state, detection, Mac side, fastboot actions, performance metrics, iOS device card), Live Log (UDP 5140 kernel console, 300k-line ring, tag filters BERGAMOTA USB/GPU/WLAN/FB/CRASH, record/save), CI (`gh run list` of xnu.yml, kernel download), Boot Queue (Queue / Images / Build / Flash tabs), Apps (IPA sideloading), Media (photos/files to the phone), Settings.
 - Control Plane: a separate large-type window (Shift+Cmd+C) with banner, tiles, metrics strip, queue, CI, log tail and big action buttons. The user does not currently use it on a second display.
 - The activity banner (BUILDING, WAITING FOR FASTBOOT, SENDING, BOOTING, iOS UP, FLASHING n%, PANIC, ...) is how a state change is noticed.
 - Long sessions next to a terminal and Xcode; actions are mostly started by agents, so the app's job is to make what is happening legible and to gate the dangerous parts.

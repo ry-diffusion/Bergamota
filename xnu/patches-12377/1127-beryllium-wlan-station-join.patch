@@ -3,10 +3,10 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +++ b/bsd/dev/beryllium_wlan.c
 @@ -57,6 +57,9 @@
  #include <vm/vm_kern_xnu.h>
- #include "sweet_board.h"
- #include "sweet_wlan.h"
-+#include "sweet_wlan_frames.h"
-+#include "sweet_wpa.h"
+ #include "bergamota_board.h"
+ #include "bergamota_wlan.h"
++#include "bergamota_wlan_frames.h"
++#include "bergamota_wpa.h"
 +#include <sys/random.h>
  
  extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
@@ -21,13 +21,13 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +static void sta_init(void);
  
  /* the GENI UART and the HCI state of the stage: held by the RX loop per poll and by every TX */
- static LCK_GRP_DECLARE(wl_hw_grp, "sweet_bt_uart");
+ static LCK_GRP_DECLARE(wl_hw_grp, "bergamota_bt_uart");
 @@ -3886,7 +3893,7 @@
  } wce_ring[5] = {
  	{ 0, 16, true, 0x1000, 0x40000, 2048 }, { 3, 32, true, 0x2000, 0x48000, 2048 },
  	{ 1, 32, false, 0x3000, 0x10000, 0 }, { 2, 64, false, 0x4000, 0x20000, 0 },
--	{ 4, 16, true, 0x5000, 0x58000, 256 },  /* HTT host->target, sweetscan=1 only (CE4 dmax 256) */
-+	{ 4, 64, true, 0x5000, 0x58000, 256 },  /* HTT host->target, sweetscan=1 only (CE4 dmax 256); TX_FRM: 2 each */
+-	{ 4, 16, true, 0x5000, 0x58000, 256 },  /* HTT host->target, bergamotascan=1 only (CE4 dmax 256) */
++	{ 4, 64, true, 0x5000, 0x58000, 256 },  /* HTT host->target, bergamotascan=1 only (CE4 dmax 256); TX_FRM: 2 each */
  };
  #define WCE_NRINGS              (ipc.scan ? 5u : 4u)
  
@@ -69,12 +69,12 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
  }
  
  /*
-+ * ---- WL3/WL4: the station (sweet80211=3 joins). What ath10k + mac80211 + wpa_supplicant do for a client, in the
++ * ---- WL3/WL4: the station (bergamota80211=3 joins). What ath10k + mac80211 + wpa_supplicant do for a client, in the
 + * service thread (docs/WIFI_IOS26.md 6.3, the order of ath10k mac.c): STOP_SCAN if one runs, VDEV_START on the AP's
 + * channel (VDEV_START_RESP), STA_POWERSAVE_MODE off, beacon interval and management rate, PEER_CREATE (HTT PEER_MAP),
 + * open-system authentication and the association request through WMI MGMT_TX_SEND by reference (HTT TX_FRM type
 + * MGMT when the firmware lacks service 76), PEER_ASSOC (+ SMPS), VDEV_UP; then for WPA2-PSK the 4-way handshake
-+ * (sweet_wpa.c) over the data path and VDEV_INSTALL_KEY pairwise (HTT SEC_IND), PEER_SET_PARAM authorize, group.
++ * (bergamota_wpa.c) over the data path and VDEV_INSTALL_KEY pairwise (HTT SEC_IND), PEER_SET_PARAM authorize, group.
 + * Data: HTT TX_FRM native wifi (ext descriptor in the frag bank, two CE4 gather descriptors), TX_COMPL_IND frees the
 + * msdu id; RX_IN_ORD_PADDR_IND hands back RX ring buffers (payload at +360), which are posted again at once.
 + */
@@ -95,10 +95,10 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +
 +static struct {
 +	int state;
-+	struct sweet_wlan_join req;     /* the join being done (service thread only) */
-+	struct sweet_wlan_join pend;    /* the next join, written by the ioctl under sta_lock */
++	struct bergamota_wlan_join req;     /* the join being done (service thread only) */
++	struct bergamota_wlan_join pend;    /* the next join, written by the ioctl under sta_lock */
 +	volatile bool req_pending, leave_pending;
-+	volatile int result;            /* SWEET_WLAN_JOIN_* */
++	volatile int result;            /* BERGAMOTA_WLAN_JOIN_* */
 +	uint64_t t_ms, join_ms;         /* state entered, join started */
 +	unsigned tries;
 +	/* the BSS */
@@ -123,7 +123,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	unsigned gtk_idx;
 +	int eapol_msdu;                 /* msdu id of the last EAPOL frame sent, -1 = none in flight */
 +	uint64_t keys_ms;
-+	struct sweet_wpa wpa;
++	struct bergamota_wpa wpa;
 +	/* management TX: one frame in flight, 8 buffers / desc ids in turn */
 +	bool mgmt_busy;
 +	unsigned mgmt_slot;
@@ -144,7 +144,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	uint64_t last_status_ms;
 +	uint32_t kickouts, bmiss, deauths;
 +} sta;
-+static LCK_GRP_DECLARE(sta_grp, "sweet_wlan_sta");
++static LCK_GRP_DECLARE(sta_grp, "bergamota_wlan_sta");
 +static LCK_MTX_DECLARE(sta_lock, &sta_grp);
 +
 +static void sta_set_state(int s);
@@ -155,7 +155,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +sta_wmi(const uint8_t *c, uint32_t n, const char *what)
 +{
 +	if (n > STA_WMI_MAX || sta.wq_n >= STA_WMIQ) {
-+		printf("SWEET WLAN sta: WMI queue full, %s dropped\n", what);
++		printf("BERGAMOTA WLAN sta: WMI queue full, %s dropped\n", what);
 +		return false;
 +	}
 +	unsigned k = (sta.wq_head + sta.wq_n) % STA_WMIQ;
@@ -356,7 +356,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	}
 +	sta.mgmt_busy = true;
 +	sta.mgmt_status = -1;
-+	printf("SWEET WLAN sta: %s sent (%zu bytes, %s)\n", what, len, sta.svc_mgmt_wmi ? "WMI by reference" : "HTT");
++	printf("BERGAMOTA WLAN sta: %s sent (%zu bytes, %s)\n", what, len, sta.svc_mgmt_wmi ? "WMI by reference" : "HTT");
 +	return true;
 +}
 +
@@ -374,9 +374,9 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +static void
 +sta_send_assoc(void)
 +{
-+	struct sweet_wlan_bss *b = kalloc_data(sizeof(*b), Z_WAITOK | Z_ZERO);
++	struct bergamota_wlan_bss *b = kalloc_data(sizeof(*b), Z_WAITOK | Z_ZERO);
 +	uint8_t *f = kalloc_data(512, Z_WAITOK | Z_ZERO);
-+	if (b && f && sweet_wlan_bss_get((unsigned)sta.bss, b) == 0) {
++	if (b && f && bergamota_wlan_bss_get((unsigned)sta.bss, b) == 0) {
 +		struct swf_assoc_params p;
 +		memset(&p, 0, sizeof(p));
 +		memcpy(p.bssid, sta.bssid, 6);
@@ -393,7 +393,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		if (n == 0) {
 +			kfree_data(b, sizeof(*b));
 +			kfree_data(f, 512);
-+			sta_fail(SWEET_WLAN_JOIN_UNSUPPORTED, "no common rates / no SSID element for the association request");
++			sta_fail(BERGAMOTA_WLAN_JOIN_UNSUPPORTED, "no common rates / no SSID element for the association request");
 +			return;
 +		}
 +		if (sta_mgmt_tx(f, n, "association request")) {
@@ -409,7 +409,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	}
 +}
 +
-+/* ---- the 4-way handshake glue (sweet_wpa.c ops, service thread) ---- */
++/* ---- the 4-way handshake glue (bergamota_wpa.c ops, service thread) ---- */
 +static void
 +sta_wpa_tx(void *arg __unused, const uint8_t *frame, size_t len)
 +{
@@ -429,7 +429,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +sta_wpa_key(void *arg __unused, int pairwise, unsigned idx, uint32_t cipher, const uint8_t *key, size_t key_len,
 +    const uint8_t rsc[8] __unused)
 +{
-+	if (cipher != SWEET_WPA_CIPHER_CCMP || key_len != 16) {
++	if (cipher != BERGAMOTA_WPA_CIPHER_CCMP || key_len != 16) {
 +		return ENOTSUP;
 +	}
 +	if (pairwise) {
@@ -446,9 +446,9 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +static void
 +sta_wpa_done(void *arg __unused, int status)
 +{
-+	printf("SWEET WLAN sta: 4-way handshake %s (%d)\n", status ? "FAILED" : "done", status);
++	printf("BERGAMOTA WLAN sta: 4-way handshake %s (%d)\n", status ? "FAILED" : "done", status);
 +	if (status) {
-+		sta_fail(SWEET_WLAN_JOIN_EAPOL, "4-way handshake failed");
++		sta_fail(BERGAMOTA_WLAN_JOIN_EAPOL, "4-way handshake failed");
 +	} else {
 +		sta.keys_ms = ms_now_ms();
 +		sta_set_state(ST_KEYS);
@@ -461,7 +461,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	read_random(buf, (u_int)len);
 +}
 +
-+static const struct sweet_wpa_ops sta_wpa_ops = { sta_wpa_tx, sta_wpa_key, sta_wpa_done, sta_random };
++static const struct bergamota_wpa_ops sta_wpa_ops = { sta_wpa_tx, sta_wpa_key, sta_wpa_done, sta_random };
 +
 +static void
 +sta_install_key(bool pairwise)
@@ -479,7 +479,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	scan_tlv(c, &n, 17, pairwise ? sta.ptk : sta.gtk, 16);
 +	sta.sec_ind = false;
 +	sta_wmi(c, n, pairwise ? "install pairwise key" : "install group key");
-+	printf("SWEET WLAN sta: installing the %s key (CCMP%s)\n", pairwise ? "pairwise" : "group",
++	printf("BERGAMOTA WLAN sta: installing the %s key (CCMP%s)\n", pairwise ? "pairwise" : "group",
 +	    pairwise ? "" : (sta.gtk_idx == 2 ? ", index 2" : ", index 1"));
 +}
 +
@@ -488,7 +488,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +sta_set_state(int s)
 +{
 +	if (s != sta.state) {
-+		printf("SWEET WLAN sta: %s -> %s (%llu ms into the join)\n", st_name[sta.state], st_name[s],
++		printf("BERGAMOTA WLAN sta: %s -> %s (%llu ms into the join)\n", st_name[sta.state], st_name[s],
 +		    sta.join_ms ? ms_now_ms() - sta.join_ms : 0);
 +	}
 +	sta.state = s;
@@ -503,14 +503,14 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	bool was_connected = sta.connected;
 +	sta.connected = false;
 +	sta.ptk_installed = false;
-+	sweet_wpa_stop(&sta.wpa);
++	bergamota_wpa_stop(&sta.wpa);
 +	bzero(sta.ptk, sizeof(sta.ptk));
 +	bzero(sta.gtk, sizeof(sta.gtk));
 +	bzero(sta.req.pmk, sizeof(sta.req.pmk));
 +	sta.key_pending[0] = sta.key_pending[1] = false;
 +	sta.eapol_hold_len = 0;
 +	if (was_connected) {
-+		sweet80211_link(0, reason, sta.by_ap);
++		bergamota80211_link(0, reason, sta.by_ap);
 +	}
 +	sta.mgmt_busy = false;
 +	if (!sta.by_ap && (sta.vdev_up || sta.state == ST_ASSOC || sta.state == ST_UP || sta.state == ST_4WAY ||
@@ -530,18 +530,18 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	if (sta.state == ST_IDLE && !sta.req_pending && !sta.leave_pending) {
 +		return;
 +	}
-+	printf("SWEET WLAN sta: abort in %s: %s\n", st_name[sta.state], why);
++	printf("BERGAMOTA WLAN sta: abort in %s: %s\n", st_name[sta.state], why);
 +	if (sta.connected) {
 +		sta.connected = false;
-+		sweet80211_link(0, 1, false);
++		bergamota80211_link(0, 1, false);
 +	}
 +	lck_mtx_lock(&sta_lock);
 +	sta.req_pending = sta.leave_pending = false;
-+	if (sta.result == SWEET_WLAN_JOIN_RUNNING) {
-+		sta.result = SWEET_WLAN_JOIN_FAILED;
++	if (sta.result == BERGAMOTA_WLAN_JOIN_RUNNING) {
++		sta.result = BERGAMOTA_WLAN_JOIN_FAILED;
 +	}
 +	lck_mtx_unlock(&sta_lock);
-+	sweet_wpa_stop(&sta.wpa);
++	bergamota_wpa_stop(&sta.wpa);
 +	sta.ptk_installed = sta.vdev_up = sta.peer = sta.vdev_started = false;
 +	sta.wq_n = 0;
 +	sta.state = ST_IDLE;
@@ -550,7 +550,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +static void
 +sta_fail(int result, const char *why)
 +{
-+	printf("SWEET WLAN sta: join FAILED in %s: %s (result %d)\n", st_name[sta.state], why, result);
++	printf("BERGAMOTA WLAN sta: join FAILED in %s: %s (result %d)\n", st_name[sta.state], why, result);
 +	ipc_note(" sta FAIL %s/%d;", st_name[sta.state], result);
 +	lck_mtx_lock(&sta_lock);
 +	if (!sta.req_pending) {
@@ -564,14 +564,14 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +static bool
 +sta_pick_bss(void)
 +{
-+	struct sweet_wlan_bss *b = kalloc_data(sizeof(*b), Z_WAITOK | Z_ZERO);
++	struct bergamota_wlan_bss *b = kalloc_data(sizeof(*b), Z_WAITOK | Z_ZERO);
 +	int best = -1, best_rssi = -1000;
 +	static const uint8_t zero[6];
 +	bool any = memcmp(sta.req.bssid, zero, 6) == 0;
 +	if (!b) {
 +		return false;
 +	}
-+	for (unsigned i = 0; sweet_wlan_bss_get(i, b) == 0; i++) {
++	for (unsigned i = 0; bergamota_wlan_bss_get(i, b) == 0; i++) {
 +		if (b->ssid_len != sta.req.ssid_len || memcmp(b->ssid, sta.req.ssid, b->ssid_len) ||
 +		    (!any && memcmp(b->bssid, sta.req.bssid, 6))) {
 +			continue;
@@ -585,7 +585,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			best_rssi = b->rssi;
 +		}
 +	}
-+	if (best >= 0 && sweet_wlan_bss_get((unsigned)best, b) == 0) {
++	if (best >= 0 && bergamota_wlan_bss_get((unsigned)best, b) == 0) {
 +		sta.bss = best;
 +		memcpy(sta.bssid, b->bssid, 6);
 +		sta.mhz = b->mhz;
@@ -613,15 +613,15 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		sta.mgmt_rate = lo >= 0 ? rate_hw[lo] : (sta.mhz > 4900 ? 0x03 : 0x43);
 +		/* the AP's RSN element (byte-compared with message 3) and the group cipher */
 +		const uint8_t *rsn = swf_ie_find(b->ie, b->ie_len, 48);
-+		sweet_wpa_stop(&sta.wpa);
++		bergamota_wpa_stop(&sta.wpa);
 +		sta.group_cipher = 0;
 +		if (sta.rsn && sta.req.rsn_ie_len >= 8) {
 +			sta.group_cipher = ((uint32_t)sta.req.rsn_ie[4] << 24) | ((uint32_t)sta.req.rsn_ie[5] << 16) |
 +			    ((uint32_t)sta.req.rsn_ie[6] << 8) | sta.req.rsn_ie[7];
-+			sweet_wpa_start(&sta.wpa, &sta_wpa_ops, NULL, sta.req.pmk, sta.bssid, scan_mac, sta.req.rsn_ie,
++			bergamota_wpa_start(&sta.wpa, &sta_wpa_ops, NULL, sta.req.pmk, sta.bssid, scan_mac, sta.req.rsn_ie,
 +			    sta.req.rsn_ie_len, rsn, rsn ? (size_t)rsn[1] + 2 : 0, sta.group_cipher);
 +		}
-+		printf("SWEET WLAN sta: BSS %u %02x:%02x:%02x:%02x:%02x:%02x %u MHz %d dBm, beacon %u TU, dtim %u, cap %#x, %s%s, "
++		printf("BERGAMOTA WLAN sta: BSS %u %02x:%02x:%02x:%02x:%02x:%02x %u MHz %d dBm, beacon %u TU, dtim %u, cap %#x, %s%s, "
 +		    "mgmt rate %#x\n", best, sta.bssid[0], sta.bssid[1], sta.bssid[2], sta.bssid[3], sta.bssid[4], sta.bssid[5],
 +		    sta.mhz, sta.rssi, sta.beacon_int, sta.dtim, sta.ap_cap, sta.rsn ? "WPA2-PSK" : "open", sta.ht ? ", HT" : "",
 +		    sta.mgmt_rate);
@@ -648,25 +648,25 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	sta.eapol_hold_len = 0;
 +	sta.aid = 0;
 +	sta.svc_mgmt_wmi = wmi_svc_on(76);      /* WMI_TLV_SERVICE_MGMT_TX_WMI */
-+	printf("SWEET WLAN sta: join \"%.*s\" (%s), management TX %s, rx reorder offload %s\n", sta.req.ssid_len,
++	printf("BERGAMOTA WLAN sta: join \"%.*s\" (%s), management TX %s, rx reorder offload %s\n", sta.req.ssid_len,
 +	    sta.req.ssid, sta.req.rsn_ie_len ? "WPA2-PSK" : "open", sta.svc_mgmt_wmi ? "WMI by reference" : "HTT",
 +	    wmi_svc_on(65) ? "on" : "OFF");
 +	if (sta.req.rsn_ie_len) {
 +		uint32_t gc = 0;
 +		uint8_t ie[64];
 +		/* wifid built this element; the station supports CCMP pairwise + PSK, and a CCMP group key */
-+		if (sweet_wpa_build_ie(sta.req.rsn_ie, sta.req.rsn_ie_len, ie, sizeof(ie), &gc) == 0 ||
-+		    gc != SWEET_WPA_CIPHER_CCMP) {
++		if (bergamota_wpa_build_ie(sta.req.rsn_ie, sta.req.rsn_ie_len, ie, sizeof(ie), &gc) == 0 ||
++		    gc != BERGAMOTA_WPA_CIPHER_CCMP) {
 +			sta.state = ST_IDLE;
-+			sta.result = SWEET_WLAN_JOIN_UNSUPPORTED;
-+			printf("SWEET WLAN sta: RSN element not CCMP/CCMP/PSK: refused\n");
++			sta.result = BERGAMOTA_WLAN_JOIN_UNSUPPORTED;
++			printf("BERGAMOTA WLAN sta: RSN element not CCMP/CCMP/PSK: refused\n");
 +			return;
 +		}
 +	}
 +	if (!sta_pick_bss()) {
 +		sta.state = ST_IDLE;
-+		sta.result = SWEET_WLAN_JOIN_NO_BSS;
-+		printf("SWEET WLAN sta: no BSS with that SSID and security in the last scan\n");
++		sta.result = BERGAMOTA_WLAN_JOIN_NO_BSS;
++		printf("BERGAMOTA WLAN sta: no BSS with that SSID and security in the last scan\n");
 +		return;
 +	}
 +	sta_set_state(ST_STOPSCAN);
@@ -757,7 +757,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	uint32_t vht[4] = { 0, 0, 0, 0 };
 +	scan_tlv(c, &n, 102, vht, 16);
 +	sta_wmi(c, n, "peer assoc");
-+	printf("SWEET WLAN sta: peer assoc aid %u flags %#x caps %#x phy mode %u, %u legacy + %u HT rates, nss %u, rate caps %#x\n",
++	printf("BERGAMOTA WLAN sta: peer assoc aid %u flags %#x caps %#x phy mode %u, %u legacy + %u HT rates, nss %u, rate caps %#x\n",
 +	    sta.aid, a[5], a[6], a[14], nl, nh, a[12], a[11]);
 +	if (ht) {
 +		static const uint8_t smps[4] = { 1, 2, 0, 0 };   /* SM PS static / dynamic / invalid / disabled */
@@ -771,14 +771,14 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +{
 +	sta.connected = true;
 +	sta_set_state(ST_CONNECTED);
-+	printf("SWEET WLAN sta: CONNECTED to %02x:%02x:%02x:%02x:%02x:%02x (aid %u, %s) in %llu ms\n", sta.bssid[0],
++	printf("BERGAMOTA WLAN sta: CONNECTED to %02x:%02x:%02x:%02x:%02x:%02x (aid %u, %s) in %llu ms\n", sta.bssid[0],
 +	    sta.bssid[1], sta.bssid[2], sta.bssid[3], sta.bssid[4], sta.bssid[5], sta.aid, sta.rsn ? "WPA2-PSK" : "open",
 +	    ms_now_ms() - sta.join_ms);
 +	ipc_note(" sta CONNECTED %llu ms;", ms_now_ms() - sta.join_ms);
-+	sweet80211_link(1, 0, false);           /* link state and events first: wifid reads them once GET 21 says 1 */
++	bergamota80211_link(1, 0, false);           /* link state and events first: wifid reads them once GET 21 says 1 */
 +	lck_mtx_lock(&sta_lock);
 +	if (!sta.req_pending) {
-+		sta.result = SWEET_WLAN_JOIN_OK;
++		sta.result = BERGAMOTA_WLAN_JOIN_OK;
 +	}
 +	lck_mtx_unlock(&sta_lock);
 +}
@@ -793,14 +793,14 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		sta.leave_pending = false;
 +		lck_mtx_unlock(&sta_lock);
 +		if (sta.state != ST_IDLE && sta.state != ST_DOWN) {
-+			printf("SWEET WLAN sta: leave requested in %s\n", st_name[sta.state]);
++			printf("BERGAMOTA WLAN sta: leave requested in %s\n", st_name[sta.state]);
 +			sta.by_ap = false;
 +			sta_teardown_start(3);
 +		}
 +	}
 +	/* wall clock: wifid gives a join 8 s (400 GET 21 polls) */
 +	if (sta.state != ST_IDLE && sta.state != ST_DOWN && sta.state != ST_CONNECTED && now > sta.join_ms + 7500) {
-+		sta_fail(sta.state == ST_4WAY || sta.state == ST_KEYS ? SWEET_WLAN_JOIN_SUPP_TIMEOUT : SWEET_WLAN_JOIN_TIMEOUT,
++		sta_fail(sta.state == ST_4WAY || sta.state == ST_KEYS ? BERGAMOTA_WLAN_JOIN_SUPP_TIMEOUT : BERGAMOTA_WLAN_JOIN_TIMEOUT,
 +		    "join watchdog (7.5 s)");
 +	}
 +	if (sta.req_pending && sta.state == ST_IDLE) {
@@ -817,15 +817,15 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			sta_wmi(c, scan_cmd(c, 0x3002, 78, s, 16), "stop scan");
 +			sta.tries++;
 +		} else if (wf.state != WS_SCANNING && wf.state != WS_SCAN_SETUP) {
-+			sta_fail(SWEET_WLAN_JOIN_FAILED, "WLAN service not idle");
++			sta_fail(BERGAMOTA_WLAN_JOIN_FAILED, "WLAN service not idle");
 +		} else if (in > 3000) {
-+			sta_fail(SWEET_WLAN_JOIN_TIMEOUT, "the running scan did not stop");
++			sta_fail(BERGAMOTA_WLAN_JOIN_TIMEOUT, "the running scan did not stop");
 +		}
 +		break;
 +	case ST_START:
 +		if (sta.start_resp) {
 +			if (sta.start_status) {
-+				sta_fail(SWEET_WLAN_JOIN_FAILED, "VDEV_START refused");
++				sta_fail(BERGAMOTA_WLAN_JOIN_FAILED, "VDEV_START refused");
 +				break;
 +			}
 +			uint8_t c[32];
@@ -840,7 +840,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			sta.peer = true;
 +			sta_set_state(ST_PEER);
 +		} else if (in > 5000) {
-+			sta_fail(SWEET_WLAN_JOIN_TIMEOUT, "no VDEV_START_RESP");
++			sta_fail(BERGAMOTA_WLAN_JOIN_TIMEOUT, "no VDEV_START_RESP");
 +		}
 +		break;
 +	case ST_PEER:
@@ -848,7 +848,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			sta_set_state(ST_AUTH);
 +			sta_send_auth();
 +		} else if (in > 3000) {
-+			sta_fail(SWEET_WLAN_JOIN_TIMEOUT, "no HTT PEER_MAP");
++			sta_fail(BERGAMOTA_WLAN_JOIN_TIMEOUT, "no HTT PEER_MAP");
 +		}
 +		break;
 +	case ST_AUTH:
@@ -858,8 +858,8 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		} else if (in > 200 + 100 * (sta.svc_mgmt_wmi ? 0 : 1)) {
 +			if (sta.tries >= 3) {
 +				bool acked = sta.mgmt_status == 0;
-+				sta_fail(sta.state == ST_AUTH ? (acked ? SWEET_WLAN_JOIN_AUTH_NO_RESP : SWEET_WLAN_JOIN_AUTH_NO_ACK) :
-+				    (acked ? SWEET_WLAN_JOIN_ASSOC_NO_RESP : SWEET_WLAN_JOIN_ASSOC_NO_ACK), "no response from the AP");
++				sta_fail(sta.state == ST_AUTH ? (acked ? BERGAMOTA_WLAN_JOIN_AUTH_NO_RESP : BERGAMOTA_WLAN_JOIN_AUTH_NO_ACK) :
++				    (acked ? BERGAMOTA_WLAN_JOIN_ASSOC_NO_RESP : BERGAMOTA_WLAN_JOIN_ASSOC_NO_ACK), "no response from the AP");
 +			} else {
 +				sta.mgmt_busy = false;  /* a lost completion must not block the retry */
 +				sta.state == ST_AUTH ? sta_send_auth() : sta_send_assoc();
@@ -874,19 +874,19 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +				if (sta.eapol_hold_len) {
 +					uint16_t hl = sta.eapol_hold_len;
 +					sta.eapol_hold_len = 0;
-+					int e = sweet_wpa_rx(&sta.wpa, sta.eapol_hold, hl);
-+					printf("SWEET WLAN sta: held EAPOL frame %u bytes -> %d\n", hl, e);
++					int e = bergamota_wpa_rx(&sta.wpa, sta.eapol_hold, hl);
++					printf("BERGAMOTA WLAN sta: held EAPOL frame %u bytes -> %d\n", hl, e);
 +				}
 +			} else {
 +				sta_connected();
 +			}
 +		} else if (in > 2000) {
-+			sta_fail(SWEET_WLAN_JOIN_TIMEOUT, "PEER_ASSOC / VDEV_UP not through in 2 s");
++			sta_fail(BERGAMOTA_WLAN_JOIN_TIMEOUT, "PEER_ASSOC / VDEV_UP not through in 2 s");
 +		}
 +		break;
 +	case ST_4WAY:
 +		if (in > 6000) {
-+			sta_fail(sta.wpa.rx ? SWEET_WLAN_JOIN_EAPOL : SWEET_WLAN_JOIN_SUPP_TIMEOUT, "4-way handshake timeout");
++			sta_fail(sta.wpa.rx ? BERGAMOTA_WLAN_JOIN_EAPOL : BERGAMOTA_WLAN_JOIN_SUPP_TIMEOUT, "4-way handshake timeout");
 +		}
 +		break;
 +	case ST_KEYS:
@@ -896,7 +896,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +				sta_install_key(true);
 +				sta.keys_step = 1;
 +			} else {
-+				sta_fail(SWEET_WLAN_JOIN_EAPOL, "no pairwise key");
++				sta_fail(BERGAMOTA_WLAN_JOIN_EAPOL, "no pairwise key");
 +			}
 +		} else if (sta.keys_step == 1 && sta.sec_ind) {
 +			sta.ptk_installed = true;
@@ -912,7 +912,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			sta.key_pending[1] = false;
 +			sta_connected();
 +		} else if (in > 3000 + 200) {
-+			sta_fail(SWEET_WLAN_JOIN_EAPOL, "no HTT SEC_IND for a key");
++			sta_fail(BERGAMOTA_WLAN_JOIN_EAPOL, "no HTT SEC_IND for a key");
 +		}
 +		break;
 +	case ST_CONNECTED:
@@ -922,7 +922,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		} else if (sta.keys_step == 3 && sta.sec_ind) {
 +			sta.key_pending[1] = false;
 +			sta.keys_step = 2;
-+			printf("SWEET WLAN sta: group key %u installed (rekey %u)\n", sta.gtk_idx, sta.wpa.rekeys);
++			printf("BERGAMOTA WLAN sta: group key %u installed (rekey %u)\n", sta.gtk_idx, sta.wpa.rekeys);
 +		}
 +		break;
 +	case ST_DOWN: {
@@ -953,7 +953,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			sta.t_ms = now;
 +		} else if (sta.down_step == 2 && ((sta.wq_n == 0 && (sta.stopped || !sta.vdev_started)) || in > 2000)) {
 +			if (sta.vdev_started && !sta.stopped) {
-+				printf("SWEET WLAN sta: no VDEV_STOPPED in 2 s (%u WMI commands still queued: dropped)\n", sta.wq_n);
++				printf("BERGAMOTA WLAN sta: no VDEV_STOPPED in 2 s (%u WMI commands still queued: dropped)\n", sta.wq_n);
 +			}
 +			sta.wq_n = 0;
 +			sta.vdev_started = false;
@@ -965,8 +965,8 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			sta.eapol_msdu = -1;
 +			sta_set_state(ST_IDLE);
 +			lck_mtx_lock(&sta_lock);
-+			if (sta.result == SWEET_WLAN_JOIN_RUNNING && !sta.req_pending) {
-+				sta.result = SWEET_WLAN_JOIN_FAILED;
++			if (sta.result == BERGAMOTA_WLAN_JOIN_RUNNING && !sta.req_pending) {
++				sta.result = BERGAMOTA_WLAN_JOIN_FAILED;
 +			}
 +			lck_mtx_unlock(&sta_lock);
 +		}
@@ -999,7 +999,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	}
 +	if (sta.state == ST_CONNECTED && now > sta.last_status_ms + 30000) {
 +		sta.last_status_ms = now;
-+		printf("SWEET WLAN sta: up %llu s: tx %llu frames %llu bytes (%llu failed, %llu dropped, %u in flight), rx %llu "
++		printf("BERGAMOTA WLAN sta: up %llu s: tx %llu frames %llu bytes (%llu failed, %llu dropped, %u in flight), rx %llu "
 +		    "frames %llu bytes (%llu dropped, %llu indications), eapol %llu/%llu, rssi %d, rekeys %u, kickouts %u, bmiss %u\n",
 +		    (now - sta.join_ms) / 1000, sta.tx_frames, sta.tx_bytes, sta.tx_fail, sta.tx_drop, sta.tx_inflight,
 +		    sta.rx_frames, sta.rx_bytes, sta.rx_drop, sta.rx_ind, sta.rx_eapol, sta.tx_eapol, sta.rssi, sta.wpa.rekeys,
@@ -1042,19 +1042,19 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	}
 +	uint16_t st = 0;
 +	if (sta.state == ST_AUTH && swf_auth_resp(fr, frl, sta.bssid, scan_mac, &st) == 0) {
-+		printf("SWEET WLAN sta: authentication response status %u\n", st);
++		printf("BERGAMOTA WLAN sta: authentication response status %u\n", st);
 +		if (st) {
-+			sta_fail(SWEET_WLAN_JOIN_FAILED, "authentication refused");
++			sta_fail(BERGAMOTA_WLAN_JOIN_FAILED, "authentication refused");
 +		} else {
 +			sta.mgmt_busy = false;
 +			sta_set_state(ST_ASSOC);
 +			sta_send_assoc();
 +		}
 +	} else if (sta.state == ST_ASSOC && swf_assoc_resp(fr, frl, sta.bssid, scan_mac, &sta.ar) == 0) {
-+		printf("SWEET WLAN sta: association response status %u aid %u cap %#x, %u rates, HT %s, WMM %s\n", sta.ar.status,
++		printf("BERGAMOTA WLAN sta: association response status %u aid %u cap %#x, %u rates, HT %s, WMM %s\n", sta.ar.status,
 +		    sta.ar.aid, sta.ar.cap, sta.ar.nrates, sta.ar.ht ? "yes" : "no", sta.ar.wmm ? "yes" : "no");
 +		if (sta.ar.status) {
-+			sta_fail(SWEET_WLAN_JOIN_FAILED, "association refused");
++			sta_fail(BERGAMOTA_WLAN_JOIN_FAILED, "association refused");
 +			return;
 +		}
 +		sta.mgmt_busy = false;
@@ -1067,18 +1067,18 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		sta_wmi(c, scan_cmd(c, 0x5005, 92, u, 16), "vdev up");
 +		sta.vdev_up = true;
 +		if (sta.aid == 0 || sta.aid > 2007) {
-+			printf("SWEET WLAN sta: the AP gave aid %u (out of 1..2007)\n", sta.aid);
++			printf("BERGAMOTA WLAN sta: the AP gave aid %u (out of 1..2007)\n", sta.aid);
 +		}
 +		sta_set_state(ST_UP);
 +	} else if (swf_kicked(fr, frl, sta.bssid, scan_mac, &st) == 0) {
 +		sta.deauths++;
-+		printf("SWEET WLAN sta: %s from the AP, reason %u, in %s\n", fr[0] == SWF_FC_DEAUTH ? "deauthentication" :
++		printf("BERGAMOTA WLAN sta: %s from the AP, reason %u, in %s\n", fr[0] == SWF_FC_DEAUTH ? "deauthentication" :
 +		    "disassociation", st, st_name[sta.state]);
 +		sta.by_ap = true;
 +		if (sta.state == ST_CONNECTED) {
 +			sta_teardown_start(st);
 +		} else if (sta.state != ST_DOWN) {
-+			sta_fail(sta.state == ST_4WAY ? SWEET_WLAN_JOIN_EAPOL : SWEET_WLAN_JOIN_FAILED, "kicked by the AP");
++			sta_fail(sta.state == ST_4WAY ? BERGAMOTA_WLAN_JOIN_EAPOL : BERGAMOTA_WLAN_JOIN_FAILED, "kicked by the AP");
 +		}
 +	}
 +}
@@ -1096,18 +1096,18 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	case 0x5001:                            /* VDEV_START_RESP {vdev, req, type, status} */
 +		sta.start_status = v[3];
 +		sta.start_resp = true;
-+		printf("SWEET WLAN sta: VDEV_START_RESP status %u\n", v[3]);
++		printf("BERGAMOTA WLAN sta: VDEV_START_RESP status %u\n", v[3]);
 +		return true;
 +	case 0x5002:                            /* VDEV_STOPPED */
 +		sta.stopped = true;
 +		return true;
 +	case 0x5003:                            /* INSTALL_KEY_COMPLETE (ath10k only logs it; SEC_IND is the signal) */
-+		printf("SWEET WLAN sta: WMI install key complete\n");
++		printf("BERGAMOTA WLAN sta: WMI install key complete\n");
 +		return true;
 +	case 0x7006: {                          /* MGMT_TX_COMPLETION {desc, status, pdev, ppdu, ack rssi} */
 +		sta.mgmt_status = (int)v[1];
 +		sta.mgmt_busy = false;
-+		printf("SWEET WLAN sta: management TX done: %s (status %u)\n", v[1] ? "NOT acked" : "acked", v[1]);
++		printf("BERGAMOTA WLAN sta: management TX done: %s (status %u)\n", v[1] ? "NOT acked" : "acked", v[1]);
 +		return true;
 +	}
 +	case 0x7007: {                          /* MGMT_TX_BUNDLE_COMPLETION: TLV {num}, then desc_ids[], status[], ... */
@@ -1123,12 +1123,12 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			}
 +		}
 +		sta.mgmt_busy = false;
-+		printf("SWEET WLAN sta: management TX done (bundle of %u): status %d\n", nrep, sta.mgmt_status);
++		printf("BERGAMOTA WLAN sta: management TX done (bundle of %u): status %d\n", nrep, sta.mgmt_status);
 +		return true;
 +	}
 +	case 0x6001:                            /* PEER_STA_KICKOUT: the firmware lost the AP */
 +		sta.kickouts++;
-+		printf("SWEET WLAN sta: firmware kickout of the AP in %s\n", st_name[sta.state]);
++		printf("BERGAMOTA WLAN sta: firmware kickout of the AP in %s\n", st_name[sta.state]);
 +		if (sta.state == ST_CONNECTED) {
 +			sta.by_ap = true;
 +			sta_teardown_start(4);  /* inactivity */
@@ -1136,11 +1136,11 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		return true;
 +	case 0xb001:                            /* ROAM {vdev, reason, rssi} */
 +		sta.bmiss++;
-+		printf("SWEET WLAN sta: roam event reason %u rssi %d\n", v[1], (int)v[2]);
++		printf("BERGAMOTA WLAN sta: roam event reason %u rssi %d\n", v[1], (int)v[2]);
 +		return true;
 +	case 0x4005:                            /* TX_PAUSE */
 +	case 0x6006:                            /* PEER_ASSOC_CONF */
-+		printf("SWEET WLAN sta: event %#x (%u bytes)\n", ev, len);
++		printf("BERGAMOTA WLAN sta: event %#x (%u bytes)\n", ev, len);
 +		return true;
 +	default:
 +		return false;
@@ -1192,8 +1192,8 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			return;
 +		}
 +		bool enc = (mpdu0 >> 28) != 7;
-+		int e = sweet_wpa_rx(&sta.wpa, eth + 14, n - 14);
-+		printf("SWEET WLAN sta: EAPOL frame %zu bytes (%s) -> %d, supplicant %u\n", n - 14, enc ? "encrypted" : "clear",
++		int e = bergamota_wpa_rx(&sta.wpa, eth + 14, n - 14);
++		printf("BERGAMOTA WLAN sta: EAPOL frame %zu bytes (%s) -> %d, supplicant %u\n", n - 14, enc ? "encrypted" : "clear",
 +		    e, sta.wpa.state);
 +		return;
 +	}
@@ -1203,7 +1203,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	}
 +	sta.rx_frames++;
 +	sta.rx_bytes += n;
-+	sweet80211_input(eth, n);
++	bergamota80211_input(eth, n);
 +}
 +
 +/* HTT T2H messages of the station; true = consumed */
@@ -1218,7 +1218,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		if (plen >= 10 && memcmp(pl + 4, sta.bssid, 6) == 0) {
 +			memcpy(&sta.peer_id, pl + 2, 2);
 +			sta.peer_mapped = true;
-+			printf("SWEET WLAN sta: peer mapped: id %u vdev %u\n", sta.peer_id, pl[1]);
++			printf("BERGAMOTA WLAN sta: peer mapped: id %u vdev %u\n", sta.peer_id, pl[1]);
 +		}
 +		return true;
 +	case 0x04:                              /* PEER_UNMAP: peer id */
@@ -1228,7 +1228,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		return true;
 +	case 0x0b:                              /* SEC_IND: a key is in */
 +		sta.sec_ind = true;
-+		printf("SWEET WLAN sta: SEC_IND type %u %s peer %u\n", pl[1] & 0x7f, (pl[1] & 0x80) ? "unicast" : "group",
++		printf("BERGAMOTA WLAN sta: SEC_IND type %u %s peer %u\n", pl[1] & 0x7f, (pl[1] & 0x80) ? "unicast" : "group",
 +		    pl[2] | (pl[3] << 8));
 +		return true;
 +	case 0x07: {                            /* TX_COMPL_IND: status, count, flags2, msdu ids */
@@ -1261,7 +1261,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			sta.mgmt_busy = false;
 +			sta.mgmt_status = (int)st;
 +			sta_txid_free(id);
-+			printf("SWEET WLAN sta: management TX (HTT) done: status %u\n", st);
++			printf("BERGAMOTA WLAN sta: management TX (HTT) done: status %u\n", st);
 +		}
 +		return true;
 +	case 0x12: {                            /* RX_IN_ORD_PADDR_IND: info, peer, vdev, rsvd, count, 12-byte descs */
@@ -1269,11 +1269,11 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		memcpy(&cnt, pl + 6, 2);
 +		sta.rx_ind++;
 +		if (8u + 12u * cnt > plen) {
-+			printf("SWEET WLAN sta: short in-order indication (%u msdus, %u bytes)\n", cnt, plen);
++			printf("BERGAMOTA WLAN sta: short in-order indication (%u msdus, %u bytes)\n", cnt, plen);
 +			return true;
 +		}
 +		if (pl[1] & 0x20) {
-+			printf("SWEET WLAN sta: offloaded in-order indication not handled (%u msdus)\n", cnt);
++			printf("BERGAMOTA WLAN sta: offloaded in-order indication not handled (%u msdus)\n", cnt);
 +		}
 +		for (unsigned k = 0; k < cnt; k++) {
 +			uint64_t pa;
@@ -1283,7 +1283,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			pa &= 0x7ffffffffull;
 +			if (pa < WCE_POOL_PA + HTT_RXBUF_OFF || pa >= WCE_POOL_PA + WCE_POOL_LEN ||
 +			    ((pa - WCE_POOL_PA - HTT_RXBUF_OFF) % HTT_RX_BUF_SIZE) != 0) {
-+				printf("SWEET WLAN sta: in-order indication with an unknown buffer %#llx: RX stops\n", pa);
++				printf("BERGAMOTA WLAN sta: in-order indication with an unknown buffer %#llx: RX stops\n", pa);
 +				return true;
 +			}
 +			const uint8_t *buf = (const uint8_t *)(wce.pool + (pa - WCE_POOL_PA));
@@ -1301,9 +1301,9 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	}
 +}
 +
-+/* ---- the interface sweet_80211.c calls (ioctl and if_output context) ---- */
++/* ---- the interface bergamota_80211.c calls (ioctl and if_output context) ---- */
 +int
-+sweet_wlan_join(const struct sweet_wlan_join *j)
++bergamota_wlan_join(const struct bergamota_wlan_join *j)
 +{
 +	if (j->ssid_len == 0 || j->ssid_len > 32 || j->rsn_ie_len > sizeof(j->rsn_ie)) {
 +		return EINVAL;
@@ -1324,7 +1324,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			q = NULL;
 +		}
 +		sta.pend = *j;
-+		sta.result = SWEET_WLAN_JOIN_RUNNING;
++		sta.result = BERGAMOTA_WLAN_JOIN_RUNNING;
 +		if (sta.state != ST_IDLE) {
 +			sta.leave_pending = true;       /* a join replaces the current association; it starts once idle */
 +		}
@@ -1340,27 +1340,27 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +}
 +
 +int
-+sweet_wlan_join_result(void)
++bergamota_wlan_join_result(void)
 +{
 +	return sta.result;
 +}
 +
 +/* DISASSOCIATE: cancels a join not started yet, tears down the current one */
 +int
-+sweet_wlan_leave(void)
++bergamota_wlan_leave(void)
 +{
 +	lck_mtx_lock(&sta_lock);
 +	if (sta.req_pending) {
 +		sta.req_pending = false;
 +		bzero(sta.pend.pmk, sizeof(sta.pend.pmk));
-+		if (sta.result == SWEET_WLAN_JOIN_RUNNING) {
-+			sta.result = SWEET_WLAN_JOIN_FAILED;
++		if (sta.result == BERGAMOTA_WLAN_JOIN_RUNNING) {
++			sta.result = BERGAMOTA_WLAN_JOIN_FAILED;
 +		}
 +	}
 +	if (sta.state != ST_IDLE) {
 +		sta.leave_pending = true;
-+		if (sta.result == SWEET_WLAN_JOIN_RUNNING) {
-+			sta.result = SWEET_WLAN_JOIN_FAILED;
++		if (sta.result == BERGAMOTA_WLAN_JOIN_RUNNING) {
++			sta.result = BERGAMOTA_WLAN_JOIN_FAILED;
 +		}
 +	}
 +	lck_mtx_unlock(&sta_lock);
@@ -1369,7 +1369,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +}
 +
 +int
-+sweet_wlan_link_get(struct sweet_wlan_link *out)
++bergamota_wlan_link_get(struct bergamota_wlan_link *out)
 +{
 +	if (!sta.connected) {
 +		return ENXIO;
@@ -1389,12 +1389,12 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +}
 +
 +int
-+sweet_wlan_current_bss(struct sweet_wlan_bss *out)
++bergamota_wlan_current_bss(struct bergamota_wlan_bss *out)
 +{
 +	if (!sta.connected) {
 +		return ENXIO;
 +	}
-+	int err = sweet_wlan_bss_get((unsigned)sta.bss, out);
++	int err = bergamota_wlan_bss_get((unsigned)sta.bss, out);
 +	if (err == 0 && memcmp(out->bssid, sta.bssid, 6)) {
 +		err = ENXIO;                    /* the cache was refreshed since the join */
 +	}
@@ -1405,7 +1405,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +}
 +
 +int
-+sweet_wlan_output(const uint8_t *eth, size_t len)
++bergamota_wlan_output(const uint8_t *eth, size_t len)
 +{
 +	int err = 0;
 +	if (len < 14 || len > STA_TXQ_MAX) {
@@ -1442,7 +1442,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +}
 +
 +/*
-  * ---- WL2: scans on request from sweet_80211 (sweet80211=3) and the BSS cache of the last scan. Only the
+  * ---- WL2: scans on request from bergamota_80211 (bergamota80211=3) and the BSS cache of the last scan. Only the
   * service thread touches the chip; a request sets a flag the service picks up when the previous scan is done.
   */
 @@ -5574,8 +6961,9 @@
@@ -1451,7 +1451,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
  	lck_mtx_lock(&scan_lock);
 -	if (wl.service && ipc.scan && wce.rings && !mw.fatal && (wf.state == WS_SCAN_DONE ||
 -	    wf.state == WS_SCAN_SETUP || wf.state == WS_SCANNING)) {
-+	/* while a join runs or the station is associated the cached list answers (sweet_80211's 300 ms path) */
++	/* while a join runs or the station is associated the cached list answers (bergamota_80211's 300 ms path) */
 +	if (wl.service && ipc.scan && wce.rings && !mw.fatal && sta.state == ST_IDLE && !sta.req_pending &&
 +	    (wf.state == WS_SCAN_DONE || wf.state == WS_SCAN_SETUP || wf.state == WS_SCANNING)) {
  		scan_notify = true;
@@ -1495,7 +1495,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			wl_sleep(sta.state == ST_CONNECTED ? 5 : SVC_IDLE_MS);   /* en0 output wakes the thread at once */
  		}
  	}
- 	printf("SWEET IPC: %u s: glink %s, IPCRTR %s, qrtr hello %s; %u packets in, %u out; rmtfs %u reads (%llu bytes), "
+ 	printf("BERGAMOTA IPC: %u s: glink %s, IPCRTR %s, qrtr hello %s; %u packets in, %u out; rmtfs %u reads (%llu bytes), "
 @@ -5796,6 +7192,7 @@
  		    wce.mac[4], wce.mac[5]);
  	}
@@ -1504,9 +1504,9 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
  	scan_flush_notify(alive ? "service stopping" : "modem down");
  	if (alive) {
  		wf_shutdown();
-diff --git a/bsd/dev/sweet_80211.c b/bsd/dev/sweet_80211.c
---- a/bsd/dev/sweet_80211.c
-+++ b/bsd/dev/sweet_80211.c
+diff --git a/bsd/dev/bergamota_80211.c b/bsd/dev/bergamota_80211.c
+--- a/bsd/dev/bergamota_80211.c
++++ b/bsd/dev/bergamota_80211.c
 @@ -89,8 +89,11 @@
  #define IOC_RSSI                16
  #define IOC_NOISE               17
@@ -1537,7 +1537,7 @@ diff --git a/bsd/dev/sweet_80211.c b/bsd/dev/sweet_80211.c
  	volatile SInt32 logged;         /* log lines used (budget 512) */
  	uint8_t         seen_get[IOC_MAX / 8];
  	uint8_t         seen_set[IOC_MAX / 8];
-+	volatile int    link;           /* sweet80211=3: associated (sweet80211_link) */
++	volatile int    link;           /* bergamota80211=3: associated (bergamota80211_link) */
 +	uint32_t        auth_upper;     /* of the last ASSOCIATE */
 +	uint64_t        tx_frames, tx_drops, rx_frames, rx_drops;
  } s8;
@@ -1547,20 +1547,20 @@ diff --git a/bsd/dev/sweet_80211.c b/bsd/dev/sweet_80211.c
  	return err;
  }
  
--/* sweet80211=3: network s8.scan_next of the WLAN service's last scan, in the same layout as the fake one */
+-/* bergamota80211=3: network s8.scan_next of the WLAN service's last scan, in the same layout as the fake one */
 -static int
--s8_real_result(struct sweet80211_req *req)
+-s8_real_result(struct bergamota80211_req *req)
 +/* one BSS of the WLAN service's cache in the scan-result layout (SCAN_RESULT, CURRENT_NETWORK) */
 +static void
-+s8_fill_result(const struct sweet_wlan_bss *b, struct s8_scan_result *r)
++s8_fill_result(const struct bergamota_wlan_bss *b, struct s8_scan_result *r)
  {
--	struct sweet_wlan_bss *b = kalloc_data(sizeof(*b), Z_WAITOK | Z_ZERO);
+-	struct bergamota_wlan_bss *b = kalloc_data(sizeof(*b), Z_WAITOK | Z_ZERO);
 -	struct s8_scan_result *r = kalloc_data(sizeof(struct s8_scan_result), Z_WAITOK | Z_ZERO);
 -	int err = ENOMEM;
 -	if (b == NULL || r == NULL) {
 -		goto out;
 -	}
--	if (sweet_wlan_bss_get(s8.scan_next, b) != 0) {
+-	if (bergamota_wlan_bss_get(s8.scan_next, b) != 0) {
 -		err = EIO;                              /* no more results: the framework stops here */
 -		goto out;
 -	}
@@ -1574,22 +1574,22 @@ diff --git a/bsd/dev/sweet_80211.c b/bsd/dev/sweet_80211.c
 -	s8.scan_next++;
 +}
 +
-+/* sweet80211=3: network s8.scan_next of the WLAN service's last scan, or the current one (CURRENT_NETWORK) */
++/* bergamota80211=3: network s8.scan_next of the WLAN service's last scan, or the current one (CURRENT_NETWORK) */
 +static int
-+s8_real_result(struct sweet80211_req *req, bool current)
++s8_real_result(struct bergamota80211_req *req, bool current)
 +{
-+	struct sweet_wlan_bss *b = kalloc_data(sizeof(*b), Z_WAITOK | Z_ZERO);
++	struct bergamota_wlan_bss *b = kalloc_data(sizeof(*b), Z_WAITOK | Z_ZERO);
 +	struct s8_scan_result *r = kalloc_data(sizeof(struct s8_scan_result), Z_WAITOK | Z_ZERO);
 +	int err = ENOMEM;
 +	if (b == NULL || r == NULL) {
 +		goto out;
 +	}
 +	if (current) {
-+		if (sweet_wlan_current_bss(b) != 0) {
++		if (bergamota_wlan_current_bss(b) != 0) {
 +			err = ENXIO;                    /* not associated */
 +			goto out;
 +		}
-+	} else if (sweet_wlan_bss_get(s8.scan_next, b) != 0) {
++	} else if (bergamota_wlan_bss_get(s8.scan_next, b) != 0) {
 +		err = EIO;                              /* no more results: the framework stops here */
 +		goto out;
 +	}
@@ -1606,10 +1606,10 @@ diff --git a/bsd/dev/sweet_80211.c b/bsd/dev/sweet_80211.c
  
 +/* the GETs that only answer while associated (IO80211 GetWithIOCTL layouts); ENXIO otherwise */
  static int
-+s8_get_link(struct sweet80211_req *req)
++s8_get_link(struct bergamota80211_req *req)
 +{
-+	struct sweet_wlan_link l;
-+	if (s8.stage != 3 || !s8.link || sweet_wlan_link_get(&l) != 0) {
++	struct bergamota_wlan_link l;
++	if (s8.stage != 3 || !s8.link || bergamota_wlan_link_get(&l) != 0) {
 +		return ENXIO;
 +	}
 +	switch (req->type) {
@@ -1660,10 +1660,10 @@ diff --git a/bsd/dev/sweet_80211.c b/bsd/dev/sweet_80211.c
 + * (6 = PMK)} with the PMK @0x4c, RSN element len @0xd0 (u16) + bytes @0xd2, flags2 @0x1fc. Logged without the key.
 + */
 +static int
-+s8_associate(struct sweet80211_req *req)
++s8_associate(struct bergamota80211_req *req)
 +{
 +	uint8_t *d;
-+	struct sweet_wlan_join j;
++	struct bergamota_wlan_join j;
 +	uint32_t ver, mode, al, au, sl, kl, kc, f2;
 +	uint16_t rl;
 +	int err;
@@ -1672,7 +1672,7 @@ diff --git a/bsd/dev/sweet_80211.c b/bsd/dev/sweet_80211.c
 +		return ENXIO;                           /* nothing to join with a null backend */
 +	}
 +	if (req->data == 0 || req->len < 0x200 || req->len > 4096) {
-+		printf("SWEET 80211: ASSOCIATE with %u bytes: refused\n", req->len);
++		printf("BERGAMOTA 80211: ASSOCIATE with %u bytes: refused\n", req->len);
 +		return EINVAL;
 +	}
 +	d = kalloc_data(req->len, Z_WAITOK | Z_ZERO);
@@ -1703,7 +1703,7 @@ diff --git a/bsd/dev/sweet_80211.c b/bsd/dev/sweet_80211.c
 +		hl += (unsigned)snprintf(hex + hl, sizeof(hex) - hl, "%02x", d[0xd2 + i]);
 +	}
 +	hex[hl] = 0;
-+	printf("SWEET 80211: ASSOCIATE len %u: version %u mode %u auth %u/%#x ssid %u bytes, bssid %02x:%02x:%02x:%02x:%02x:%02x, "
++	printf("BERGAMOTA 80211: ASSOCIATE len %u: version %u mode %u auth %u/%#x ssid %u bytes, bssid %02x:%02x:%02x:%02x:%02x:%02x, "
 +	    "key len %u cipher %u, rsn ie %u bytes %s, flags %02x %02x %02x, flags2 %#x\n", req->len, ver, mode & 0xffff, al, au,
 +	    sl, j.bssid[0], j.bssid[1], j.bssid[2], j.bssid[3], j.bssid[4], j.bssid[5], kl, kc, rl, hex, d[0x1d3], d[0x1d4],
 +	    d[0x1d5], f2);
@@ -1723,15 +1723,15 @@ diff --git a/bsd/dev/sweet_80211.c b/bsd/dev/sweet_80211.c
 +	kfree_data(d, req->len);
 +	if (err == 0) {
 +		s8.auth_upper = au;
-+		err = sweet_wlan_join(&j);
++		err = bergamota_wlan_join(&j);
 +	}
 +	bzero(&j, sizeof(j));
-+	printf("SWEET 80211: ASSOCIATE -> %d\n", err);
++	printf("BERGAMOTA 80211: ASSOCIATE -> %d\n", err);
 +	return err;
 +}
 +
 +static int
- s8_get(struct sweet80211_req *req)
+ s8_get(struct bergamota80211_req *req)
  {
  	switch (req->type) {
  	case IOC_CARD_CAPABILITIES: {
@@ -1751,9 +1751,9 @@ diff --git a/bsd/dev/sweet_80211.c b/bsd/dev/sweet_80211.c
 +		return s8_reply(req, caps, sizeof(caps));
  	}
  	case IOC_DRIVER_VERSION:
--		return s8_reply_string(req, s8.stage == 3 ? "Bergamota sweet80211 2 (WCN3990 scan backend)" :
-+		return s8_reply_string(req, s8.stage == 3 ? "Bergamota sweet80211 3 (WCN3990, WPA2-PSK station)" :
- 		    "Bergamota sweet80211 1 (null backend)");
+-		return s8_reply_string(req, s8.stage == 3 ? "Bergamota bergamota80211 2 (WCN3990 scan backend)" :
++		return s8_reply_string(req, s8.stage == 3 ? "Bergamota bergamota80211 3 (WCN3990, WPA2-PSK station)" :
+ 		    "Bergamota bergamota80211 1 (null backend)");
  	case IOC_HARDWARE_VERSION:
  		return s8_reply_string(req, "Qualcomm WCN3990");
 @@ -390,7 +550,13 @@
@@ -1764,7 +1764,7 @@ diff --git a/bsd/dev/sweet_80211.c b/bsd/dev/sweet_80211.c
 +		return s8_reply_u32(req, s8.link ? 4 : 0);      /* APPLE80211_S_RUN / S_INIT */
 +	case IOC_ASSOCIATE_RESULT:
 +		/* polled every 20 ms while a join runs (value in req_val): 0 running, 1 success, else a failure code */
-+		req->val = s8.stage == 3 ? sweet_wlan_join_result() : 2;
++		req->val = s8.stage == 3 ? bergamota_wlan_join_result() : 2;
 +		return 0;
 +	case IOC_CURRENT_NETWORK:
 +		return s8.stage == 3 ? s8_real_result(req, true) : ENXIO;
@@ -1794,8 +1794,8 @@ diff --git a/bsd/dev/sweet_80211.c b/bsd/dev/sweet_80211.c
  		}
  		if (on != s8.power) {
  			s8.power = on;
--			printf("SWEET 80211: radio %s (null backend)\n", on ? "on" : "off");
-+			printf("SWEET 80211: radio %s\n", on ? "on" : "off");
+-			printf("BERGAMOTA 80211: radio %s (null backend)\n", on ? "on" : "off");
++			printf("BERGAMOTA 80211: radio %s\n", on ? "on" : "off");
  			s8_post_event(M_POWER_CHANGED, NULL, 0);
  		}
  		return 0;
@@ -1804,7 +1804,7 @@ diff --git a/bsd/dev/sweet_80211.c b/bsd/dev/sweet_80211.c
  	}
  	case IOC_DISASSOCIATE:
 +		if (s8.stage == 3) {
-+			(void)sweet_wlan_leave();
++			(void)bergamota_wlan_leave();
 +		}
  		return 0;
  	case IOC_ASSOCIATE:
@@ -1824,7 +1824,7 @@ diff --git a/bsd/dev/sweet_80211.c b/bsd/dev/sweet_80211.c
  			return copyout(&media, list, sizeof(media));
 @@ -575,12 +745,121 @@
  static errno_t
- sweet80211_if_output(ifnet_t ifp, mbuf_t m)
+ bergamota80211_if_output(ifnet_t ifp, mbuf_t m)
  {
 +	uint8_t buf[1600];
 +	size_t len = mbuf_pkthdr_len(m);
@@ -1832,7 +1832,7 @@ diff --git a/bsd/dev/sweet_80211.c b/bsd/dev/sweet_80211.c
 +	if (s8.stage == 3 && s8.link && len >= ETHER_HDR_LEN && len <= sizeof(buf) &&
 +	    mbuf_copydata(m, 0, len, buf) == 0) {
 +		bpf_tap_out(ifp, DLT_EN10MB, m, NULL, 0);
-+		err = sweet_wlan_output(buf, len);
++		err = bergamota_wlan_output(buf, len);
 +	}
  	mbuf_freem(m);
 -	ifnet_stat_increment_out(ifp, 0, 0, 1);
@@ -1848,7 +1848,7 @@ diff --git a/bsd/dev/sweet_80211.c b/bsd/dev/sweet_80211.c
  
 +/* the WLAN service thread: one received Ethernet II frame */
 +void
-+sweet80211_input(const uint8_t *eth, size_t len)
++bergamota80211_input(const uint8_t *eth, size_t len)
 +{
 +	mbuf_t m = NULL;
 +	unsigned int one = 1;
@@ -1896,15 +1896,15 @@ diff --git a/bsd/dev/sweet_80211.c b/bsd/dev/sweet_80211.c
 +
 +/* the WLAN service thread: joined (keys in) or the association ended */
 +void
-+sweet80211_link(int up, uint16_t reason, int by_ap)
++bergamota80211_link(int up, uint16_t reason, int by_ap)
 +{
-+	struct sweet_wlan_link l;
++	struct bergamota_wlan_link l;
 +	uint8_t lc[32] = { 0 };                 /* LINK_CHANGED: link_down @0, rssi @4, snr @8, noise @10, reason @20 */
 +	if (s8.ifp == NULL || s8.stage != 3) {
 +		return;
 +	}
 +	if (up) {
-+		if (sweet_wlan_link_get(&l) == 0) {
++		if (bergamota_wlan_link_get(&l) == 0) {
 +			int32_t rssi = l.rssi;
 +			int16_t snr = (int16_t)(l.rssi - l.noise), noise = l.noise;
 +			memcpy(lc + 4, &rssi, 4);
@@ -1922,7 +1922,7 @@ diff --git a/bsd/dev/sweet_80211.c b/bsd/dev/sweet_80211.c
 +		}
 +		s8_post_event(M_LINK_CHANGED, lc, sizeof(lc));
 +		s8_link_event(KEV_DL_LINK_ON);
-+		printf("SWEET 80211: link up\n");
++		printf("BERGAMOTA 80211: link up\n");
 +	} else {
 +		uint32_t why = reason, dr[2] = { 0, reason };
 +		s8.link = 0;
@@ -1936,36 +1936,36 @@ diff --git a/bsd/dev/sweet_80211.c b/bsd/dev/sweet_80211.c
 +		}
 +		s8_link_event(KEV_DL_LINK_OFF);
 +		ifnet_set_flags(s8.ifp, 0, IFF_RUNNING);
-+		printf("SWEET 80211: link down (reason %u): %llu frames out (%llu dropped), %llu in (%llu dropped)\n", reason,
++		printf("BERGAMOTA 80211: link down (reason %u): %llu frames out (%llu dropped), %llu in (%llu dropped)\n", reason,
 +		    s8.tx_frames, s8.tx_drops, s8.rx_frames, s8.rx_drops);
 +	}
 +}
 +
 +static void
- sweet80211_if_detach(ifnet_t ifp __unused)
+ bergamota80211_if_detach(ifnet_t ifp __unused)
  {
  }
-diff --git a/bsd/dev/sweet_wlan.h b/bsd/dev/sweet_wlan.h
---- a/bsd/dev/sweet_wlan.h
-+++ b/bsd/dev/sweet_wlan.h
+diff --git a/bsd/dev/bergamota_wlan.h b/bsd/dev/bergamota_wlan.h
+--- a/bsd/dev/bergamota_wlan.h
++++ b/bsd/dev/bergamota_wlan.h
 @@ -6,6 +6,7 @@
- #define _SWEET_WLAN_H_
+ #define _BERGAMOTA_WLAN_H_
  
  #include <stdint.h>
 +#include <stddef.h>
  
- #define SWEET_WLAN_IE_MAX       1024u
+ #define BERGAMOTA_WLAN_IE_MAX       1024u
  
 @@ -30,4 +31,64 @@
- /* sweet_80211.c: called by the WLAN service when a requested scan has completed */
- void sweet80211_scan_done(void);
+ /* bergamota_80211.c: called by the WLAN service when a requested scan has completed */
+ void bergamota80211_scan_done(void);
  
 +/*
 + * WL3/WL4: join, link, data (docs/WIFI_IOS26_PHASE2.md). wifid's ASSOCIATE carries the SSID, the PMK (IO80211 derives
 + * it from the passphrase) and the RSN element for the association request; the BSSID is usually zero and the
 + * service picks the strongest BSS with that SSID from the last scan. The 4-way handshake runs in the service.
 + */
-+struct sweet_wlan_join {
++struct bergamota_wlan_join {
 +	uint8_t  ssid[32];
 +	uint8_t  ssid_len;
 +	uint8_t  bssid[6];              /* all zero: any BSS of this SSID */
@@ -1975,7 +1975,7 @@ diff --git a/bsd/dev/sweet_wlan.h b/bsd/dev/sweet_wlan.h
 +};
 +
 +/* the current association, for wifid's GETs while associated */
-+struct sweet_wlan_link {
++struct bergamota_wlan_link {
 +	uint8_t  bssid[6];
 +	uint8_t  ssid_len;
 +	uint8_t  ssid[32];
@@ -1989,35 +1989,35 @@ diff --git a/bsd/dev/sweet_wlan.h b/bsd/dev/sweet_wlan.h
 +};
 +
 +/* Apple80211 ASSOCIATE_RESULT codes (IO80211 _errorForAssociateResult) */
-+#define SWEET_WLAN_JOIN_RUNNING         0
-+#define SWEET_WLAN_JOIN_OK              1
-+#define SWEET_WLAN_JOIN_FAILED          2       /* unspecified */
-+#define SWEET_WLAN_JOIN_UNSUPPORTED     3       /* unsupported capabilities */
-+#define SWEET_WLAN_JOIN_TIMEOUT         9
-+#define SWEET_WLAN_JOIN_SUPP_TIMEOUT    22      /* supplicant timeout */
-+#define SWEET_WLAN_JOIN_NO_BSS          25      /* BSS not found */
-+#define SWEET_WLAN_JOIN_AUTH_NO_ACK     26
-+#define SWEET_WLAN_JOIN_AUTH_NO_RESP    27
-+#define SWEET_WLAN_JOIN_ASSOC_NO_ACK    28
-+#define SWEET_WLAN_JOIN_ASSOC_NO_RESP   29
-+#define SWEET_WLAN_JOIN_EAPOL           30      /* EAPOL M1-M4 failure */
++#define BERGAMOTA_WLAN_JOIN_RUNNING         0
++#define BERGAMOTA_WLAN_JOIN_OK              1
++#define BERGAMOTA_WLAN_JOIN_FAILED          2       /* unspecified */
++#define BERGAMOTA_WLAN_JOIN_UNSUPPORTED     3       /* unsupported capabilities */
++#define BERGAMOTA_WLAN_JOIN_TIMEOUT         9
++#define BERGAMOTA_WLAN_JOIN_SUPP_TIMEOUT    22      /* supplicant timeout */
++#define BERGAMOTA_WLAN_JOIN_NO_BSS          25      /* BSS not found */
++#define BERGAMOTA_WLAN_JOIN_AUTH_NO_ACK     26
++#define BERGAMOTA_WLAN_JOIN_AUTH_NO_RESP    27
++#define BERGAMOTA_WLAN_JOIN_ASSOC_NO_ACK    28
++#define BERGAMOTA_WLAN_JOIN_ASSOC_NO_RESP   29
++#define BERGAMOTA_WLAN_JOIN_EAPOL           30      /* EAPOL M1-M4 failure */
 +
 +/* beryllium_wlan.c: 0 = join started, ENXIO = service not up, EINVAL = bad request */
-+int sweet_wlan_join(const struct sweet_wlan_join *j);
-+/* beryllium_wlan.c: SWEET_WLAN_JOIN_* of the last join (RUNNING while it runs) */
-+int sweet_wlan_join_result(void);
++int bergamota_wlan_join(const struct bergamota_wlan_join *j);
++/* beryllium_wlan.c: BERGAMOTA_WLAN_JOIN_* of the last join (RUNNING while it runs) */
++int bergamota_wlan_join_result(void);
 +/* beryllium_wlan.c: leave the network (or cancel a join); 0 */
-+int sweet_wlan_leave(void);
++int bergamota_wlan_leave(void);
 +/* beryllium_wlan.c: 0 and the link while associated, ENXIO otherwise */
-+int sweet_wlan_link_get(struct sweet_wlan_link *out);
++int bergamota_wlan_link_get(struct bergamota_wlan_link *out);
 +/* beryllium_wlan.c: the scan-cache entry of the current BSS (CURRENT_NETWORK); ENXIO when not associated */
-+int sweet_wlan_current_bss(struct sweet_wlan_bss *out);
++int bergamota_wlan_current_bss(struct bergamota_wlan_bss *out);
 +/* beryllium_wlan.c: queue one Ethernet II frame for transmission; 0, ENXIO (no link), ENOBUFS (queue full) */
-+int sweet_wlan_output(const uint8_t *eth, size_t len);
-+/* sweet_80211.c, from the service thread: the link came up (joined), or went down (802.11 reason; by_ap = the AP
++int bergamota_wlan_output(const uint8_t *eth, size_t len);
++/* bergamota_80211.c, from the service thread: the link came up (joined), or went down (802.11 reason; by_ap = the AP
 + * deauthenticated / disassociated us or the firmware lost it, else we left) */
-+void sweet80211_link(int up, uint16_t reason, int by_ap);
-+/* sweet_80211.c, from the service thread: one received Ethernet II frame for en0 */
-+void sweet80211_input(const uint8_t *eth, size_t len);
++void bergamota80211_link(int up, uint16_t reason, int by_ap);
++/* bergamota_80211.c, from the service thread: one received Ethernet II frame for en0 */
++void bergamota80211_input(const uint8_t *eth, size_t len);
 +
- #endif /* _SWEET_WLAN_H_ */
+ #endif /* _BERGAMOTA_WLAN_H_ */

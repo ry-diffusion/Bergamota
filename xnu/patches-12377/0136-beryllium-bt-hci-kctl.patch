@@ -2,9 +2,9 @@ diff --git a/bsd/conf/files b/bsd/conf/files
 index c7eeabd22ff85718ebb054cf9ba9be8882f1a0bd..afb02ac151b632ae7536b0959cb758c17fe2f8e7 100644
 --- a/bsd/conf/files
 +++ b/bsd/conf/files
-@@ -115,6 +115,7 @@ bsd/dev/sweet_smmu.c			standard
- bsd/dev/sweet_a630.c			standard
- bsd/dev/sweet_a630_pas.c			standard
+@@ -115,6 +115,7 @@ bsd/dev/bergamota_smmu.c			standard
+ bsd/dev/bergamota_a630.c			standard
+ bsd/dev/bergamota_a630_pas.c			standard
  bsd/dev/beryllium_wlan.c		standard
 +bsd/dev/beryllium_bt_hci.c		standard
  bsd/dev/mem.c				standard
@@ -28,13 +28,13 @@ index 0000000000000000000000000000000000000000..ac42481baad1cf75277b191f73f36b4b
 + * The chip side lives in bsd/dev/beryllium_wlan.c (power, firmware, UART, in-band sleep). It hands
 + * this file complete, IBS-free H4 packets (bt_hci_rx_packet) and takes complete H4 packets to
 + * transmit (struct bt_hci_ops.tx); this file owns the 64 KiB RX ring, the kctl and the termios
-+ * answers. Off by default: only registered by the BT stage when boot-arg sweetbt=1 and the
-+ * controller came up (sweetwlan=2).
++ * answers. Off by default: only registered by the BT stage when boot-arg bergamotabt=1 and the
++ * controller came up (bergamotawlan=2).
 + *
 + * Lock order: the UART lock (beryllium_wlan.c) is taken before bt.lock; nothing here calls into
 + * the socket layer with either held (ctl_enqueuedata is called with neither).
 + */
-+#if defined(ARM64_BOARD_CONFIG_SWEET)
++#if defined(ARM64_BOARD_CONFIG_BERGAMOTA)
 +#include <sys/param.h>
 +#include <sys/systm.h>
 +#include <sys/errno.h>
@@ -44,7 +44,7 @@ index 0000000000000000000000000000000000000000..ac42481baad1cf75277b191f73f36b4b
 +#include <libkern/libkern.h>
 +#include <machine/atomic.h>
 +#include <pexpert/pexpert.h>
-+#include "sweet_board.h"
++#include "bergamota_board.h"
 +
 +struct bt_hci_ops {
 +	bool (*tx)(const uint8_t *pkt, unsigned len);   /* one complete H4 packet to the UART (wakes the controller) */
@@ -80,7 +80,7 @@ index 0000000000000000000000000000000000000000..ac42481baad1cf75277b191f73f36b4b
 +};
 +_Static_assert(sizeof(struct bt_termios) == 72, "struct termios size");
 +
-+static LCK_GRP_DECLARE(bt_grp, "sweet_bt_hci");
++static LCK_GRP_DECLARE(bt_grp, "bergamota_bt_hci");
 +static LCK_MTX_DECLARE(bt_lock, &bt_grp);
 +
 +static struct {
@@ -138,11 +138,11 @@ index 0000000000000000000000000000000000000000..ac42481baad1cf75277b191f73f36b4b
 +		o += (unsigned)snprintf(hex + o, sizeof(hex) - o, "%02x ", p[i]);
 +	}
 +	if (p[0] == 1 && n >= 4) {
-+		printf("SWEET BT: %s cmd opcode %#06x plen %u (%u bytes): %s\n", dir, p[1] | (p[2] << 8), p[3], n, hex);
++		printf("BERGAMOTA BT: %s cmd opcode %#06x plen %u (%u bytes): %s\n", dir, p[1] | (p[2] << 8), p[3], n, hex);
 +	} else if (p[0] == 4 && n >= 3) {
-+		printf("SWEET BT: %s evt %#04x plen %u (%u bytes): %s\n", dir, p[1], p[2], n, hex);
++		printf("BERGAMOTA BT: %s evt %#04x plen %u (%u bytes): %s\n", dir, p[1], p[2], n, hex);
 +	} else {
-+		printf("SWEET BT: %s %s (%u bytes): %s\n", dir, bt_h4_name(p[0]), n, hex);
++		printf("BERGAMOTA BT: %s %s (%u bytes): %s\n", dir, bt_h4_name(p[0]), n, hex);
 +	}
 +}
 +
@@ -266,7 +266,7 @@ index 0000000000000000000000000000000000000000..ac42481baad1cf75277b191f73f36b4b
 +		if (bt.txn == 0) {
 +			if (bt_tx_hdrlen(b) == 0) {
 +				if (bt.tx_garbage++ < 8) {
-+					printf("SWEET BT: TX: byte %#04x is not an H4 packet type, dropped\n", b);
++					printf("BERGAMOTA BT: TX: byte %#04x is not an H4 packet type, dropped\n", b);
 +				}
 +				continue;
 +			}
@@ -276,7 +276,7 @@ index 0000000000000000000000000000000000000000..ac42481baad1cf75277b191f73f36b4b
 +		if (bt.txtotal == 0 && bt.txn == 1 + bt_tx_hdrlen(bt.txb[0])) {
 +			bt.txtotal = bt.txn + bt_tx_paylen(bt.txb);
 +			if (bt.txtotal > sizeof(bt.txb)) {
-+				printf("SWEET BT: TX: %s packet of %u bytes does not fit, dropped\n", bt_h4_name(bt.txb[0]),
++				printf("BERGAMOTA BT: TX: %s packet of %u bytes does not fit, dropped\n", bt_h4_name(bt.txb[0]),
 +				    bt.txtotal);
 +				bt.txn = bt.txtotal = 0;
 +				continue;
@@ -289,7 +289,7 @@ index 0000000000000000000000000000000000000000..ac42481baad1cf75277b191f73f36b4b
 +				bt.tx_bytes += bt.txn;
 +			} else {
 +				bt.tx_fail++;
-+				printf("SWEET BT: TX: UART transmit of a %s packet (%u bytes) failed\n",
++				printf("BERGAMOTA BT: TX: UART transmit of a %s packet (%u bytes) failed\n",
 +				    bt_h4_name(bt.txb[0]), bt.txn);
 +			}
 +			bt.txn = bt.txtotal = 0;
@@ -321,7 +321,7 @@ index 0000000000000000000000000000000000000000..ac42481baad1cf75277b191f73f36b4b
 +	lck_mtx_lock(&bt_lock);
 +	if (bt.connected) {
 +		lck_mtx_unlock(&bt_lock);
-+		printf("SWEET BT: connect refused: already connected (unit %u)\n", bt.conn_unit);
++		printf("BERGAMOTA BT: connect refused: already connected (unit %u)\n", bt.conn_unit);
 +		return EBUSY;
 +	}
 +	bt.connected = true;
@@ -333,7 +333,7 @@ index 0000000000000000000000000000000000000000..ac42481baad1cf75277b191f73f36b4b
 +	bt.connects++;
 +	lck_mtx_unlock(&bt_lock);
 +	*unitinfo = &bt;
-+	printf("SWEET BT: client connected (ctl id %u unit %u)\n", sac->sc_id, sac->sc_unit);
++	printf("BERGAMOTA BT: client connected (ctl id %u unit %u)\n", sac->sc_id, sac->sc_unit);
 +	return 0;
 +}
 +
@@ -349,7 +349,7 @@ index 0000000000000000000000000000000000000000..ac42481baad1cf75277b191f73f36b4b
 +		bt.txn = bt.txtotal = 0;
 +	}
 +	lck_mtx_unlock(&bt_lock);
-+	printf("SWEET BT: client disconnected (unit %u)\n", unit);
++	printf("BERGAMOTA BT: client disconnected (unit %u)\n", unit);
 +	bt_hci_stats_periodic(true);
 +	return 0;
 +}
@@ -377,13 +377,13 @@ index 0000000000000000000000000000000000000000..ac42481baad1cf75277b191f73f36b4b
 +		 */
 +		actual = bt.ops->baud((unsigned)t.c_ospeed);
 +		if (t.c_ospeed != actual && bt.baud_req_ignored++ < 8) {
-+			printf("SWEET BT: termios set: requested %lu baud, line stays at %u\n", t.c_ospeed, actual);
++			printf("BERGAMOTA BT: termios set: requested %lu baud, line stays at %u\n", t.c_ospeed, actual);
 +		}
 +		if (!(t.c_cflag & BT_CRTSCTS) && bt.baud_req_ignored < 8) {
-+			printf("SWEET BT: termios set: hardware flow control off requested, kept on\n");
++			printf("BERGAMOTA BT: termios set: hardware flow control off requested, kept on\n");
 +		}
 +		if (bt.tios_set <= 4) {
-+			printf("SWEET BT: termios set (opt %#x): iflag %#lx oflag %#lx cflag %#lx lflag %#lx speed %lu/%lu\n",
++			printf("BERGAMOTA BT: termios set (opt %#x): iflag %#lx oflag %#lx cflag %#lx lflag %#lx speed %lu/%lu\n",
 +			    (unsigned)opt, t.c_iflag, t.c_oflag, t.c_cflag, t.c_lflag, t.c_ispeed, t.c_ospeed);
 +		}
 +		t.c_ispeed = t.c_ospeed = actual;
@@ -415,7 +415,7 @@ index 0000000000000000000000000000000000000000..ac42481baad1cf75277b191f73f36b4b
 +	memcpy(data, &bt.tio, sizeof(bt.tio));
 +	*len = sizeof(bt.tio);
 +	if (bt.tios_get++ < 4) {
-+		printf("SWEET BT: termios get: speed %lu cflag %#lx\n", bt.tio.c_ospeed, bt.tio.c_cflag);
++		printf("BERGAMOTA BT: termios get: speed %lu cflag %#lx\n", bt.tio.c_ospeed, bt.tio.c_cflag);
 +	}
 +	return 0;
 +}
@@ -433,7 +433,7 @@ index 0000000000000000000000000000000000000000..ac42481baad1cf75277b191f73f36b4b
 +	}
 +	bt.last_rx_pkts = bt.rx_pkts;
 +	bt.last_tx_pkts = bt.tx_pkts;
-+	printf("SWEET BT: HCI: rx %u pkts / %llu B (ring peak %u of %u B, dropped %u pkts full + %u not connected, "
++	printf("BERGAMOTA BT: HCI: rx %u pkts / %llu B (ring peak %u of %u B, dropped %u pkts full + %u not connected, "
 +	    "socket full %u of %u enqueues), tx %u pkts / %llu B (%u failed, %u garbage), connects %u\n",
 +	    bt.rx_pkts, bt.rx_bytes, bt.ring_peak, BT_RING_SIZE, bt.rx_drop_pkts, bt.rx_drop_nc, bt.enq_fail,
 +	    bt.enq_fail + bt.enq_ok, bt.tx_pkts, bt.tx_bytes, bt.tx_fail, bt.tx_garbage, bt.connects);
@@ -473,7 +473,7 @@ index 0000000000000000000000000000000000000000..ac42481baad1cf75277b191f73f36b4b
 +	bt.tio.c_cflag = 0x38B00ul;
 +	bt.tio.c_ispeed = bt.tio.c_ospeed = ops->baud(0);
 +	err = bt_reg_one(BT_CTL_NAME, &bt.ref[0]);
-+	printf("SWEET BT: kernel control %s registered: %d\n", BT_CTL_NAME, (int)err);
++	printf("BERGAMOTA BT: kernel control %s registered: %d\n", BT_CTL_NAME, (int)err);
 +	if (err != 0) {
 +		return;
 +	}
@@ -485,14 +485,14 @@ index 0000000000000000000000000000000000000000..ac42481baad1cf75277b191f73f36b4b
 +		 * options for it (not implemented), so this is only useful for plain-socket clients.
 +		 */
 +		err = bt_reg_one(BT_CTL_NAME_SK, &bt.ref[1]);
-+		printf("SWEET BT: kernel control %s registered: %d\n", BT_CTL_NAME_SK, (int)err);
++		printf("BERGAMOTA BT: kernel control %s registered: %d\n", BT_CTL_NAME_SK, (int)err);
 +		if (err == 0) {
 +			bt.nref = 2;
 +		}
 +	}
 +}
 +
-+#endif /* ARM64_BOARD_CONFIG_SWEET */
++#endif /* ARM64_BOARD_CONFIG_BERGAMOTA */
 diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 index ce2d014bad42e54a222649cd4e5e05d4ef6d5f02..fb25b5716956206834be43520cb091f7b0bd1211 100644
 --- a/bsd/dev/beryllium_wlan.c
@@ -506,12 +506,12 @@ index ce2d014bad42e54a222649cd4e5e05d4ef6d5f02..fb25b5716956206834be43520cb091f7
 +#include <machine/atomic.h>
  #include <pexpert/pexpert.h>
 +#include <pexpert/device_tree.h>
- #include "sweet_board.h"
+ #include "bergamota_board.h"
  
  extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
-@@ -53,6 +56,16 @@ extern int sweet_ufs_part_size(const char *name, uint8_t *lun, uint64_t *bytes);
- extern int sweet_rpmh_vreg_set(const char *res, unsigned mv, bool enable);
- extern int sweet_rpmh_lookup(const char *res, uint32_t *address);
+@@ -53,6 +56,16 @@ extern int bergamota_ufs_part_size(const char *name, uint8_t *lun, uint64_t *bytes);
+ extern int bergamota_rpmh_vreg_set(const char *res, unsigned mv, bool enable);
+ extern int bergamota_rpmh_lookup(const char *res, uint32_t *address);
  void beryllium_wlan_init(void);
 +/* bsd/dev/beryllium_bt_hci.c: the kernel control the iOS userland talks to */
 +struct bt_hci_ops {
@@ -523,15 +523,15 @@ index ce2d014bad42e54a222649cd4e5e05d4ef6d5f02..fb25b5716956206834be43520cb091f7
 +extern void bt_hci_rx_service(void);
 +extern void bt_hci_stats_periodic(bool force);
 +extern bool bt_hci_connected(void);
- #define WL_PART_READ(p, o, d, l)  sweet_ufs_read_part((p), (o), (d), (l))
+ #define WL_PART_READ(p, o, d, l)  bergamota_ufs_read_part((p), (o), (d), (l))
  #endif
  
 @@ -538,11 +551,25 @@ static struct {
  	unsigned ev_cc, ev_other;       /* events seen while downloading firmware */
  	unsigned bt_fw, bt_baud, bt_fast, bt_ibs, bt_poweroff;
- 	unsigned bt_nvmdelay, bt_probe, bt_nowake, bt_rfr, bt_noflow;   /* sweetbt* boot-args */
-+	unsigned bt_hci, bt_sk, bt_log, bt_setaddr;     /* sweetbt=1 (iOS transport), sweetbtsk, sweetbtlog, sweetbtaddr */
-+	/* iOS transport (sweetbt=1): continuous RX, clean H4 packets for userland */
+ 	unsigned bt_nvmdelay, bt_probe, bt_nowake, bt_rfr, bt_noflow;   /* bergamotabt* boot-args */
++	unsigned bt_hci, bt_sk, bt_log, bt_setaddr;     /* bergamotabt=1 (iOS transport), bergamotabtsk, bergamotabtlog, bergamotabtaddr */
++	/* iOS transport (bergamotabt=1): continuous RX, clean H4 packets for userland */
 +	bool xport;
 +	volatile int32_t tx_waiters;    /* threads waiting for the UART lock: the RX loop steps aside */
 +	unsigned ibs_xlog;              /* IBS log budget in transport mode */
@@ -546,7 +546,7 @@ index ce2d014bad42e54a222649cd4e5e05d4ef6d5f02..fb25b5716956206834be43520cb091f7
  } wl;
  
 +/* the GENI UART and the HCI state of the stage: held by the RX loop per poll and by every TX */
-+static LCK_GRP_DECLARE(wl_hw_grp, "sweet_bt_uart");
++static LCK_GRP_DECLARE(wl_hw_grp, "bergamota_bt_uart");
 +static LCK_MTX_DECLARE(wl_hw_lock, &wl_hw_grp);
 +
  static uint32_t
@@ -572,10 +572,10 @@ index ce2d014bad42e54a222649cd4e5e05d4ef6d5f02..fb25b5716956206834be43520cb091f7
  	uint32_t st = wl_rd(wl.se, SE_RX_FIFO_STATUS);
  	if (irq & (S_CMD_DONE | S_RX_FIFO_RD_ERR | S_RX_FIFO_WR_ERR | S_RX_FIFO_WATERMARK | S_RX_FIFO_LAST)) {
  		if (irq & (S_RX_FIFO_RD_ERR | S_RX_FIFO_WR_ERR)) {
--			printf("SWEET WLAN: UART RX FIFO error (s_irq %#x)\n", irq);
+-			printf("BERGAMOTA WLAN: UART RX FIFO error (s_irq %#x)\n", irq);
 +			wl.xs_fifo_err++;
 +			if (!wl.xport || wl.xs_fifo_err <= 8) {
-+				printf("SWEET WLAN: UART RX FIFO error (s_irq %#x)\n", irq);
++				printf("BERGAMOTA WLAN: UART RX FIFO error (s_irq %#x)\n", irq);
 +			}
  		}
  		wl_wr(wl.se, SE_S_IRQ_CLEAR, irq);
@@ -616,9 +616,9 @@ index ce2d014bad42e54a222649cd4e5e05d4ef6d5f02..fb25b5716956206834be43520cb091f7
 +	}
  	for (unsigned attempt = 1; attempt <= 3 && wl.ibs_asleep; attempt++) {
  		uint8_t b = IBS_WAKE_IND;
--		printf("SWEET WLAN: BT IBS: controller asleep, TX WAKE_IND (0xfd) attempt %u/3 at %u ms\n", attempt, wl_ms());
+-		printf("BERGAMOTA WLAN: BT IBS: controller asleep, TX WAKE_IND (0xfd) attempt %u/3 at %u ms\n", attempt, wl_ms());
 +		if (v) {
-+			printf("SWEET WLAN: BT IBS: controller asleep, TX WAKE_IND (0xfd) attempt %u/3 at %u ms\n", attempt, wl_ms());
++			printf("BERGAMOTA WLAN: BT IBS: controller asleep, TX WAKE_IND (0xfd) attempt %u/3 at %u ms\n", attempt, wl_ms());
 +		}
  		(void)wl_tx(&b, 1, wl.baud ? wl.baud : 115200);
  		for (unsigned t = 0; t < 100 && wl.ibs_asleep; t++) {
@@ -627,23 +627,23 @@ index ce2d014bad42e54a222649cd4e5e05d4ef6d5f02..fb25b5716956206834be43520cb091f7
  				delay(1000);
  			}
  		}
--		printf("SWEET WLAN: BT IBS: attempt %u: %s at %u ms\n", attempt, wl.ibs_asleep ? "no WAKE_ACK" :
+-		printf("BERGAMOTA WLAN: BT IBS: attempt %u: %s at %u ms\n", attempt, wl.ibs_asleep ? "no WAKE_ACK" :
 -		    "WAKE_ACK/WAKE_IND received", wl_ms());
 +		if (v) {
-+			printf("SWEET WLAN: BT IBS: attempt %u: %s at %u ms\n", attempt, wl.ibs_asleep ? "no WAKE_ACK" :
++			printf("BERGAMOTA WLAN: BT IBS: attempt %u: %s at %u ms\n", attempt, wl.ibs_asleep ? "no WAKE_ACK" :
 +			    "WAKE_ACK/WAKE_IND received", wl_ms());
 +		}
  	}
  	if (wl.ibs_asleep) {
 +		wl.xs_ibs_wake_fail++;
- 		printf("SWEET WLAN: BT IBS: no answer to 3 wake attempts, sending anyway\n");
+ 		printf("BERGAMOTA WLAN: BT IBS: no answer to 3 wake attempts, sending anyway\n");
  		wl.ibs_asleep = false;
  	}
 @@ -2334,6 +2389,283 @@ out:
  	return ok;
  }
  
-+/* ---------------------------------------------------------------- iOS HCI transport (sweetbt=1) */
++/* ---------------------------------------------------------------- iOS HCI transport (bergamotabt=1) */
 +
 +#define WL_BD_DEFAULT   { 0x02, 0x00, 0x5e, 0x77, 0xb0, 0x01 }  /* tools/mkadt.py mac-address-bluetooth0 */
 +#define QCA_EDL_WRITE_BD_ADDR_OPCODE    0xfc14u                 /* btqca.h EDL_WRITE_BD_ADDR_OPCODE */
@@ -661,10 +661,10 @@ index ce2d014bad42e54a222649cd4e5e05d4ef6d5f02..fb25b5716956206834be43520cb091f7
 +	if (SecureDTLookupEntry(NULL, "/arm-io/bluetooth", &node) == kSuccess &&
 +	    SecureDTGetProperty(node, "local-mac-address", &data, &size) == kSuccess && size == 6) {
 +		memcpy(out, data, 6);
-+		printf("SWEET BT: ADT /arm-io/bluetooth local-mac-address %02x:%02x:%02x:%02x:%02x:%02x\n", out[0],
++		printf("BERGAMOTA BT: ADT /arm-io/bluetooth local-mac-address %02x:%02x:%02x:%02x:%02x:%02x\n", out[0],
 +		    out[1], out[2], out[3], out[4], out[5]);
 +	} else {
-+		printf("SWEET BT: no ADT /arm-io/bluetooth local-mac-address, using %02x:%02x:%02x:%02x:%02x:%02x\n",
++		printf("BERGAMOTA BT: no ADT /arm-io/bluetooth local-mac-address, using %02x:%02x:%02x:%02x:%02x:%02x\n",
 +		    out[0], out[1], out[2], out[3], out[4], out[5]);
 +	}
 +}
@@ -677,7 +677,7 @@ index ce2d014bad42e54a222649cd4e5e05d4ef6d5f02..fb25b5716956206834be43520cb091f7
 +	unsigned rlen = 0;
 +	int err = wl_hci_cmd(0x1009, NULL, 0, rsp, &rlen, 1000);
 +	if (err || rsp[0] != 0x0e || rlen < 12 || rsp[5] != 0) {
-+		printf("SWEET BT: Read BD_ADDR failed (%d)\n", err);
++		printf("BERGAMOTA BT: Read BD_ADDR failed (%d)\n", err);
 +		return false;
 +	}
 +	for (unsigned i = 0; i < 6; i++) {
@@ -701,10 +701,10 @@ index ce2d014bad42e54a222649cd4e5e05d4ef6d5f02..fb25b5716956206834be43520cb091f7
 +	if (!wl_bt_read_bdaddr(cur)) {
 +		return;
 +	}
-+	printf("SWEET BT: controller BD_ADDR %02x:%02x:%02x:%02x:%02x:%02x, wanted %02x:%02x:%02x:%02x:%02x:%02x\n",
++	printf("BERGAMOTA BT: controller BD_ADDR %02x:%02x:%02x:%02x:%02x:%02x, wanted %02x:%02x:%02x:%02x:%02x:%02x\n",
 +	    cur[0], cur[1], cur[2], cur[3], cur[4], cur[5], want[0], want[1], want[2], want[3], want[4], want[5]);
 +	if (!memcmp(cur, want, 6)) {
-+		printf("SWEET BT: BD_ADDR already matches\n");
++		printf("BERGAMOTA BT: BD_ADDR already matches\n");
 +		return;
 +	}
 +	for (unsigned i = 0; i < 6; i++) {
@@ -712,24 +712,24 @@ index ce2d014bad42e54a222649cd4e5e05d4ef6d5f02..fb25b5716956206834be43520cb091f7
 +	}
 +	err = wl_hci_cmd(QCA_EDL_WRITE_BD_ADDR_OPCODE, par, 6, rsp, &rlen, 1000);
 +	if (err) {
-+		printf("SWEET BT: set BD_ADDR (0xfc14): no event (%d)\n", err);
++		printf("BERGAMOTA BT: set BD_ADDR (0xfc14): no event (%d)\n", err);
 +	} else {
 +		wl_print_hex("set BD_ADDR (0xfc14) reply", rsp, rlen);
 +	}
 +	for (unsigned pass = 0; pass < 2; pass++) {
 +		if (wl_bt_read_bdaddr(cur) && !memcmp(cur, want, 6)) {
-+			printf("SWEET BT: BD_ADDR now %02x:%02x:%02x:%02x:%02x:%02x%s\n", cur[0], cur[1], cur[2], cur[3],
++			printf("BERGAMOTA BT: BD_ADDR now %02x:%02x:%02x:%02x:%02x:%02x%s\n", cur[0], cur[1], cur[2], cur[3],
 +			    cur[4], cur[5], pass ? " (after HCI Reset)" : "");
 +			return;
 +		}
 +		if (pass == 0) {
 +			/* some controllers apply the address on the next reset */
-+			printf("SWEET BT: BD_ADDR not applied yet (%02x:%02x:%02x:%02x:%02x:%02x): HCI Reset and read again\n",
++			printf("BERGAMOTA BT: BD_ADDR not applied yet (%02x:%02x:%02x:%02x:%02x:%02x): HCI Reset and read again\n",
 +			    cur[0], cur[1], cur[2], cur[3], cur[4], cur[5]);
 +			(void)wl_hci_cmd(0x0c03, NULL, 0, rsp, &rlen, 3000);
 +		}
 +	}
-+	printf("SWEET BT: BD_ADDR MISMATCH after 0xfc14: userland will see %02x:%02x:%02x:%02x:%02x:%02x from the ADT "
++	printf("BERGAMOTA BT: BD_ADDR MISMATCH after 0xfc14: userland will see %02x:%02x:%02x:%02x:%02x:%02x from the ADT "
 +	    "but the controller reports another; set BT_DEVICE_ADDRESS accordingly\n", want[0], want[1], want[2],
 +	    want[3], want[4], want[5]);
 +}
@@ -760,7 +760,7 @@ index ce2d014bad42e54a222649cd4e5e05d4ef6d5f02..fb25b5716956206834be43520cb091f7
 +			}
 +			if (wl.ibs_xlog < 24) {
 +				wl.ibs_xlog++;
-+				printf("SWEET WLAN: BT IBS: RX %s (%#04x) at %u ms\n", b == IBS_WAKE_ACK ? "WAKE_ACK" :
++				printf("BERGAMOTA WLAN: BT IBS: RX %s (%#04x) at %u ms\n", b == IBS_WAKE_ACK ? "WAKE_ACK" :
 +				    b == IBS_WAKE_IND ? "WAKE_IND" : "SLEEP_IND", b, wl_ms());
 +			}
 +			return;
@@ -768,7 +768,7 @@ index ce2d014bad42e54a222649cd4e5e05d4ef6d5f02..fb25b5716956206834be43520cb091f7
 +		if (b < 2 || b > 5) {
 +			/* 0x01 (command) never comes from a controller; anything else is garbage */
 +			if (wl.xs_garbage++ < 8) {
-+				printf("SWEET BT: RX: byte %#04x between packets is not an H4 type, dropped\n", b);
++				printf("BERGAMOTA BT: RX: byte %#04x between packets is not an H4 type, dropped\n", b);
 +			}
 +			return;
 +		}
@@ -791,7 +791,7 @@ index ce2d014bad42e54a222649cd4e5e05d4ef6d5f02..fb25b5716956206834be43520cb091f7
 +		wl.xs_total = wl.xs_have + pl;
 +		if (wl.xs_total > sizeof(wl.xs_pkt)) {
 +			if (wl.xs_oversize++ < 8) {
-+				printf("SWEET BT: RX: %u byte H4 packet (type %u) does not fit, dropped\n", wl.xs_total, wl.xs_type);
++				printf("BERGAMOTA BT: RX: %u byte H4 packet (type %u) does not fit, dropped\n", wl.xs_total, wl.xs_type);
 +			}
 +			wl.xs_st = 0;
 +			return;
@@ -845,7 +845,7 @@ index ce2d014bad42e54a222649cd4e5e05d4ef6d5f02..fb25b5716956206834be43520cb091f7
 +	uint8_t want[6];
 +
 +	if (wl.baud != wl.bt_baud) {
-+		printf("SWEET BT: transport not started: UART is at %u baud, not %u\n", wl.baud, wl.bt_baud);
++		printf("BERGAMOTA BT: transport not started: UART is at %u baud, not %u\n", wl.baud, wl.bt_baud);
 +		return false;
 +	}
 +	wl_bt_adt_bdaddr(want);
@@ -862,7 +862,7 @@ index ce2d014bad42e54a222649cd4e5e05d4ef6d5f02..fb25b5716956206834be43520cb091f7
 +	wl_flow(true);                  /* lossless at 3 Mbaud depends on RFR/CTS */
 +	wl_rx_start();
 +	bt_hci_register(&wl_xport_ops, wl.bt_sk, wl.bt_log);
-+	printf("SWEET BT: transport up: UART %u baud, RX FIFO %u words, ring 64 KiB, IBS %s, BD_ADDR %02x:%02x:%02x:%02x:%02x:%02x\n",
++	printf("BERGAMOTA BT: transport up: UART %u baud, RX FIFO %u words, ring 64 KiB, IBS %s, BD_ADDR %02x:%02x:%02x:%02x:%02x:%02x\n",
 +	    wl.baud, wl.rx_depth, wl.bt_ibs ? "in the NVM (handled here)" : "off in the NVM (handled here if it appears)",
 +	    want[0], want[1], want[2], want[3], want[4], want[5]);
 +	return true;
@@ -876,7 +876,7 @@ index ce2d014bad42e54a222649cd4e5e05d4ef6d5f02..fb25b5716956206834be43520cb091f7
 + * a 16-word FIFO. While traffic flows the loop therefore polls every ~30 us; after 200 empty
 + * polls it sleeps 300 us per round (first byte of a burst waits at most that, and the FIFO plus
 + * RFR absorb it), 2 ms when no client is connected. The ring (64 KiB) only absorbs a slow
-+ * userland. A line "SWEET BT: UART RX ..." every 10 s shows the measured maximum FIFO fill
++ * userland. A line "BERGAMOTA BT: UART RX ..." every 10 s shows the measured maximum FIFO fill
 + * (max words vs depth) and FIFO error count; a FIFO error would mean the margin was exceeded.
 + */
 +static void
@@ -910,7 +910,7 @@ index ce2d014bad42e54a222649cd4e5e05d4ef6d5f02..fb25b5716956206834be43520cb091f7
 +			if (lines < 60 && (wl.xs_bytes != last_bytes || wl.xs_fifo_err)) {
 +				lines++;
 +				last_bytes = wl.xs_bytes;
-+				printf("SWEET BT: UART RX %llu B in %llu polls, max burst %u B / %u FIFO words (depth %u), FIFO errors %u, "
++				printf("BERGAMOTA BT: UART RX %llu B in %llu polls, max burst %u B / %u FIFO words (depth %u), FIFO errors %u, "
 +				    "garbage %u, IBS: sleeps %u wakes %u (failed %u)\n", wl.xs_bytes, wl.xs_polls, wl.xs_maxburst,
 +				    wl.xs_maxwords, wl.rx_depth, wl.xs_fifo_err, wl.xs_garbage, wl.ibs_sleeps, wl.xs_ibs_wake,
 +				    wl.xs_ibs_wake_fail);
@@ -925,30 +925,30 @@ index ce2d014bad42e54a222649cd4e5e05d4ef6d5f02..fb25b5716956206834be43520cb091f7
  };
 @@ -2404,6 +2736,13 @@ wl_bt(void)
  				bool fwok = wl_bt_fw(&qv);
- 				printf("SWEET WLAN: BT fw %s\n", fwok ? "setup complete (patch + NVM downloaded, controller up at the "
+ 				printf("BERGAMOTA WLAN: BT fw %s\n", fwok ? "setup complete (patch + NVM downloaded, controller up at the "
  				    "operating baud)" : "setup FAILED or skipped (see above)");
 +				if (wl.bt_hci) {
-+					/* sweetbt=1: keep the chip, the UART clocks and the pins; the loop never returns */
++					/* bergamotabt=1: keep the chip, the UART clocks and the pins; the loop never returns */
 +					if (fwok && wl_xport_start()) {
 +						wl_xport_run();
 +					}
-+					printf("SWEET BT: transport not started (see above): normal shutdown of the stage\n");
++					printf("BERGAMOTA BT: transport not started (see above): normal shutdown of the stage\n");
 +				}
  			} else {
- 				printf("SWEET WLAN: BT fw: sweetbtfw=0, no download\n");
+ 				printf("BERGAMOTA WLAN: BT fw: bergamotabtfw=0, no download\n");
  			}
 @@ -2487,6 +2826,16 @@ beryllium_wlan_init(void)
- 	(void)PE_parse_boot_argn("sweetbtfast", &wl.bt_fast, sizeof(wl.bt_fast));       /* 1: baud change before the download */
- 	(void)PE_parse_boot_argn("sweetbtibs", &wl.bt_ibs, sizeof(wl.bt_ibs));          /* 1: Linux NVM IBS/deep-sleep bits */
- 	(void)PE_parse_boot_argn("sweetbtpoweroff", &wl.bt_poweroff, sizeof(wl.bt_poweroff));
-+	wl.bt_setaddr = 1;              /* sweetbt=1: program the ADT local-mac-address with 0xfc14 */
-+	wl.bt_log = 64;                 /* sweetbt=1: HCI packet trace lines */
-+	(void)PE_parse_boot_argn("sweetbt", &wl.bt_hci, sizeof(wl.bt_hci));             /* 1: keep the controller, serve com.apple.uart.bluetooth */
-+	(void)PE_parse_boot_argn("sweetbtsk", &wl.bt_sk, sizeof(wl.bt_sk));             /* 1: also register com.apple.uart.sk.bluetooth */
-+	(void)PE_parse_boot_argn("sweetbtlog", &wl.bt_log, sizeof(wl.bt_log));
-+	(void)PE_parse_boot_argn("sweetbtaddr", &wl.bt_setaddr, sizeof(wl.bt_setaddr));
+ 	(void)PE_parse_boot_argn("bergamotabtfast", &wl.bt_fast, sizeof(wl.bt_fast));       /* 1: baud change before the download */
+ 	(void)PE_parse_boot_argn("bergamotabtibs", &wl.bt_ibs, sizeof(wl.bt_ibs));          /* 1: Linux NVM IBS/deep-sleep bits */
+ 	(void)PE_parse_boot_argn("bergamotabtpoweroff", &wl.bt_poweroff, sizeof(wl.bt_poweroff));
++	wl.bt_setaddr = 1;              /* bergamotabt=1: program the ADT local-mac-address with 0xfc14 */
++	wl.bt_log = 64;                 /* bergamotabt=1: HCI packet trace lines */
++	(void)PE_parse_boot_argn("bergamotabt", &wl.bt_hci, sizeof(wl.bt_hci));             /* 1: keep the controller, serve com.apple.uart.bluetooth */
++	(void)PE_parse_boot_argn("bergamotabtsk", &wl.bt_sk, sizeof(wl.bt_sk));             /* 1: also register com.apple.uart.sk.bluetooth */
++	(void)PE_parse_boot_argn("bergamotabtlog", &wl.bt_log, sizeof(wl.bt_log));
++	(void)PE_parse_boot_argn("bergamotabtaddr", &wl.bt_setaddr, sizeof(wl.bt_setaddr));
 +	if (wl.bt_hci && stage != 2) {
-+		printf("SWEET BT: sweetbt=1 needs sweetwlan=2 (the BT stage): ignored\n");
++		printf("BERGAMOTA BT: bergamotabt=1 needs bergamotawlan=2 (the BT stage): ignored\n");
 +		wl.bt_hci = 0;
 +	}
  	wl.bt_nvmdelay = 10;            /* ms after the NVM; Linux: 0 (10 ms only between patch and NVM) */

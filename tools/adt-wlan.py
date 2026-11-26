@@ -6,7 +6,7 @@
 launchd only starts wifid when the device tree has a node named `wlan` (com.apple.wifid.plist
 _LimitLoadToDeviceTree: wlan, marconi-wifi, centauri-alpha, centauri-alpha-protium). Stock
 N104AP has /arm-io/wlan (device_type 'wlan', local-mac-address, Broadcom wlan.* tunables); this
-adds only the identity part. The kernel stand-in (boot-arg sweet80211, bsd/dev/sweet_80211.c)
+adds only the identity part. The kernel stand-in (boot-arg bergamota80211, bsd/dev/bergamota_80211.c)
 takes its MAC from local-mac-address, which is copied from /chosen mac-address-wifi0 when present
 so MobileGestalt's Wi-Fi address and en0 agree. An existing /arm-io/wlan is replaced; the
 phandle is one above the highest in the tree.

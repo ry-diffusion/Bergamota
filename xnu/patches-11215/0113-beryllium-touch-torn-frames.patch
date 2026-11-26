@@ -1,8 +1,8 @@
-diff --git a/bsd/dev/sweet_touch.c b/bsd/dev/sweet_touch.c
+diff --git a/bsd/dev/bergamota_touch.c b/bsd/dev/bergamota_touch.c
 index 7508d61b097a70a3d1a1da5ab02af18a707908e9..16175cfdd2487820a7091c846a5a975c2ef832cf 100644
---- a/bsd/dev/sweet_touch.c
-+++ b/bsd/dev/sweet_touch.c
-@@ -45,6 +45,7 @@ void sweet_touch_init(void);
+--- a/bsd/dev/bergamota_touch.c
++++ b/bsd/dev/bergamota_touch.c
+@@ -45,6 +45,7 @@ void bergamota_touch_init(void);
  #define NVT_PARAMS_LEN   15u
  #define NVT_CHIP_ID      0x08u
  #define NVT_RECORD       6u

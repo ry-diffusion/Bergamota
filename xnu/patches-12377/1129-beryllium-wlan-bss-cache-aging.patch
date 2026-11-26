@@ -8,7 +8,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		unsigned seen;          /* scan.count when last heard */
  	} bss[SCAN_MAX_BSS];
  } scan;
- /* the BSS cache's IEs (SCAN_MAX_BSS x SWEET_WLAN_IE_MAX) and the lock between the service thread and ioctls */
+ /* the BSS cache's IEs (SCAN_MAX_BSS x BERGAMOTA_WLAN_IE_MAX) and the lock between the service thread and ioctls */
 @@ -4611,6 +4612,29 @@
  		wf.sent_ms = ms_now_ms();
  	}
@@ -30,7 +30,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		if (w != k) {
 +			scan.bss[w] = scan.bss[k];
 +			if (scan_ie) {
-+				memmove(scan_ie + w * SWEET_WLAN_IE_MAX, scan_ie + k * SWEET_WLAN_IE_MAX, SWEET_WLAN_IE_MAX);
++				memmove(scan_ie + w * BERGAMOTA_WLAN_IE_MAX, scan_ie + k * BERGAMOTA_WLAN_IE_MAX, BERGAMOTA_WLAN_IE_MAX);
 +			}
 +		}
 +		w++;
@@ -41,7 +41,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
  /* SCAN_EVENT (tag 36: type, reason, freq, req id, scan id, vdev) */
 @@ -4648,6 +4672,7 @@
  		ipc_note(" scan done r%u: %u ch, %u frames, %u bss;", e[1], scan.foreign, scan.beacons, scan.nbss);
- 		/* state and notice together under the cache lock (sweet_wlan_scan_request reads them under it) */
+ 		/* state and notice together under the cache lock (bergamota_wlan_scan_request reads them under it) */
  		lck_mtx_lock(&scan_lock);
 +		scan_age();
  		wf.state = WS_SCAN_DONE;

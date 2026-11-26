@@ -1,7 +1,7 @@
-diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
+diff --git a/iokit/Kernel/arm/BergamotaFramebuffer.cpp b/iokit/Kernel/arm/BergamotaFramebuffer.cpp
 index 4da8ee2ad41b9fe6f63bff0a3717607205755a14..4dd897c30d3547f8185a0f14c281fff5f83fc88f 100644
---- a/iokit/Kernel/arm/SweetFramebuffer.cpp
-+++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+--- a/iokit/Kernel/arm/BergamotaFramebuffer.cpp
++++ b/iokit/Kernel/arm/BergamotaFramebuffer.cpp
 @@ -2688,6 +2688,22 @@ AppleCLCD::present(const uint8_t *rec)
  	if (fFlip) {
  		waitLatch();    /* the buffer we draw into may still be on the panel */
@@ -13,7 +13,7 @@ index 4da8ee2ad41b9fe6f63bff0a3717607205755a14..4dd897c30d3547f8185a0f14c281fff5
 +	 * before its wake animation started (the animation seemed to jump forward, back, forward). Once per wake.
 +	 */
 +	bool any = false;
-+	for (uint32_t layer = 0; layer < SWEET_FB_LAYERS; layer++) {
++	for (uint32_t layer = 0; layer < BERGAMOTA_FB_LAYERS; layer++) {
 +		if ((mask & (1u << layer)) && get32(rec, 0x54 + 4 * layer) != 0) {
 +			any = true;
 +		}
@@ -23,5 +23,5 @@ index 4da8ee2ad41b9fe6f63bff0a3717607205755a14..4dd897c30d3547f8185a0f14c281fff5
 +		fBarsMask |= (uint8_t)(1u << fDrawIdx);      /* its scaling bars are black too */
 +	}
  
- 	for (uint32_t layer = 0; layer < SWEET_FB_LAYERS; layer++) {
+ 	for (uint32_t layer = 0; layer < BERGAMOTA_FB_LAYERS; layer++) {
  		uint32_t id = get32(rec, 0x54 + 4 * layer);

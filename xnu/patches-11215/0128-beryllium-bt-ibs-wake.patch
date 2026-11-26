@@ -9,7 +9,7 @@ index 1f3ab7d90e13f74ab749c2923bf318ce60387298..b06f07d342fd2021490b062760801513
 -	unsigned ibs_logged, rx_st, rx_left;    /* IBS log budget; H4 event parser state at the RX side */
 +	unsigned ibs_logged, rx_st, rx_left, raw_budget, ibs_sleeps;   /* IBS log budget, H4 parser state, raw RX log budget, SLEEP_INDs seen */
  	unsigned ev_cc, ev_other;       /* events seen while downloading firmware */
- 	unsigned bt_fw, bt_baud, bt_fast, bt_ibs, bt_poweroff;   /* sweetbt* boot-args */
+ 	unsigned bt_fw, bt_baud, bt_fast, bt_ibs, bt_poweroff;   /* bergamotabt* boot-args */
  	unsigned stage, delay_s;
 @@ -1360,6 +1360,16 @@ wl_rx_stop(void)
   * 0x04, code, length, payload), acted on and kept out of wl.rxq. The ACK for a
@@ -40,8 +40,8 @@ index 1f3ab7d90e13f74ab749c2923bf318ce60387298..b06f07d342fd2021490b062760801513
  		}
  		if (wl.ibs_logged < 16) {
  			wl.ibs_logged++;
--			printf("SWEET WLAN: BT IBS: RX %s (%#04x)\n", n, b);
-+			printf("SWEET WLAN: BT IBS: RX %s (%#04x) at %u ms\n", n, b, wl_ms());
+-			printf("BERGAMOTA WLAN: BT IBS: RX %s (%#04x)\n", n, b);
++			printf("BERGAMOTA WLAN: BT IBS: RX %s (%#04x) at %u ms\n", n, b, wl_ms());
  		}
  		return;
  	}
@@ -68,7 +68,7 @@ index 1f3ab7d90e13f74ab749c2923bf318ce60387298..b06f07d342fd2021490b062760801513
 +		for (unsigned i = 0; i < nraw; i++) {
 +			o += (unsigned)snprintf(line + o, sizeof(line) - o, "%02x ", raw[i]);
 +		}
-+		printf("SWEET WLAN: BT RX raw at %u ms (%u bytes, baud %u): %s\n", wl_ms(), total, wl.baud, line);
++		printf("BERGAMOTA WLAN: BT RX raw at %u ms (%u bytes, baud %u): %s\n", wl_ms(), total, wl.baud, line);
 +	}
  }
  
@@ -98,7 +98,7 @@ index 1f3ab7d90e13f74ab749c2923bf318ce60387298..b06f07d342fd2021490b062760801513
 -			delay(1000);
 +	for (unsigned attempt = 1; attempt <= 3 && wl.ibs_asleep; attempt++) {
 +		uint8_t b = IBS_WAKE_IND;
-+		printf("SWEET WLAN: BT IBS: controller asleep, TX WAKE_IND (0xfd) attempt %u/3 at %u ms\n", attempt, wl_ms());
++		printf("BERGAMOTA WLAN: BT IBS: controller asleep, TX WAKE_IND (0xfd) attempt %u/3 at %u ms\n", attempt, wl_ms());
 +		(void)wl_tx(&b, 1, wl.baud ? wl.baud : 115200);
 +		for (unsigned t = 0; t < 100 && wl.ibs_asleep; t++) {
 +			wl_rx_poll();
@@ -106,15 +106,15 @@ index 1f3ab7d90e13f74ab749c2923bf318ce60387298..b06f07d342fd2021490b062760801513
 +				delay(1000);
 +			}
  		}
-+		printf("SWEET WLAN: BT IBS: attempt %u: %s at %u ms\n", attempt, wl.ibs_asleep ? "no WAKE_ACK" :
++		printf("BERGAMOTA WLAN: BT IBS: attempt %u: %s at %u ms\n", attempt, wl.ibs_asleep ? "no WAKE_ACK" :
 +		    "WAKE_ACK/WAKE_IND received", wl_ms());
  	}
 -	if (wl.ibs_logged < 16) {
 -		wl.ibs_logged++;
--		printf("SWEET WLAN: BT IBS: TX WAKE_IND (0xfd), %s\n", wl.ibs_asleep ? "no WAKE_ACK within 500 ms, sending anyway" :
+-		printf("BERGAMOTA WLAN: BT IBS: TX WAKE_IND (0xfd), %s\n", wl.ibs_asleep ? "no WAKE_ACK within 500 ms, sending anyway" :
 -		    "WAKE_ACK (or WAKE_IND) received");
 +	if (wl.ibs_asleep) {
-+		printf("SWEET WLAN: BT IBS: no answer to 3 wake attempts, sending anyway\n");
++		printf("BERGAMOTA WLAN: BT IBS: no answer to 3 wake attempts, sending anyway\n");
 +		wl.ibs_asleep = false;
  	}
 -	wl.ibs_asleep = false;
@@ -151,7 +151,7 @@ index 1f3ab7d90e13f74ab749c2923bf318ce60387298..b06f07d342fd2021490b062760801513
 +		if (!wl.ibs_asleep && wl.ibs_sleeps == sleeps) {
 +			return wl_hci_wait(opcode, want, rsp, rlen, timeout_ms > 500 ? timeout_ms - 500 : 1);
 +		}
-+		printf("SWEET WLAN: BT IBS: no reply to command %#06x (send %u/3) and the controller went to sleep "
++		printf("BERGAMOTA WLAN: BT IBS: no reply to command %#06x (send %u/3) and the controller went to sleep "
 +		    "(%u SLEEP_IND, asleep %d) at %u ms: wake and resend\n", opcode, attempt, wl.ibs_sleeps - sleeps,
 +		    wl.ibs_asleep, wl_ms());
  	}

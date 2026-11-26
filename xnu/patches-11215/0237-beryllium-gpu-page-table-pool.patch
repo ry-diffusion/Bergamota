@@ -1,6 +1,6 @@
-diff --git a/bsd/dev/sweet_a630.c b/bsd/dev/sweet_a630.c
---- a/bsd/dev/sweet_a630.c
-+++ b/bsd/dev/sweet_a630.c
+diff --git a/bsd/dev/bergamota_a630.c b/bsd/dev/bergamota_a630.c
+--- a/bsd/dev/bergamota_a630.c
++++ b/bsd/dev/bergamota_a630.c
 @@ -2483,9 +2483,16 @@
  #define GVM_BASE                0x80000000ull
  #define GVM_END                 0x100000000ull

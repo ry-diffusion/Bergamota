@@ -165,7 +165,7 @@ final class RemoteControl {
             if !r.0 { throw RemoteError(r.1) }
             return r.1
         case "reboot":
-            // {"kind":"reboot","to":"fastboot|bergamota|recovery"}: iOS -> ABL fastboot / Bergamota fastboot / recovery via SSH sweetreboot
+            // {"kind":"reboot","to":"fastboot|bergamota|recovery"}: iOS -> ABL fastboot / Bergamota fastboot / recovery via SSH bergamotareboot
             guard let to = req["to"] as? String, to == "fastboot" || to == "recovery" || to == "bergamota" else { throw RemoteError("\"to\" must be \"fastboot\", \"bergamota\" or \"recovery\"") }
             guard monitor.state == .ios else { throw RemoteError("iOS is not up (state: \(monitor.state.rawValue))") }
             guard let tools else { throw RemoteError("tools unavailable") }
@@ -256,7 +256,7 @@ final class RemoteControl {
         if let s = m.fastbootSerial { phone["fastbootSerial"] = s }
         if m.state.isFastboot { phone["fastbootKind"] = m.state == .bergamotaFastboot ? "bergamota" : "abl" }
         if let v = m.fastbootVersion, !v.isEmpty, m.state.isFastboot { phone["fastbootVersion"] = v }
-        if let b = m.sweetrebootBergamota { phone["sweetrebootBergamota"] = b }
+        if let b = m.bergamotarebootBergamota { phone["bergamotarebootBergamota"] = b }
         if let s = m.adbSerial { phone["adbSerial"] = s }
         if m.state == .ios, let i = m.info {
             var ios: [String: Any] = ["kernel": i.uname]
@@ -267,7 +267,7 @@ final class RemoteControl {
             phone["ios"] = ios
         }
         if m.state == .ios {
-            // `phone.metrics`: the object sweetmetrics printed (docs/BERGAMOTA_METRICS.md) plus when Bergamota fetched it.
+            // `phone.metrics`: the object bergamotametrics printed (docs/BERGAMOTA_METRICS.md) plus when Bergamota fetched it.
             if let mm = m.metrics, let d = mm.json.data(using: .utf8), var o = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] {
                 o["fetched"] = ISO8601DateFormatter().string(from: mm.fetched)
                 phone["metrics"] = o

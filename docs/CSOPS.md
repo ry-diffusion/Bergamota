@@ -39,14 +39,14 @@ Source: `logs/ios-0113/ios.logarchive` (unified log pulled from the phone, boot
    `*** Terminating app due to uncaught exception 'NSInternalInconsistencyException', reason: 'assetsd requires TCCPhotosService access'`
    (pid 253, boot D7F046, 73302776452 .. 73302909022 ns; launchd then logs `exited due to SIGABRT | sent by assetsd[253]` and respawns it
    "because incomplete work"/"semaphore" every few seconds: 38 aborts in the archive).
-4. [verified] The kernel log has `SWEET Sandbox: tccd op 5` (first use of op 5 by tccd) in every
+4. [verified] The kernel log has `BERGAMOTA Sandbox: tccd op 5` (first use of op 5 by tccd) in every
    boot, immediately before the first `Failed to issue sandbox extension` (e.g. boot 6E570A
    `170400554587` then `...554893`). Failure counts in the archive: AddressBook 2691, Photos 112,
    MediaLibrary 17, Microphone 5, Camera 5 - every service that gets an extension.
 5. [verified] tccd calls `sandbox_extension_issue_generic(class, 0)` (and `_issue_file` for
    paths): `tccd` imports; `libsystem_sandbox`'s `_sandbox_extension_issue_generic` ->
    `__sandbox_extension_issue` -> `__sandbox_ms("Sandbox", 5, args)`; NULL (failure) when the
-   syscall fails. `sweet_sandbox_syscall` returned ENOENT for ops 4, 5, 6 and 0x43 (patch 0050 and later).
+   syscall fails. `bergamota_sandbox_syscall` returned ENOENT for ops 4, 5, 6 and 0x43 (patch 0050 and later).
 6. [verified] assetsd's check (`assetsd+0x16280`): `[[PLPrivacy sharedInstance] photosAccessAllowedWithScope:7]`,
    throws when the result is non-zero. PLPrivacy (PhotoLibraryServicesCore `0x19b1886d8`,
    `_resolvePreflightStatusForScope:` `0x19b18898c`) calls `tcc_authorization_preflight(kTCCServicePhotos)`
@@ -77,8 +77,8 @@ style code only). `csops_audittoken` checks `token.val[5] == pid` and `token.val
 1. `csops_audittoken`: `proc_find`, audit token pid and pidversion compared; `mac_proc_check_get_cs_info`
    (no policy denies). Works [verified: tccd resolves peers by token].
 2. All get-ops go through `csproc_get_blob(p)`: needs `p_textvp`, **`CS_SIGNED` in the proc flags**
-   (set by `sweet_amfi_vnode_check_signature`, patch 0036) and `ubc_cs_blob_get(p_textvp, -1, -1, p_textoff)`.
-3. `CS_OPS_STATUS`: proc flags + `CS_ENFORCEMENT` + `CS_PLATFORM_BINARY` (from the SWEET AMFI policy
+   (set by `bergamota_amfi_vnode_check_signature`, patch 0036) and `ubc_cs_blob_get(p_textvp, -1, -1, p_textoff)`.
+3. `CS_OPS_STATUS`: proc flags + `CS_ENFORCEMENT` + `CS_PLATFORM_BINARY` (from the BERGAMOTA AMFI policy
    marking every root-filesystem binary) [verified earlier: 0x26000001 in QEMU, launchd is satisfied].
 4. `CS_OPS_IDENTITY`: `cs_identity_get` -> `csblob_get_identity` (the code directory identifier;
    assetsd's is `com.apple.assetsd`) [verified: tccd prints it].
@@ -99,45 +99,45 @@ style code only). `csops_audittoken` checks `token.val[5] == pid` and `token.val
      SecTask reads as "no entitlements". This is the real csops gap. It affects binaries signed
      with XML entitlements only (e.g. `ldid -S`/old tools, our `tools/mkinit.py` test signatures); it
      does not affect the stock iOS 16 binaries. -> patch 0115.
-   - A signature with a DER slot but no XML slot attaches no `SweetEntitlements` object (the attach
+   - A signature with a DER slot but no XML slot attaches no `BergamotaEntitlements` object (the attach
      hook parses XML), so kernel-side entitlement queries (`IOTaskHasEntitlement`) deny
      everything for it. Not handled [unverified, not seen on the stock image].
-6. `CS_OPS_ENTITLEMENTS_BLOB`: served from `SweetEntitlements::xml` (the copy made in the hook),
+6. `CS_OPS_ENTITLEMENTS_BLOB`: served from `BergamotaEntitlements::xml` (the copy made in the hook),
    independent of the NULLed `csb_entitlements_blob`. Fine.
 
 ## What changed
 
-### 0115-sweet-csops-entitlements.patch (csops; apply on bt114)
+### 0115-bergamota-csops-entitlements.patch (csops; apply on bt114)
 
-- `SweetEntitlements.cpp`: DER encoder (`sweet_der_build`) producing the CoreEntitlements layout
+- `BergamotaEntitlements.cpp`: DER encoder (`bergamota_der_build`) producing the CoreEntitlements layout
   codesign emits: header `0xfade7172` + `[APPLICATION 16] { INTEGER 1, [CONTEXT 16] { SEQUENCE { UTF8String key, value }* } }`,
   value = BOOLEAN / UTF8String / INTEGER / OCTET STRING / SEQUENCE (array) / nested `[CONTEXT 16]`
   dictionary, keys sorted bytewise. Built lazily from the parsed XML and cached in the object
-  (`OSCompareAndSwapPtr`). `sweet_entitlements_get_der()`.
+  (`OSCompareAndSwapPtr`). `bergamota_entitlements_get_der()`.
   [verified on the host] The kernel encoder source, compiled with mocked OS* classes
   (a throwaway harness, not kept in the tree), reproduces byte for byte the real DER slots of
   assetsd (3718 B), tccd (780 B) and launchd (1097 B) from their XML entitlements, plus
   edge cases (lengths 0x7f/0x80/0xff/0x100/0x10000, negative and 64-bit integers, empty
   dict/array, nested dict, unsorted input).
-- `sweet_amfi.c`: `OSEntitlements_get_transmuted` now returns that blob, so
+- `bergamota_amfi.c`: `OSEntitlements_get_transmuted` now returns that blob, so
   `CS_OPS_DER_ENTITLEMENTS_BLOB` works for XML-only signatures. The signature's own DER slot
   is still preferred (it is checked first in `csops_internal`).
 - `kern_proc.c`: `csops_internal` is now a thin wrapper around `csops_internal_impl` and calls
-  `sweet_csops_trace()` (SWEET builds only). No behaviour change.
-- Boot-arg **`sweetcsopslog=1`**: logs, per op, the first 6 successful and the first 6 failing
+  `bergamota_csops_trace()` (BERGAMOTA builds only). No behaviour change.
+- Boot-arg **`bergamotacsopslog=1`**: logs, per op, the first 6 successful and the first 6 failing
   csops calls (`csops`, `csops_audittoken`):
-  `SWEET CSOPS: caller[pid] DER_ENTITLEMENTS_BLOB(16) -> target[pid] usize 8 token errno 34 csflags 0x... blob 1 der-slot 1 os-ent 1`.
+  `BERGAMOTA CSOPS: caller[pid] DER_ENTITLEMENTS_BLOB(16) -> target[pid] usize 8 token errno 34 csflags 0x... blob 1 der-slot 1 os-ent 1`.
   STATUS lines include the returned flags, IDENTITY the identifier.
 - Compile-checked with `tools/xnu-cc.py` (3 files, real objects emitted, new externs all defined:
-  `copyinstr`, `csblob_get_der_entitlements_unsafe`, `proc_getcsflags`, `sweet_entitlements_get_der`, ...).
+  `copyinstr`, `csblob_get_der_entitlements_unsafe`, `proc_getcsflags`, `bergamota_entitlements_get_der`, ...).
 
-### 0116-sweet-sandbox-extensions.patch (the assetsd fix; apply after 0115 or alone)
+### 0116-bergamota-sandbox-extensions.patch (the assetsd fix; apply after 0115 or alone)
 
-- `sweet_sandbox_syscall` op 5 (extension issue) now parses the seven-word argument block
+- `bergamota_sandbox_syscall` op 5 (extension issue) now parses the seven-word argument block
   `{ name, type, target, flags, out buffer(0x800), -, - }` and copies out an opaque token
-  `SWEET-<serial>;<type>;<name>`; op 6 (consume) copies out a non-zero handle; op 7 (release)
+  `BERGAMOTA-<serial>;<type>;<name>`; op 6 (consume) copies out a non-zero handle; op 7 (release)
   already returned 0. Ops 4 and 0x43 (container paths) still fail with ENOENT.
-- The first 8 issues log `SWEET Sandbox: <proc> issued extension type N '<class or path>'`.
+- The first 8 issues log `BERGAMOTA Sandbox: <proc> issued extension type N '<class or path>'`.
 - Nothing is enforced (there is no sandbox), tokens only have to exist so the callers' plumbing
   works. Side effect: every tccd client (Contacts, Camera, Microphone, MediaLibrary, ...) stops
   getting the kTCCErrorDomain 6 error after a grant.
@@ -148,12 +148,12 @@ objects above were compiled from).
 
 ## Phone test (nothing here was run on the phone)
 
-Tool: `tools/sweetnet/cscheck.c` -> `research/sweetnet/cscheck` (iOS 16 arm64, ad-hoc signed with
-`tools/sweetnet/entitlements.plist`; `sh tools/sweetnet/build.sh`, or `TOOLS=cscheck sh ...`).
+Tool: `tools/bergamotanet/cscheck.c` -> `research/bergamotanet/cscheck` (iOS 16 arm64, ad-hoc signed with
+`tools/bergamotanet/entitlements.plist`; `sh tools/bergamotanet/build.sh`, or `TOOLS=cscheck sh ...`).
 Host-tested on macOS (csops, audit token search, SecTask calls, DER walker all behave).
 
 ```
-scp research/sweetnet/cscheck root@192.168.7.2:/var/root/
+scp research/bergamotanet/cscheck root@192.168.7.2:/var/root/
 ssh root@192.168.7.2
 chmod +x /var/root/cscheck
 /var/root/cscheck -l | head                       # pids and names
@@ -192,10 +192,10 @@ chmod +x /var/root/cscheck
 4. The actual assetsd fix (0116), after flashing a kernel with 0115+0116:
    - `ssh root@192.168.7.2 'killall assetsd'` (or reboot), then watch that it stays up:
      `for i in 1 2 3 4 5; do pgrep -x assetsd; sleep 5; done` (same pid each time).
-   - Kernel log: `SWEET Sandbox: tccd issued extension type 3 'com.apple.tcc.kTCCServicePhotos'`.
+   - Kernel log: `BERGAMOTA Sandbox: tccd issued extension type 3 'com.apple.tcc.kTCCServicePhotos'`.
    - Unified log (pull as usual): no more `Failed to issue sandbox extension`, no
      `Created Error: ... Code=6`, no `exited due to SIGABRT | sent by assetsd`.
-   - With `sweetcsopslog=1` in the boot-args: `SWEET CSOPS:` lines for tccd's calls
+   - With `bergamotacsopslog=1` in the boot-args: `BERGAMOTA CSOPS:` lines for tccd's calls
      (`STATUS`, `PIDOFFSET`) and SecTask's (`DER_ENTITLEMENTS_BLOB` with `usize 8` then the full
      size, `IDENTITY`); expect no `errno` other than 34 (ERANGE, the length probe) for the DER op.
 

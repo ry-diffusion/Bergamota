@@ -16,11 +16,11 @@ struct CmdlinePreset: Identifiable, Codable, Hashable, Sendable {
 }
 
 enum Presets {
-    static let defaultCmdline = "debug=0xc serial=3 cpus=8 keepsyms=1 -noprogress rd=ufsroot0 unentitled_ios_sim_launch=1 ignition_level=1 wdt_test=no_user_checkin ufsrw=1 rootrw=1 launchd_unsecure_cache=1 wdt=-1 sweetfb_noconsole=1 sweetfb_hz=30 sweetfb_vsync=1 sweetfb_scale=1 sweetfb_flip=1 sweetusb=2 sweetbattery=1 sweetsample=- sweetnetroute=1 sweetfb_hw=1"
+    static let defaultCmdline = "debug=0xc serial=3 cpus=8 keepsyms=1 -noprogress rd=ufsroot0 unentitled_ios_sim_launch=1 ignition_level=1 wdt_test=no_user_checkin ufsrw=1 rootrw=1 launchd_unsecure_cache=1 wdt=-1 bergamotafb_noconsole=1 bergamotafb_hz=30 bergamotafb_vsync=1 bergamotafb_scale=1 bergamotafb_flip=1 bergamotausb=2 bergamotabattery=1 bergamotasample=- bergamotanetroute=1 bergamotafb_hw=1"
     static var seed: [CmdlinePreset] {
         [CmdlinePreset(name: "default @3x", cmdline: defaultCmdline),
-         CmdlinePreset(name: "bluetooth test", cmdline: defaultCmdline + " sweetwlan=2 sweetbtfast=1 sweetbtibs=1"),
-         CmdlinePreset(name: "ios18 poc", cmdline: defaultCmdline + " sweetarm64e=1")]
+         CmdlinePreset(name: "bluetooth test", cmdline: defaultCmdline + " bergamotawlan=2 bergamotabtfast=1 bergamotabtibs=1"),
+         CmdlinePreset(name: "ios18 poc", cmdline: defaultCmdline + " bergamotaarm64e=1")]
     }
     static var fileURL: URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Bergamota")
@@ -81,7 +81,8 @@ final class BuildModel {
         adts = outs.flatMap { scan($0) { $0.hasSuffix(".adt") } }.sorted { $0.name < $1.name }
         var ks: [BootImage] = []
         for d in (try? fm.contentsOfDirectory(atPath: settings.repoFile("xnu"))) ?? [] where d.hasPrefix("out-") {
-            let p = settings.repoFile("xnu/\(d)/kernel.development.sweet")
+            // kernels built before the 2026-11-26 rename are named kernel.development.sweet
+            guard let p = ["bergamota", "sweet"].map({ settings.repoFile("xnu/\(d)/kernel.development.\($0)") }).first(where: { fm.fileExists(atPath: $0) }) else { continue }
             if let a = try? fm.attributesOfItem(atPath: p) {
                 ks.append(BootImage(path: p, size: (a[.size] as? NSNumber)?.int64Value ?? 0, date: (a[.modificationDate] as? Date) ?? .distantPast))
             }

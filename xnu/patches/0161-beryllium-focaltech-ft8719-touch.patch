@@ -1,5 +1,5 @@
---- a/bsd/dev/sweet_touch.c
-+++ b/bsd/dev/sweet_touch.c
+--- a/bsd/dev/bergamota_touch.c
++++ b/bsd/dev/bergamota_touch.c
 @@ -9,6 +9,12 @@
   * QUP wrap1 SE6 @0xa98000, IRQ TLMM 31, reset TLMM 32, SDA/SCL 33/34
   * (function qup14). Its rails (L14A, PMI8998 LAB/IBB) belong to the panel
@@ -11,7 +11,7 @@
 + * pin with the display. Standard Focaltech frame: reg 0 mode, reg 2 point
 + * count, 6-byte records from reg 3.
   */
- #if defined(ARM64_BOARD_CONFIG_SWEET)
+ #if defined(ARM64_BOARD_CONFIG_BERGAMOTA)
  #include <sys/param.h>
 @@ -39,6 +45,16 @@
  #define TOUCH_GOODIX     1
@@ -34,7 +34,7 @@
  	return 0;
  }
  
-+/* boot-arg sweettouchrst=1: pulse the reset pin if the FT8719 is silent (may blink the display) */
++/* boot-arg bergamotatouchrst=1: pulse the reset pin if the FT8719 is silent (may blink the display) */
 +static unsigned touch_ft_rst;
 +
 +/*
@@ -107,7 +107,7 @@
 +	}
 +	if (bad) {
 +		if (st.active && ++bad_run >= FT_BAD_RELEASE) {
-+			printf("SWEET TOUCH: %u torn FT8719 frames while touched; releasing\n", bad_run);
++			printf("BERGAMOTA TOUCH: %u torn FT8719 frames while touched; releasing\n", bad_run);
 +			bad_run = 0;
 +			hold_frames = 0;
 +			touch_report(0, x, y);
@@ -148,7 +148,7 @@
 +		fe = touch_read(FT_ADDR, FT_ID_REG, false, &fid1, 1);
 +	}
 +	if ((fe || fid1 != FT_ID_HI) && touch_ft_rst) {
-+		printf("SWEET TOUCH: FT8719 silent (%d); pulsing reset (sweettouchrst=1)\n", fe);
++		printf("BERGAMOTA TOUCH: FT8719 silent (%d); pulsing reset (bergamotatouchrst=1)\n", fe);
 +		touch_gpio(tb->rst, 0, 0, 0, true, false);
 +		touch_wait(10);
 +		touch_gpio(tb->rst, 0, 0, 0, true, true);
@@ -158,7 +158,7 @@
 +	if (!fe) {
 +		(void)touch_read(FT_ADDR, FT_ID2_REG, false, &fid2, 1);
 +	}
-+	printf("SWEET TOUCH: probe FT8719 at %#x: err=%d chip-id=%02x:%02x\n", FT_ADDR, fe, fid1, fid2);
++	printf("BERGAMOTA TOUCH: probe FT8719 at %#x: err=%d chip-id=%02x:%02x\n", FT_ADDR, fe, fid1, fid2);
 +	if (!fe && fid1 == FT_ID_HI) {
 +		st.probing = false;
 +		st.kind = TOUCH_FT8719;
@@ -166,11 +166,11 @@
 +	}
  	int err = touch_nvt_params();
  	if (err) {
- 		printf("SWEET TOUCH: nvt silent (%d); pulsing reset\n", err);
+ 		printf("BERGAMOTA TOUCH: nvt silent (%d); pulsing reset\n", err);
 @@ -978,7 +1117,8 @@
  	st.kind = goodix ? TOUCH_GOODIX : TOUCH_FTS;
  selected:
- 	printf("SWEET TOUCH: selected %s, %ux%u, poll=%ums i2c-half=%uus irq-hint=%d\n",
+ 	printf("BERGAMOTA TOUCH: selected %s, %ux%u, poll=%ums i2c-half=%uus irq-hint=%d\n",
 -	    st.kind == TOUCH_NVT ? "NT36672A" : st.kind == TOUCH_GOODIX ? "GT9896 Yellowstone" : "Focaltech 54:52",
 +	    st.kind == TOUCH_NVT ? "NT36672A" : st.kind == TOUCH_FT8719 ? "Focaltech FT8719" :
 +	    st.kind == TOUCH_GOODIX ? "GT9896 Yellowstone" : "Focaltech 54:52",
@@ -208,9 +208,9 @@
  				static uint64_t last_log;
 @@ -1072,6 +1216,7 @@
  	}
- 	(void)PE_parse_boot_argn("sweettouchbb", &bb_half_us, sizeof(bb_half_us));
- 	(void)PE_parse_boot_argn("sweettouchlog", &touch_trace, sizeof(touch_trace));
-+	(void)PE_parse_boot_argn("sweettouchrst", &touch_ft_rst, sizeof(touch_ft_rst));
+ 	(void)PE_parse_boot_argn("bergamotatouchbb", &bb_half_us, sizeof(bb_half_us));
+ 	(void)PE_parse_boot_argn("bergamotatouchlog", &touch_trace, sizeof(touch_trace));
++	(void)PE_parse_boot_argn("bergamotatouchrst", &touch_ft_rst, sizeof(touch_ft_rst));
  	if (bb_half_us < 2 || bb_half_us > 10) {
  		bb_half_us = 5;
  	}

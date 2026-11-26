@@ -3,7 +3,7 @@ import Observation
 
 struct InstalledApp: Identifiable, Hashable {
     var name: String            // Foo.app
-    var recorded: Bool          // installed through Bergamota / sweet-install-ipa.sh
+    var recorded: Bool          // installed through Bergamota / bergamota-install-ipa.sh
     var apple: Bool             // looks like a system app (bundle id com.apple.*)
     var id: String { name }
     var ours: Bool { recorded || !apple }
@@ -18,7 +18,7 @@ struct UploadRecord: Identifiable {
     var message: String
 }
 
-/// Sideloading (tools/sweet-install-ipa.sh) and file/photo upload (tools/sweet-push-photo.sh, scp) over the phone's SSH.
+/// Sideloading (tools/bergamota-install-ipa.sh) and file/photo upload (tools/bergamota-push-photo.sh, scp) over the phone's SSH.
 @Observable
 @MainActor
 final class PhoneTools {
@@ -43,8 +43,8 @@ final class PhoneTools {
     var busy: Bool { installing != nil || uploadingCount != nil }
     var rebooting: String?                  // "fastboot" / "bergamota" / "recovery" while the reboot command runs
     var enteringBergamota = false           // `fastboot boot bergamota-fastboot.img` from ABL fastboot is running
-    var bergamotaSupported: Bool? { monitor.sweetrebootBergamota }
-    static let rebootTool = "/usr/local/bin/sweetreboot"
+    var bergamotaSupported: Bool? { monitor.bergamotarebootBergamota }
+    static let rebootTool = "/usr/local/bin/bergamotareboot"
 
     // MARK: plumbing
 
@@ -63,7 +63,7 @@ final class PhoneTools {
                 try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: p.path)
             }
         }
-        return ["PATH": dir.path + ":" + Shell.childPath, "SWEET_HOST": host]
+        return ["PATH": dir.path + ":" + Shell.childPath, "BERGAMOTA_HOST": host]
     }
 
     private func sshArgs(_ remote: String) -> [String] { Shell.sshOptions + [host, remote] }
@@ -72,8 +72,8 @@ final class PhoneTools {
 
     // MARK: reboot
 
-    /// `sweetreboot fastboot|recovery` over SSH (tools/sweetnet/sweetreboot.c, kernel patch 0137): sets
-    /// kern.sweet_reboot_mode and reboots. The SSH connection dies with the phone, so success is judged
+    /// `bergamotareboot fastboot|recovery` over SSH (tools/bergamotanet/bergamotareboot.c, kernel patch 0137): sets
+    /// kern.bergamota_reboot_mode and reboots. The SSH connection dies with the phone, so success is judged
     /// by the tool's "next reboot mode" line, not by the exit status.
     func rebootIOS(to target: String) async -> (Bool, String) {
         guard iosUp else { return (false, disabledReason ?? "iOS is not up") }
@@ -89,20 +89,20 @@ final class PhoneTools {
         DebugLog.write("reboot to \(target): status=\(r.status) timedOut=\(r.timedOut) \(out)")
         if out.contains("next reboot mode") { return (true, "reboot to \(target) sent") }
         if r.status == 127 || out.contains("not found") || out.contains("No such file") {
-            return (false, "\(Self.rebootTool) is not on the phone: scp research/sweetnet/sweetreboot \(host):\(Self.rebootTool)")
+            return (false, "\(Self.rebootTool) is not on the phone: scp research/bergamotanet/bergamotareboot \(host):\(Self.rebootTool)")
         }
         if let e = r.launchError { return (false, e) }
         return (false, r.timedOut ? "ssh timed out" : (out.isEmpty ? "exit \(r.status)" : out))
     }
 
-    /// Automatic reboot for queued boots: Bergamota fastboot when preferred (and the phone's sweetreboot is not known to lack it),
-    /// ABL fastboot when not or when `sweetreboot bergamota` fails. Returns the target that was sent.
+    /// Automatic reboot for queued boots: Bergamota fastboot when preferred (and the phone's bergamotareboot is not known to lack it),
+    /// ABL fastboot when not or when `bergamotareboot bergamota` fails. Returns the target that was sent.
     /// `preferBergamota` overrides the setting (a queue item that flashes always wants Bergamota fastboot, its main flash path).
     func rebootIOSToFastboot(preferBergamota: Bool? = nil) async -> (ok: Bool, msg: String, target: String) {
         if preferBergamota ?? settings.preferBergamotaFastboot, bergamotaSupported != false {
             let r = await rebootIOS(to: "bergamota")
             if r.0 { return (true, r.1, "bergamota") }
-            DebugLog.write("sweetreboot bergamota failed (\(r.1)), falling back to ABL fastboot")
+            DebugLog.write("bergamotareboot bergamota failed (\(r.1)), falling back to ABL fastboot")
             guard iosUp else { return (false, r.1, "bergamota") }
             let f = await rebootIOS(to: "fastboot")
             return (f.0, f.0 ? "bergamota failed (\(r.1)); " + f.1 : f.1, "fastboot")
@@ -174,18 +174,18 @@ final class PhoneTools {
         }.sorted { ($0.ours ? 0 : 1, $0.name) < ($1.ours ? 0 : 1, $1.name) }
     }
 
-    /// Runs tools/sweet-install-ipa.sh. Returns (ok, message).
+    /// Runs tools/bergamota-install-ipa.sh. Returns (ok, message).
     func installIPA(_ path: String) async -> (Bool, String) {
         guard iosUp else { return (false, disabledReason ?? "iOS is not up") }
         guard !busy else { return (false, "another install/upload is running") }
         let expanded = (path as NSString).expandingTildeInPath
         guard expanded.lowercased().hasSuffix(".ipa"), FileManager.default.fileExists(atPath: expanded) else { return (false, "\(path) is not an existing .ipa") }
-        let script = settings.repoFile("tools/sweet-install-ipa.sh")
-        guard FileManager.default.fileExists(atPath: script) else { return (false, "tools/sweet-install-ipa.sh not found in the repo") }
+        let script = settings.repoFile("tools/bergamota-install-ipa.sh")
+        guard FileManager.default.fileExists(atPath: script) else { return (false, "tools/bergamota-install-ipa.sh not found in the repo") }
         let name = (expanded as NSString).lastPathComponent
         installing = name
         defer { installing = nil }
-        log("\n$ tools/sweet-install-ipa.sh \(shellQuote(expanded))\n")
+        log("\n$ tools/bergamota-install-ipa.sh \(shellQuote(expanded))\n")
         let r = await Shell.run("/bin/sh", [script, expanded], cwd: settings.repoURL.path, env: environment(), timeout: 900) { [weak self] s in
             Task { @MainActor in self?.output += s }
         }
@@ -208,8 +208,8 @@ final class PhoneTools {
         guard app.name.hasSuffix(".app"), app.name.allSatisfy({ $0.isLetter || $0.isNumber || "._-".contains($0) }) else { return (false, "unsafe app name") }
         installing = "uninstall \(app.name)"
         defer { installing = nil }
-        let script = settings.repoFile("tools/sweet-install-ipa.sh")
-        log("\n$ tools/sweet-install-ipa.sh -u \(app.name)\n")
+        let script = settings.repoFile("tools/bergamota-install-ipa.sh")
+        log("\n$ tools/bergamota-install-ipa.sh -u \(app.name)\n")
         let r = await Shell.run("/bin/sh", [script, "-u", app.name], cwd: settings.repoURL.path, env: environment(), timeout: 60)
         log(r.combined + "\n")
         if r.ok { saveRecord(loadRecord().filter { $0 != app.name }); await refreshInstalled(); return (true, "removed \(app.name)") }
@@ -231,7 +231,7 @@ final class PhoneTools {
         if uploads.count > 50 { uploads.removeLast(uploads.count - 50) }
     }
 
-    /// dest: "photos" (images via sweet-push-photo.sh, videos to DCIM) or an absolute phone folder.
+    /// dest: "photos" (images via bergamota-push-photo.sh, videos to DCIM) or an absolute phone folder.
     func upload(_ paths: [String], dest: String) async -> (Bool, String) {
         guard iosUp else { return (false, disabledReason ?? "iOS is not up") }
         guard !busy else { return (false, "another install/upload is running") }
@@ -253,7 +253,7 @@ final class PhoneTools {
         let videos = files.filter { photos && Self.isVideo($0) }
         let others = files.filter { f in !(photos && (Self.isImage(f) || Self.isVideo(f))) }
         if !images.isEmpty {
-            let script = settings.repoFile("tools/sweet-push-photo.sh")
+            let script = settings.repoFile("tools/bergamota-push-photo.sh")
             let r = await Shell.run("/bin/sh", [script] + images, cwd: settings.repoURL.path, env: env, timeout: 300)
             uploadOutput += r.combined
             for f in images { record((f as NSString).lastPathComponent, "Camera Roll", r.ok, r.ok ? "converted to JPEG in DCIM/100APPLE" : r.combined.trimmingCharacters(in: .whitespacesAndNewlines)) }

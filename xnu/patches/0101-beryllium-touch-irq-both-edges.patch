@@ -1,5 +1,5 @@
---- a/bsd/dev/sweet_touch.c
-+++ b/bsd/dev/sweet_touch.c
+--- a/bsd/dev/bergamota_touch.c
++++ b/bsd/dev/bergamota_touch.c
 @@ -731,14 +731,16 @@
  	    tb->rst, touch_rd(st.gpio, TOUCH_GPIO_CFG(tb->rst)), touch_rd(st.gpio, TOUCH_GPIO_IO(tb->rst)),
  	    tb->irq, touch_rd(st.gpio, TOUCH_GPIO_CFG(tb->irq)), touch_rd(st.gpio, TOUCH_GPIO_IO(tb->irq)),

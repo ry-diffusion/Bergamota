@@ -21,7 +21,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
  #define WCE_RRI_HIGH            0x24c008u
 @@ -4308,7 +4317,7 @@
  		uint64_t sz = (uint64_t)units * usize;
- 		printf("SWEET IPC: wmi: memory request %u: id %u, %u units of %u bytes (info %#x) = %llu bytes\n",
+ 		printf("BERGAMOTA IPC: wmi: memory request %u: id %u, %u units of %u bytes (info %#x) = %llu bytes\n",
  		    wce.nchunks, q[0], units, q[1], q[2], sz);
 -		if (sz == 0 || sz > WCE_POOL_LEN - off) {
 +		if (sz == 0 || sz > WCE_HOSTMEM_END - off) {
@@ -81,7 +81,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	if (!wce_send(4, wce.htt_eid, ag, 4)) {
 +		return false;
 +	}
-+	printf("SWEET IPC: scan: HTT setup sent: frag bank %u x %u at %#llx, RX ring %u (%u posted) at %#llx, aggr 64/3\n",
++	printf("BERGAMOTA IPC: scan: HTT setup sent: frag bank %u x %u at %#llx, RX ring %u (%u posted) at %#llx, aggr 64/3\n",
 +	    HTT_FRAG_DESCS, HTT_FRAG_DESC_SIZE, bank, HTT_RX_RING_SIZE, HTT_RX_RING_SIZE - 1, ringpa);
 +	ipc_note(" htt setup;");
 +	return true;
@@ -93,11 +93,11 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 @@ -4416,6 +4480,10 @@
  		}
  		if (!scan.htt_conf) {
- 			printf("SWEET IPC: scan: no HTT VERSION_CONF in 3 s: continuing (scan results come over WMI)\n");
+ 			printf("BERGAMOTA IPC: scan: no HTT VERSION_CONF in 3 s: continuing (scan results come over WMI)\n");
 +		}
 +		/* ath10k_htt_setup() stops when the version exchange failed: no setup without it */
 +		if (scan.htt_conf && wce.htt_eid && !scan_htt_setup()) {
-+			printf("SWEET IPC: scan: HTT setup not sent (CE4 ring full?): continuing without it\n");
++			printf("BERGAMOTA IPC: scan: HTT setup not sent (CE4 ring full?): continuing without it\n");
  		}
  		scan.step++;
  		return true;

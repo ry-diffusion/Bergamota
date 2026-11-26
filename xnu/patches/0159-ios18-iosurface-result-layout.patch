@@ -1,14 +1,14 @@
---- a/iokit/Kernel/arm/SweetSurface.cpp
-+++ b/iokit/Kernel/arm/SweetSurface.cpp
+--- a/iokit/Kernel/arm/BergamotaSurface.cpp
++++ b/iokit/Kernel/arm/BergamotaSurface.cpp
 @@ -75,7 +75,7 @@
- 	kSweetSurfaceTrapReleaseFailed  = 5,
+ 	kBergamotaSurfaceTrapReleaseFailed  = 5,
  };
  
--#define SWEET_SURFACE_RESULT_SIZE       0xa68
-+#define SWEET_SURFACE_RESULT_SIZE       0xc68   /* iOS 18: 0x88 header + 20 planes * 0x98 */
- #define SWEET_SURFACE_MAX_ID            4096
- #define SWEET_SURFACE_MAX_DIM           16384
- #define SWEET_SURFACE_MAX_ALLOC         (256u << 20)
+-#define BERGAMOTA_SURFACE_RESULT_SIZE       0xa68
++#define BERGAMOTA_SURFACE_RESULT_SIZE       0xc68   /* iOS 18: 0x88 header + 20 planes * 0x98 */
+ #define BERGAMOTA_SURFACE_MAX_ID            4096
+ #define BERGAMOTA_SURFACE_MAX_DIM           16384
+ #define BERGAMOTA_SURFACE_MAX_ALLOC         (256u << 20)
 @@ -903,7 +903,18 @@
  	memcpy(p + off, &v, 8);
  }
@@ -27,11 +27,11 @@
 + * past the surface (SpringBoard SIGSEGV in vImageDeepmap2Decode, destination = base + bytesPerElement).
 + */
  static void
- sweet_surface_fill_result(SweetSurface *s, SweetSurfaceRef *ref, uint8_t *out)
+ bergamota_surface_fill_result(BergamotaSurface *s, BergamotaSurfaceRef *ref, uint8_t *out)
  {
 @@ -912,31 +923,30 @@
  	put64(out, 0x08, ref->state->getAddress());
- 	put64(out, 0x10, ref->state->getAddress() + SWEET_SURFACE_TIMESTAMPS);
+ 	put64(out, 0x10, ref->state->getAddress() + BERGAMOTA_SURFACE_TIMESTAMPS);
  	put32(out, 0x18, s->id);
 -	put32(out, 0x1c, s->allocSize);
 -	put32(out, 0x20, s->width);
@@ -64,7 +64,7 @@
 +	put32(out, 0x74, 1);
 +	for (uint32_t i = 0; i < s->planeCount && i < 20; i++) {
 +		uint8_t *p = out + 0x88 + i * 0x98;
- 		const struct sweet_surface_plane *pl = &s->planes[i];
+ 		const struct bergamota_surface_plane *pl = &s->planes[i];
 -		put32(p, 0x00, pl->width);
 -		put32(p, 0x04, pl->height);
 -		put32(p, 0x08, pl->bytesPerRow);

@@ -2,7 +2,7 @@ import SwiftUI
 import Darwin
 
 /// Bergamota on the phone: the Mac app's Performance mode (same PerfCatalog), plus Respring and Reboot. It runs sandboxed
-/// and asks the root helper bergamotad (tools/sweetnet/bergamotad.c) to read and write the switches.
+/// and asks the root helper bergamotad (tools/bergamotanet/bergamotad.c) to read and write the switches.
 @main
 struct BergamotaPhoneApp: App {
     var body: some Scene { WindowGroup { PerformanceScreen() } }
@@ -14,7 +14,7 @@ func shellQuote(_ s: String) -> String {
     return "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }
 
-/// One request to bergamotad (tools/sweetnet/bergamotad.c), the root helper on 127.0.0.1:7307: this app launches only
+/// One request to bergamotad (tools/bergamotanet/bergamotad.c), the root helper on 127.0.0.1:7307: this app launches only
 /// sandboxed, so the helper writes the switches, resprings and reboots for it. Returns the reply lines, nil if it is not running.
 func helper(_ request: String) -> [String]? {
     let fd = socket(AF_INET, SOCK_STREAM, 0)
@@ -94,7 +94,7 @@ final class PhoneSwitches {
         if r.first == "ok" { pendingRespring = false } else { error = r.first }
     }
 
-    /// A normal reboot (sweetreboot normal): the phone comes up on its flashed boot image. For a worn power button.
+    /// A normal reboot (bergamotareboot normal): the phone comes up on its flashed boot image. For a worn power button.
     func reboot() {
         guard let r = helper("reboot") else { error = notRunning; return }
         if r.first != "ok" { error = r.first }

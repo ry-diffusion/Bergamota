@@ -1,24 +1,24 @@
-diff --git a/bsd/dev/sweet_a630.c b/bsd/dev/sweet_a630.c
---- a/bsd/dev/sweet_a630.c
-+++ b/bsd/dev/sweet_a630.c
+diff --git a/bsd/dev/bergamota_a630.c b/bsd/dev/bergamota_a630.c
+--- a/bsd/dev/bergamota_a630.c
++++ b/bsd/dev/bergamota_a630.c
 @@ -304,6 +304,9 @@
- static uint32_t a630_idle_ms;           /* sweetgpuidle=MS: slumber after this long without a submission (0 = never) */
- static uint32_t a630_hwcg;              /* sweetgpuhwcg=1: hardware clock gating tables */
- static uint32_t a630_ubwc;              /* sweetgpuubwc=1: program the UBWC/bank registers (hbb 15) */
-+static uint32_t a630_stamps;           /* sweetgpustamps=1: CP timestamps around every submission (diagnostic; adds a WFI) */
+ static uint32_t a630_idle_ms;           /* bergamotagpuidle=MS: slumber after this long without a submission (0 = never) */
+ static uint32_t a630_hwcg;              /* bergamotagpuhwcg=1: hardware clock gating tables */
+ static uint32_t a630_ubwc;              /* bergamotagpuubwc=1: program the UBWC/bank registers (hbb 15) */
++static uint32_t a630_stamps;           /* bergamotagpustamps=1: CP timestamps around every submission (diagnostic; adds a WFI) */
 +static uint64_t gov_boost_until;        /* mach time until which the interactive boost floor holds */
-+static uint32_t a630_boost_level = 3;   /* sweetgpuboost=N: floor while a client submits frequently (0 = off) */
- static uint32_t a630_hb_s;              /* sweetgpuhb=SECONDS: heartbeat line with GPU + USB clock state */
- static uint32_t a630_recover_max = 3;   /* sweetgpurecover=N: resets after a fault/hang before "lost until reboot" */
- static uint32_t a630_bw_linux;          /* sweetgpubw=linux: the fixed Linux a630 BCM addresses instead of cmd-db's */
++static uint32_t a630_boost_level = 3;   /* bergamotagpuboost=N: floor while a client submits frequently (0 = off) */
+ static uint32_t a630_hb_s;              /* bergamotagpuhb=SECONDS: heartbeat line with GPU + USB clock state */
+ static uint32_t a630_recover_max = 3;   /* bergamotagpurecover=N: resets after a fault/hang before "lost until reboot" */
+ static uint32_t a630_bw_linux;          /* bergamotagpubw=linux: the fixed Linux a630 BCM addresses instead of cmd-db's */
 @@ -2901,7 +2904,7 @@
  uint32_t
- sweet_gpu_submit(const uint64_t *ib_iova, const uint32_t *ib_dwords, unsigned count)
+ bergamota_gpu_submit(const uint64_t *ib_iova, const uint32_t *ib_dwords, unsigned count)
  {
 -	unsigned need = 32 + 4 * count, room = 0;
 +	unsigned need = (a630_stamps ? 32 : 16) + 4 * count, room = 0;
  
- 	if (!sweet_gpu_ready() || count == 0 || count > 128) {
+ 	if (!bergamota_gpu_ready() || count == 0 || count > 128) {
  		return 0;
 @@ -2945,7 +2948,9 @@
  	if (++a630_dev.seqno == 0) {
@@ -56,7 +56,7 @@ diff --git a/bsd/dev/sweet_a630.c b/bsd/dev/sweet_a630.c
 +	}
  	a630_quiet = a630_resumes >= 2;
  	if (a630_resumes < 2) {
- 		printf("SWEET GPU: waking from slumber (resume %u)\n", a630_resumes + 1);
+ 		printf("BERGAMOTA GPU: waking from slumber (resume %u)\n", a630_resumes + 1);
 @@ -3231,8 +3244,8 @@
  	return ok;
  }
@@ -74,7 +74,7 @@ diff --git a/bsd/dev/sweet_a630.c b/bsd/dev/sweet_a630.c
  
 +/*
 + * Utilisation by sampling: the PM thread wakes every 4 ms while the governor is on and counts the time during which the
-+ * newest submission's fence is not yet written (the CP timestamps of sweetgpustamps=1 read as a frozen counter on this
++ * newest submission's fence is not yet written (the CP timestamps of bergamotagpustamps=1 read as a frozen counter on this
 + * hardware, so they are not the default). Window 100 ms. Interactive boost: a window with >= 4 submissions (a client
 + * drawing frames) raises the floor to the boost level for 400 ms after the last such window; the load-based part
 + * (>= 80% up one level, >= 90% two, >= 95% to the cap; < 30% twice in a row one down) never goes below the floor.
@@ -86,7 +86,7 @@ diff --git a/bsd/dev/sweet_a630.c b/bsd/dev/sweet_a630.c
 -	if (gov_win_start == 0) {
 -		gov_win_start = mach_absolute_time();
 -		(void)gpu_busy_collect();
-+	if (!sweet_gpu_fence_done(a630_dev.seqno)) {
++	if (!bergamota_gpu_fence_done(a630_dev.seqno)) {
 +		gov_win_busy_ns += dt;
 +	}
 +	gov_win_ns += dt;
@@ -163,7 +163,7 @@ diff --git a/bsd/dev/sweet_a630.c b/bsd/dev/sweet_a630.c
  	for (;;) {
 -		sleep_ms(20);
 +		sleep_ms(a630_gov ? 4 : 20);
- 		sweet_gpu_lock();
+ 		bergamota_gpu_lock();
  		uint64_t now = mach_absolute_time(), dt;
  		absolutetime_to_nanoseconds(now - last, &dt);
 @@ -3351,16 +3396,14 @@
@@ -173,11 +173,11 @@ diff --git a/bsd/dev/sweet_a630.c b/bsd/dev/sweet_a630.c
 -				if (a630_gov) {
 -					gpu_gov_tick();
 -				}
-+				gpu_gov_tick(dt);                       /* measures always, acts only with sweetgpufreq=gov */
++				gpu_gov_tick(dt);                       /* measures always, acts only with bergamotagpufreq=gov */
  				if (a630_idle_ms && ns_since(a630_last_active) >= (uint64_t)a630_idle_ms * NSEC_PER_MSEC && gpu_cp_idle_now()) {
  					bool first = a630_suspends == 0;
  					if (first) {
- 						printf("SWEET GPU: idle for %u ms: slumber\n", a630_idle_ms);
+ 						printf("BERGAMOTA GPU: idle for %u ms: slumber\n", a630_idle_ms);
  					}
  					(void)gpu_suspend(!first);
 -					gov_win_start = 0;
@@ -189,23 +189,23 @@ diff --git a/bsd/dev/sweet_a630.c b/bsd/dev/sweet_a630.c
  				tot += res_ns[i];
  			}
  			summary = now;
--			printf("SWEET GPU: pm: %s level %u busy %llu%% | time in level (%%): slumber %llu, 257 %llu, 342 %llu, 414 %llu, 520 %llu, 596 %llu, 675 %llu, 710 %llu | suspends %u resumes %u recoveries %u submits %u\n",
+-			printf("BERGAMOTA GPU: pm: %s level %u busy %llu%% | time in level (%%): slumber %llu, 257 %llu, 342 %llu, 414 %llu, 520 %llu, 596 %llu, 675 %llu, 710 %llu | suspends %u resumes %u recoveries %u submits %u\n",
 -			    a630_awake ? "on" : "slumber", a630_level, gov_busy_pct, res_ns[0] * 100 / tot, res_ns[1] * 100 / tot, res_ns[2] * 100 / tot,
-+			printf("SWEET GPU: pm: %s level %u busy %llu%% (%u submits/100ms) | time in level (%%): slumber %llu, 257 %llu, 342 %llu, 414 %llu, 520 %llu, 596 %llu, 675 %llu, 710 %llu | suspends %u resumes %u recoveries %u submits %u\n",
++			printf("BERGAMOTA GPU: pm: %s level %u busy %llu%% (%u submits/100ms) | time in level (%%): slumber %llu, 257 %llu, 342 %llu, 414 %llu, 520 %llu, 596 %llu, 675 %llu, 710 %llu | suspends %u resumes %u recoveries %u submits %u\n",
 +			    a630_awake ? "on" : "slumber", a630_level, gov_busy_pct, gov_rate, res_ns[0] * 100 / tot, res_ns[1] * 100 / tot, res_ns[2] * 100 / tot,
  			    res_ns[3] * 100 / tot, res_ns[4] * 100 / tot, res_ns[5] * 100 / tot, res_ns[6] * 100 / tot, res_ns[7] * 100 / tot,
  			    a630_suspends, a630_resumes, a630_recoveries, a630_dev.submissions);
  		}
 @@ -3581,6 +3624,12 @@
  		}
- 		if (PE_parse_boot_argn("sweetgpurecover", &v, sizeof(v)) && v >= 0) {
+ 		if (PE_parse_boot_argn("bergamotagpurecover", &v, sizeof(v)) && v >= 0) {
  			a630_recover_max = (uint32_t)MIN(v, 100);
 +		}
-+		if (PE_parse_boot_argn("sweetgpustamps", &v, sizeof(v))) {
++		if (PE_parse_boot_argn("bergamotagpustamps", &v, sizeof(v))) {
 +			a630_stamps = v != 0;
 +		}
-+		if (PE_parse_boot_argn("sweetgpuboost", &v, sizeof(v)) && v >= 0) {
++		if (PE_parse_boot_argn("bergamotagpuboost", &v, sizeof(v)) && v >= 0) {
 +			a630_boost_level = (uint32_t)MIN(v, 7);
  		}
- 		if (PE_parse_boot_argn("sweetgpubw", fb, sizeof(fb)) && fb[0] == 'l') {
+ 		if (PE_parse_boot_argn("bergamotagpubw", fb, sizeof(fb)) && fb[0] == 'l') {
  			a630_bw_linux = 1;

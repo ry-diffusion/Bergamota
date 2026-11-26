@@ -1,5 +1,5 @@
---- a/iokit/Kernel/arm/SweetFramebuffer.cpp	2026-11-25 00:32:21
-+++ b/iokit/Kernel/arm/SweetFramebuffer.cpp	2026-11-25 00:33:26
+--- a/iokit/Kernel/arm/BergamotaFramebuffer.cpp	2026-11-25 00:32:21
++++ b/iokit/Kernel/arm/BergamotaFramebuffer.cpp	2026-11-25 00:33:26
 @@ -265,6 +265,7 @@
  
  	static void vsyncFired(OSObject *owner, IOTimerEventSource *sender);
@@ -15,29 +15,29 @@
 +	bool          latchPending(void);       /* 1028: a flip still waits for the MDP's vsync latch */
  	uint64_t      fPendGate;        /* 1022: backboardd's async commits made before the pending swap */
  	bool          submitGateOpen(uint64_t now);
- 	uint32_t      fSwapDepth;       /* sweetfb_swapdepth: 1 = SwapWait(N) waits until N latched, 2 (default) = until N-1 latched */
+ 	uint32_t      fSwapDepth;       /* bergamotafb_swapdepth: 1 = SwapWait(N) waits until N latched, 2 (default) = until N-1 latched */
 @@ -424,6 +426,14 @@
  	 */
  	bool          fDirect, fEarly;
  	IOTimerEventSource *fSwapTimer;
 +	/*
-+	 * 1028 (boot-arg sweetfb_copyearly=1, copy mode with page flipping): a swap is taken and copied into the back buffer as
++	 * 1028 (boot-arg bergamotafb_copyearly=1, copy mode with page flipping): a swap is taken and copied into the back buffer as
 +	 * soon as its gates open (submitted, GPU done), not at the next vsync tick; the MDP still latches it at a vsync. Taking
 +	 * only at ticks made a frame done just after a tick wait a whole refresh, and CoreAnimation, whose next swap waits for
 +	 * the take (1023), missed its next display link: about a quarter of the frames took two vsyncs during swipes.
 +	 */
 +	bool          fCopyEarly;
 +	IOTimerEventSource *fCopyTimer;
- 	uint8_t       fEarlyRec[SWEET_FB_SWAP_REC_SIZE];
+ 	uint8_t       fEarlyRec[BERGAMOTA_FB_SWAP_REC_SIZE];
  	void          quietConsole(void);
- 	uint32_t      fZcCleanMode;     /* sweetfb_zcclean: 0 never, 1 always (0127 behaviour), 2 auto (patch 0212) */
+ 	uint32_t      fZcCleanMode;     /* bergamotafb_zcclean: 0 never, 1 always (0127 behaviour), 2 auto (patch 0212) */
 @@ -853,6 +863,20 @@
  		fFlushTicks = 1;
  	}
  	fVsync->setTimeoutUS(fVsyncUS);
 +	{
 +		int ce = 0;
-+		PE_parse_boot_argn("sweetfb_copyearly", &ce, sizeof(ce));
++		PE_parse_boot_argn("bergamotafb_copyearly", &ce, sizeof(ce));
 +		fCopyEarly = !fEarly && fFlip && ce != 0;
 +		if (fCopyEarly) {
 +			fCopyTimer = IOTimerEventSource::timerEventSource(this, &AppleCLCD::copyEarlyFired);
@@ -45,7 +45,7 @@
 +				OSSafeReleaseNULL(fCopyTimer);
 +				fCopyEarly = false;
 +			}
-+			IOLog("SWEET FB: sweetfb_copyearly=1: %s\n", fCopyEarly ? "swaps are copied as soon as their gates open (1028)" :
++			IOLog("BERGAMOTA FB: bergamotafb_copyearly=1: %s\n", fCopyEarly ? "swaps are copied as soon as their gates open (1028)" :
 +			    "no timer, swaps wait for the vsync tick");
 +		}
 +	}
@@ -65,7 +65,7 @@
 +AppleCLCD::copyEarlyFired(OSObject *owner, IOTimerEventSource *)
 +{
 +	AppleCLCD *fb = (AppleCLCD *)owner;
-+	SweetSurface *taken[4] = {};
++	BergamotaSurface *taken[4] = {};
 +
 +	if (fb->fPowerOff) {
 +		return;
@@ -86,19 +86,19 @@
 +		fb->fCopyTimer->setTimeoutUS(500);
 +		return;
 +	}
-+	uint8_t *rec = (uint8_t *)IOMallocData(SWEET_FB_SWAP_REC_SIZE);
++	uint8_t *rec = (uint8_t *)IOMallocData(BERGAMOTA_FB_SWAP_REC_SIZE);
 +	if (rec == NULL) {
 +		IOLockUnlock(fb->fLock);
 +		return;         /* the vsync tick takes it */
 +	}
-+	memcpy(rec, fb->fPending, SWEET_FB_SWAP_REC_SIZE);
++	memcpy(rec, fb->fPending, BERGAMOTA_FB_SWAP_REC_SIZE);
 +	fb->fDirty = false;
 +	memcpy(taken, fb->fPendHold, sizeof(taken));
 +	bzero(fb->fPendHold, sizeof(fb->fPendHold));
 +	IOLockUnlock(fb->fLock);
 +	fb->present(rec);
-+	IOFreeData(rec, SWEET_FB_SWAP_REC_SIZE);
-+	sweet_hold_release(taken);      /* copied: CA may render into them again */
++	IOFreeData(rec, BERGAMOTA_FB_SWAP_REC_SIZE);
++	bergamota_hold_release(taken);      /* copied: CA may render into them again */
 +}
 +
 +void
@@ -106,25 +106,25 @@
  {
  	AppleCLCD *fb = (AppleCLCD *)owner;
 @@ -1380,6 +1449,9 @@
- 	sweet_hold_release(dropped);
+ 	bergamota_hold_release(dropped);
  	if (fEarly && !fPowerOff) {
  		fSwapTimer->setTimeoutUS(1);    /* scan it now: the MDP latches at its next vsync */
 +	}
 +	if (fCopyEarly && !fPowerOff) {
 +		fCopyTimer->setTimeoutUS(1);    /* 1028: take it as soon as its gates open */
  	}
- 	if ((++sweet_fb_swap_count % 1000) == 0) {
- 		IOLog("SWEET FB: %llu swaps\n", sweet_fb_swap_count);
+ 	if ((++bergamota_fb_swap_count % 1000) == 0) {
+ 		IOLog("BERGAMOTA FB: %llu swaps\n", bergamota_fb_swap_count);
 @@ -1806,6 +1878,15 @@
-  * panel frame apart (sweetfb_hz >= ~40, or sweetfb_vsync=1): torn frames.
+  * panel frame apart (bergamotafb_hz >= ~40, or bergamotafb_vsync=1): torn frames.
   * Wait (bounded, one vsync plus slack) for the latch before drawing.
   */
 +/* 1028: whether a flip queued by scanAddr() still waits for the MDP's latch (waitLatch() would spin on it) */
 +bool
 +AppleCLCD::latchPending(void)
 +{
-+	volatile uint32_t *flush = (volatile uint32_t *)(fMdp + SWEET_MDP_CTL0 + SWEET_MDP_CTL_FLUSH);
-+	uint32_t mask = fLastFlush ? fLastFlush : (sweet_mdp_pipes[fPipe].flush | SWEET_MDP_CTL_BIT);
++	volatile uint32_t *flush = (volatile uint32_t *)(fMdp + BERGAMOTA_MDP_CTL0 + BERGAMOTA_MDP_CTL_FLUSH);
++	uint32_t mask = fLastFlush ? fLastFlush : (bergamota_mdp_pipes[fPipe].flush | BERGAMOTA_MDP_CTL_BIT);
 +	return (*flush & mask) != 0;
 +}
 +

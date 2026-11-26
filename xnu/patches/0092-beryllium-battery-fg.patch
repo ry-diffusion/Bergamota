@@ -1,13 +1,13 @@
---- a/iokit/Kernel/arm/SweetBattery.cpp
-+++ b/iokit/Kernel/arm/SweetBattery.cpp
+--- a/iokit/Kernel/arm/BergamotaBattery.cpp
++++ b/iokit/Kernel/arm/BergamotaBattery.cpp
 @@ -12,6 +12,7 @@
  #include <IOKit/pwr_mgt/IOPMPowerSource.h>
  #include <libkern/c++/OSCollectionIterator.h>
  #include <pexpert/pexpert.h>
-+#include "../../../bsd/dev/sweet_board.h"
- /* bsd/dev/sweet_spmi.c */
- extern "C" int sweet_spmi_init(void);
- extern "C" int sweet_spmi_read(unsigned sid, unsigned addr, uint8_t *out);
++#include "../../../bsd/dev/bergamota_board.h"
+ /* bsd/dev/bergamota_spmi.c */
+ extern "C" int bergamota_spmi_init(void);
+ extern "C" int bergamota_spmi_read(unsigned sid, unsigned addr, uint8_t *out);
 @@ -35,7 +36,8 @@
  	void poll(void);
  	static void timerFired(OSObject *owner, IOTimerEventSource *sender);
@@ -17,13 +17,13 @@
 +	void pollBeryllium(void);
  	static unsigned estimatePercent(unsigned mv);
  };
- OSDefineMetaClassAndStructors(SweetBattery, IOPMPowerSource);
+ OSDefineMetaClassAndStructors(BergamotaBattery, IOPMPowerSource);
 @@ -154,7 +156,7 @@
  	int mode = measured ? 1 : 0;
  	if (mode != fLastMode) {
- 		IOLog("SWEET BATTERY: %s, %u%% %umV external=%d charging=%d\n",
+ 		IOLog("BERGAMOTA BATTERY: %s, %u%% %umV external=%d charging=%d\n",
 -		    measured ? "PM6150 / estimated SOC" : "static fallback",
-+		    measured ? (sweet_board_beryllium() ? "PMI8998 FG SOC" : "PM6150 / estimated SOC") : "static fallback",
++		    measured ? (bergamota_board_beryllium() ? "PMI8998 FG SOC" : "PM6150 / estimated SOC") : "static fallback",
  		    percent, mv, external, charging);
  		fLastMode = mode;
  	}
@@ -31,16 +31,16 @@
   * words to reject most torn ADC samples without writing the QG HOLD bit.
   * This is a bounded consistency check, not a hardware snapshot guarantee. */
  bool
--SweetBattery::readWord(unsigned address, uint16_t *value)
-+SweetBattery::readWord(unsigned address, uint16_t *value, unsigned sid)
+-BergamotaBattery::readWord(unsigned address, uint16_t *value)
++BergamotaBattery::readWord(unsigned address, uint16_t *value, unsigned sid)
  {
  	uint16_t previous = 0;
  	for (unsigned attempt = 0; attempt < 4; ++attempt) {
  		uint8_t lo, hi;
--		if (sweet_spmi_read(0, address, &lo) ||
--		    sweet_spmi_read(0, address + 1, &hi)) {
-+		if (sweet_spmi_read(sid, address, &lo) ||
-+		    sweet_spmi_read(sid, address + 1, &hi)) {
+-		if (bergamota_spmi_read(0, address, &lo) ||
+-		    bergamota_spmi_read(0, address + 1, &hi)) {
++		if (bergamota_spmi_read(sid, address, &lo) ||
++		    bergamota_spmi_read(sid, address + 1, &hi)) {
  			return false;
  		}
  		uint16_t next = (uint16_t)((unsigned)lo | ((unsigned)hi << 8));
@@ -54,7 +54,7 @@
 + * SOC (0x4009, 0..255), so no voltage estimate is needed here.
 + */
  void
-+SweetBattery::pollBeryllium(void)
++BergamotaBattery::pollBeryllium(void)
 +{
 +	const unsigned sid = 2;
 +	uint8_t msoc = 0, msoc2 = 1, usb = 0, charger = 0;
@@ -62,15 +62,15 @@
 +	bool valid = fReal;
 +	/* two equal reads of the monotonic SOC, like fg_get_msoc_raw */
 +	for (unsigned i = 0; valid && i < 5; ++i) {
-+		valid = !sweet_spmi_read(sid, 0x4009, &msoc) && !sweet_spmi_read(sid, 0x4009, &msoc2);
++		valid = !bergamota_spmi_read(sid, 0x4009, &msoc) && !bergamota_spmi_read(sid, 0x4009, &msoc2);
 +		if (msoc == msoc2) {
 +			break;
 +		}
 +	}
 +	valid = valid && msoc == msoc2 &&
 +	    readWord(0x41a0, &rawVoltage, sid) &&
-+	    !sweet_spmi_read(sid, 0x1310, &usb) &&
-+	    !sweet_spmi_read(sid, 0x1006, &charger);
++	    !bergamota_spmi_read(sid, 0x1310, &usb) &&
++	    !bergamota_spmi_read(sid, 0x1006, &charger);
 +	unsigned mv = valid ? (unsigned)(((uint64_t)rawVoltage * 122070u) / 1000000u) : 0;
 +	valid = valid && mv >= 2800 && mv <= 4600;
 +	if (!valid) {
@@ -94,9 +94,9 @@
 +}
 +
 +void
- SweetBattery::poll(void)
+ BergamotaBattery::poll(void)
  {
-+	if (fReal && sweet_board_beryllium()) {
++	if (fReal && bergamota_board_beryllium()) {
 +		pollBeryllium();
 +		return;
 +	}

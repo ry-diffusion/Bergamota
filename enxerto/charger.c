@@ -1,5 +1,5 @@
 /*
- * Early fast charging, see charger.h. Port of xnu/patches-11215/0201 (bsd/dev/sweet_charger.c, sweetcharger=2)
+ * Early fast charging, see charger.h. Port of xnu/patches-11215/0201 (bsd/dev/bergamota_charger.c, bergamotacharger=2)
  * to Enxerto's polled SPMI (pmic.c). Register map (PMI8998 SID 2, SMB2 block on the 0x1000 base):
  *   CHGR  0x1006 STATUS_1 [2:0] state   0x1007 STATUS_2 hot/cold/soft/OV/safety bits   0x100d STATUS_7 ADC temp
  *         0x1042 CHARGING_ENABLE_CMD    0x1061 FAST_CHARGE_CURRENT_CFG (25 mA/LSB)

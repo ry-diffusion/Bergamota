@@ -120,7 +120,7 @@ tools/renegade/renegade root          # -> research/ios18/ios18-root-full.simg
 tools/renegade/renegade update research/ios18/ios18-root-full.simg   # later: re-apply the tweaks in place
 ```
 
-**3b. Renegade on Linux (Debian/Ubuntu).** The root image can be built and updated on Linux without compiling anything: `renegade fetch-tools` downloads the same prebuilt on-device tools as on a Mac. If you skip it, the tools that need Xcode (`sweetuicache`, `sweetfp`, the wallpaper tools, `sweetmetrics`, `sweetprefs`, the `bglrender` payload) are skipped automatically, with a summary at the end, unless prebuilt copies are in `research/sweetnet/` or `research/bergamota-gl/`. Everything that is plist or data still happens: launchd edits, preferences (battery %), event timing, Bluetooth environment, the jailbreak userland (Procursus, Sileo, TrollStore) and the dropbear job if its prebuilt binaries exist. It needs **root** (loop device and `mount -t hfsplus`) and the `hfsplus` kernel module:
+**3b. Renegade on Linux (Debian/Ubuntu).** The root image can be built and updated on Linux without compiling anything: `renegade fetch-tools` downloads the same prebuilt on-device tools as on a Mac. If you skip it, the tools that need Xcode (`bergamotauicache`, `bergamotafp`, the wallpaper tools, `bergamotametrics`, `bergamotaprefs`, the `bglrender` payload) are skipped automatically, with a summary at the end, unless prebuilt copies are in `research/bergamotanet/` or `research/bergamota-gl/`. Everything that is plist or data still happens: launchd edits, preferences (battery %), event timing, Bluetooth environment, the jailbreak userland (Procursus, Sileo, TrollStore) and the dropbear job if its prebuilt binaries exist. It needs **root** (loop device and `mount -t hfsplus`) and the `hfsplus` kernel module:
 
 ```sh
 sudo apt install python3 curl hfsprogs util-linux zstd dropbear-bin cmake g++ git libfuse3-dev libbz2-dev zlib1g-dev libattr1-dev fuse3
@@ -133,7 +133,7 @@ RENEGADE_DRY_RUN=1 tools/renegade/renegade root  # prints the mkfs/losetup/mount
 
 Details, the macOS/Linux matrix and what is not verified yet: `tools/renegade/README.md`, "Platforms".
 
-**3c. berga-tools.zip (the prebuilt on-device binaries).** The small programs Renegade puts into the root (`sweetuicache`, `sweetfp.dylib`, `sweetmetrics`, the wallpaper tools, `SweetRun.app`, `sweetreboot`, ...) and the `bglrender` payload (the EAGL shim, Mesa's `libOSMesa`, our `libdrm` stand-in) are compiled for the phone, so most people should not build them. They are published as `berga-tools.zip` on the [releases page](https://github.com/ry-diffusion/Bergamota/releases) (tags `berga-tools-vN`). `renegade fetch-tools` downloads the newest one, checks it and unpacks it into a cache; it needs only Python 3, on macOS and on Linux, no `gh`:
+**3c. berga-tools.zip (the prebuilt on-device binaries).** The small programs Renegade puts into the root (`bergamotauicache`, `bergamotafp.dylib`, `bergamotametrics`, the wallpaper tools, `BergamotaRun.app`, `bergamotareboot`, ...) and the `bglrender` payload (the EAGL shim, Mesa's `libOSMesa`, our `libdrm` stand-in) are compiled for the phone, so most people should not build them. They are published as `berga-tools.zip` on the [releases page](https://github.com/ry-diffusion/Bergamota/releases) (tags `berga-tools-vN`). `renegade fetch-tools` downloads the newest one, checks it and unpacks it into a cache; it needs only Python 3, on macOS and on Linux, no `gh`:
 
 ```sh
 tools/renegade/renegade fetch-tools                       # newest berga-tools-vN -> ~/.cache/bergamota/berga-tools
@@ -142,14 +142,14 @@ tools/renegade/renegade fetch-tools --zip ~/Downloads/berga-tools.zip   # a zip 
 tools/renegade/renegade fetch-tools --status              # what is installed and where Renegade will look
 ```
 
-`renegade root` and `renegade update` use a binary you built yourself (`research/sweetnet/`, `research/bergamota-gl/`, `$RENEGADE_SWEETNET`, `$RENEGADE_BGL`) first, and the cache only when it is missing. The zip is checked against its SHA-256 (the release's, when it publishes one) and every file in it against the `berga-tools.json` manifest (SHA-256, size, architecture, commit it was built from). A feature whose binary is in neither place is skipped with a message, as before. The zip holds only our own code and the Mesa build, never anything of Apple's or Qualcomm's (`LICENSES/NOTICE.txt` in the zip). The cache is `$RENEGADE_TOOLS_CACHE` if set; `$RENEGADE_BERGA_TOOLS` points at an already unpacked directory.
+`renegade root` and `renegade update` use a binary you built yourself (`research/bergamotanet/`, `research/bergamota-gl/`, `$RENEGADE_BERGAMOTANET`, `$RENEGADE_BGL`) first, and the cache only when it is missing. The zip is checked against its SHA-256 (the release's, when it publishes one) and every file in it against the `berga-tools.json` manifest (SHA-256, size, architecture, commit it was built from). A feature whose binary is in neither place is skipped with a message, as before. The zip holds only our own code and the Mesa build, never anything of Apple's or Qualcomm's (`LICENSES/NOTICE.txt` in the zip). The cache is `$RENEGADE_TOOLS_CACHE` if set; `$RENEGADE_BERGA_TOOLS` points at an already unpacked directory.
 
-**Building the tools yourself.** Only needed if you changed the sources in `tools/sweetnet/` or `gpu/eagl/`, or you do not want to run our binaries. It needs a Mac with **Xcode** (the full app, not only the command line tools: the build uses the iPhone SDK through `xcrun -sdk iphoneos`, plus `codesign`) and Python 3. There is no Linux build and no Docker/VM route.
+**Building the tools yourself.** Only needed if you changed the sources in `tools/bergamotanet/` or `gpu/eagl/`, or you do not want to run our binaries. It needs a Mac with **Xcode** (the full app, not only the command line tools: the build uses the iPhone SDK through `xcrun -sdk iphoneos`, plus `codesign`) and Python 3. There is no Linux build and no Docker/VM route.
 
 ```sh
 xcode-select -p && xcrun -sdk iphoneos --show-sdk-version         # both must work
-tools/sweetnet/build.sh                      # -> research/sweetnet/ (iOS 16 arm64) and research/sweetnet/ios18/ (arm64e, then `renegade strip --sign`)
-TOOLS="hcitest sweetreboot" IOS18=0 tools/sweetnet/build.sh       # a subset; IOS18=0 skips the iOS 18 builds
+tools/bergamotanet/build.sh                      # -> research/bergamotanet/ (iOS 16 arm64) and research/bergamotanet/ios18/ (arm64e, then `renegade strip --sign`)
+TOOLS="hcitest bergamotareboot" IOS18=0 tools/bergamotanet/build.sh       # a subset; IOS18=0 skips the iOS 18 builds
 ```
 
 The GL payload (`bglrender`) is built from the `gpu-eagl` branch, not from `develop`: Mesa 25.0.7 is cross-built for iOS (about 1.6 GB of scratch space, `brew install meson bison`), then the shim and the launcher are compiled and signed. `docs/GPU_EAGL.md` on that branch has the details:
@@ -165,7 +165,7 @@ export RENEGADE_BGL=$PWD/research/bergamota-gl             # or copy it into res
 To make your own `berga-tools.zip` (to share it, or to test what a release would contain):
 
 ```sh
-tools/berga-tools/package.sh                               # builds tools/sweetnet, then packages -> research/berga-tools-out/berga-tools.zip (+ .sha256)
+tools/berga-tools/package.sh                               # builds tools/bergamotanet, then packages -> research/berga-tools-out/berga-tools.zip (+ .sha256)
 BUILD=0 tools/berga-tools/package.sh                       # package the binaries that are already built
 tools/renegade/renegade fetch-tools --zip research/berga-tools-out/berga-tools.zip
 ```
@@ -176,11 +176,11 @@ tools/renegade/renegade fetch-tools --zip research/berga-tools-out/berga-tools.z
 
 ```sh
 # plain iOS
-DTB=dtb/beryllium/dtb tools/renegade/mkboot-full.sh xnu/out-develop/kernel.development.sweet \
+DTB=dtb/beryllium/dtb tools/renegade/mkboot-full.sh xnu/out-develop/kernel.development.bergamota \
     enxerto/out/beryllium-hi-3x.adt enxerto/out/enxerto-boot-develop.img
-# with the GPU kept up (sweetgpu=8) and its firmware ADT, as in our tests
-CMDLINE="$(sed -n 's/^CMDLINE=${CMDLINE:-"\(.*\)"}$/\1/p' tools/renegade/mkboot-full.sh) sweetgpu=8 ufslogsecs=1" \
-DTB=dtb/beryllium/dtb tools/renegade/mkboot-full.sh xnu/out-develop/kernel.development.sweet \
+# with the GPU kept up (bergamotagpu=8) and its firmware ADT, as in our tests
+CMDLINE="$(sed -n 's/^CMDLINE=${CMDLINE:-"\(.*\)"}$/\1/p' tools/renegade/mkboot-full.sh) bergamotagpu=8 ufslogsecs=1" \
+DTB=dtb/beryllium/dtb tools/renegade/mkboot-full.sh xnu/out-develop/kernel.development.bergamota \
     enxerto/out/beryllium-hi-3x-gpu.adt enxerto/out/enxerto-boot-develop-gpu.img
 ```
 
@@ -193,7 +193,7 @@ python3 tools/bergamota-flash.py flash boot enxerto/out/enxerto-boot-develop-gpu
 apps/Bergamota/scripts/bergamota enqueue enxerto/out/enxerto-boot-develop-gpu.img     # or just RAM-boot it from the queue
 ```
 
-The first boot takes a few minutes while the first-boot job registers the apps. Then `ssh root@192.168.7.2`. On iOS with an xnu-11215 kernel, `sweetreboot fastboot` and `sweetreboot bergamota` get you back to fastboot without the buttons.
+The first boot takes a few minutes while the first-boot job registers the apps. Then `ssh root@192.168.7.2`. On iOS with an xnu-11215 kernel, `bergamotareboot fastboot` and `bergamotareboot bergamota` get you back to fastboot without the buttons.
 
 ## Troubleshooting
 
@@ -221,7 +221,7 @@ PACIA / AUTIA / XPACI…  →  NOP
 PACGA Xd, Xn, Xm        →  EOR Xd, Xn, Xm, ROR #13
 ```
 
-It does this for every Mach-O in the root and for all of the dyld shared cache. It then re-signs each binary ad hoc (keeping its identifiers and entitlements), recomputes corecrypto's FIPS HMAC and sets the HFS+ owners without root. Heartwood's side of the deal (`sweetarm64e=1`) lets arm64e binaries load and emulates FJCVTZS. See [`tools/renegade/README.md`](tools/renegade/README.md) and [`docs/IOS18_PORT.md`](docs/IOS18_PORT.md).
+It does this for every Mach-O in the root and for all of the dyld shared cache. It then re-signs each binary ad hoc (keeping its identifiers and entitlements), recomputes corecrypto's FIPS HMAC and sets the HFS+ owners without root. Heartwood's side of the deal (`bergamotaarm64e=1`) lets arm64e binaries load and emulates FJCVTZS. See [`tools/renegade/README.md`](tools/renegade/README.md) and [`docs/IOS18_PORT.md`](docs/IOS18_PORT.md).
 
 ## Repository layout
 
@@ -231,11 +231,11 @@ It does this for every Mach-O in the root and for all of the dyld shared cache. 
 | `enxerto/` | Enxerto, the bare-metal bootloader (C + asm): loader, inflate, UFS, USB/DWC3, fastboot, PMIC, boot UI |
 | `xnu/patches-11215/` | Heartwood, the XNU patch series (xnu-11215), applied in order by `.github/workflows/xnu.yml`; `xnu/patches/` is the older xnu-8796 series |
 | `tools/renegade/` | Renegade: `pacstrip*`, `fips_rehmac`, root build, HFS+ and sparse-image tools, `dsctools` (shared-cache symbolication) |
-| `tools/adt-gpufw.py`, `zap-split.py` | GPU firmware into the ADT (`/sweet-gpu`); split a squashed `.mbn` into `.mdt` + `.bNN` |
+| `tools/adt-gpufw.py`, `zap-split.py` | GPU firmware into the ADT (`/bergamota-gpu`); split a squashed `.mbn` into `.mdt` + `.bNN` |
 | `tools/bergamota-flash.py` | Delta/full flashing of userdata, boot and logo through Bergamota fastboot |
 | `tools/extract-dtb.py` | Extracts the stock DTBs from a boot.img (also the Poco F1's appended Image.gz-dtb) and picks yours |
 | `tools/mkadt.py`, `mkpayload.py` | Apple Device Tree generator; kernel + ADT + boot-args payload packer |
-| `tools/sweetnet/` | Small on-device tools (`sweetps`, `sweetprefs`, `sweetuicache`, …) |
+| `tools/bergamotanet/` | Small on-device tools (`bergamotaps`, `bergamotaprefs`, `bergamotauicache`, …) |
 | `tools/identity/` | The Bergamota identity (Newton halftone, lime ground, Archivo + JetBrains Mono): `mkidentity.py` generates Enxerto's `art.h` and the kernel console's portrait, `mkicon.sh` the app icon |
 | `tools/mksplash.py` | The ABL screens of the `logo` partition, from Enxerto's own renders |
 | `docs/` | Design notes: iOS 18 port, Bergamota fastboot and charging, GPU research, … |

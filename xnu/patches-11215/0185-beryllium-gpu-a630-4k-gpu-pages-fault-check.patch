@@ -1,6 +1,6 @@
-diff --git a/bsd/dev/sweet_a630.c b/bsd/dev/sweet_a630.c
---- a/bsd/dev/sweet_a630.c
-+++ b/bsd/dev/sweet_a630.c
+diff --git a/bsd/dev/bergamota_a630.c b/bsd/dev/bergamota_a630.c
+--- a/bsd/dev/bergamota_a630.c
++++ b/bsd/dev/bergamota_a630.c
 @@ -2236,6 +2236,7 @@
  #define GVM_END                 0x100000000ull
  #define GVM_GUARD               0x1000ull       /* unmapped page after every kernel-placed buffer */
@@ -12,8 +12,8 @@ diff --git a/bsd/dev/sweet_a630.c b/bsd/dev/sweet_a630.c
 @@ -2256,6 +2257,7 @@
  static unsigned gvm_nfree;
  
- extern void SweetAdrenoPublish(void);   /* iokit/Kernel/arm/SweetAdreno.cpp */
-+void sweet_gpu_report(const char *why);
+ extern void BergamotaAdrenoPublish(void);   /* iokit/Kernel/arm/BergamotaAdreno.cpp */
++void bergamota_gpu_report(const char *why);
  
  static bool
  gvm_init(void)
@@ -53,7 +53,7 @@ diff --git a/bsd/dev/sweet_a630.c b/bsd/dev/sweet_a630.c
  
 +/* Invalidate the context's TLB after a batch of map calls (walks may be cached for tables that were still empty). */
 +void
-+sweet_gpu_vm_flush(void)
++bergamota_gpu_vm_flush(void)
 +{
 +	if (a630_dev.ready) {
 +		gvm_tlb_flush();
@@ -66,7 +66,7 @@ diff --git a/bsd/dev/sweet_a630.c b/bsd/dev/sweet_a630.c
 + * access (the context terminates instead of stalling, but the CP does not recover) and nothing is reset here.
 + */
 +bool
-+sweet_gpu_check_fault(void)
++bergamota_gpu_check_fault(void)
 +{
 +	vm_offset_t b;
 +	uint32_t fsr;
@@ -79,20 +79,20 @@ diff --git a/bsd/dev/sweet_a630.c b/bsd/dev/sweet_a630.c
 +	if (!(fsr & 0xc00001feu)) {
 +		return false;
 +	}
-+	printf("SWEET GPU: SMMU CB%u FAULT: FSR %#x FAR %#x%08x FSYNR0 %#x\n", CP_CB, fsr,
++	printf("BERGAMOTA GPU: SMMU CB%u FAULT: FSR %#x FAR %#x%08x FSYNR0 %#x\n", CP_CB, fsr,
 +	    gpu_rd(b, SMMU_CB_FAR + 4), gpu_rd(b, SMMU_CB_FAR), gpu_rd(b, SMMU_CB_FSYNR0));
 +	gpu_wr(b, SMMU_CB_FSR, fsr);
 +	if (!a630_dev.lost) {
 +		a630_dev.lost = true;
 +		a630_dev.hangs++;
-+		sweet_gpu_report("GPU LOST (SMMU fault)");
++		bergamota_gpu_report("GPU LOST (SMMU fault)");
 +	}
 +	return true;
 +}
 +
  /* Clear the pages of [iova, iova+size) and invalidate the context's TLB. */
  void
- sweet_gpu_vm_unmap(uint64_t iova, uint64_t size)
+ bergamota_gpu_vm_unmap(uint64_t iova, uint64_t size)
 @@ -2452,7 +2493,7 @@
  		volatile uint64_t *slot = gvm_slot(iova + d, false);
  		if (slot && *slot) {
@@ -104,14 +104,14 @@ diff --git a/bsd/dev/sweet_a630.c b/bsd/dev/sweet_a630.c
  	gvm_tlb_flush();
 @@ -2626,6 +2667,17 @@
  	if (!(gpu_rd(cc, GPUCC_GX_GDSCR) & GDSC_PWR_ON) || (gpu_rd(cc, gpucc_cbcr[CC_GX_GFX3D].off) & CBCR_CLK_OFF)) {
- 		sweet_gpu_report("submit refused: GX is off");
+ 		bergamota_gpu_report("submit refused: GX is off");
  		return 0;
 +	}
 +	{
 +		vm_offset_t b = smmu_base + SMMU_CB(CP_CB);
 +		uint32_t fsr = gpu_rd(b, SMMU_CB_FSR);
 +		if (fsr & 0xc00001feu) {
-+			(void)sweet_gpu_check_fault();
++			(void)bergamota_gpu_check_fault();
 +			return 0;
 +		}
 +		if (fsr) {
@@ -119,19 +119,19 @@ diff --git a/bsd/dev/sweet_a630.c b/bsd/dev/sweet_a630.c
 +		}
  	}
  	if (gpu_rd(gmu, GMU_AO_AHB_FENCE_CTRL) != 0) {
- 		printf("SWEET GPU: submit: AHB fence was %#x (not ALLOW); set to ALLOW\n", gpu_rd(gmu, GMU_AO_AHB_FENCE_CTRL));
-diff --git a/iokit/Kernel/arm/SweetAdreno.cpp b/iokit/Kernel/arm/SweetAdreno.cpp
---- a/iokit/Kernel/arm/SweetAdreno.cpp
-+++ b/iokit/Kernel/arm/SweetAdreno.cpp
+ 		printf("BERGAMOTA GPU: submit: AHB fence was %#x (not ALLOW); set to ALLOW\n", gpu_rd(gmu, GMU_AO_AHB_FENCE_CTRL));
+diff --git a/iokit/Kernel/arm/BergamotaAdreno.cpp b/iokit/Kernel/arm/BergamotaAdreno.cpp
+--- a/iokit/Kernel/arm/BergamotaAdreno.cpp
++++ b/iokit/Kernel/arm/BergamotaAdreno.cpp
 @@ -47,6 +47,8 @@
- void sweet_gpu_iova_free(uint64_t iova, uint64_t size);
- bool sweet_gpu_vm_map(uint64_t iova, uint64_t pa, bool readonly);
- void sweet_gpu_vm_unmap(uint64_t iova, uint64_t size);
-+void sweet_gpu_vm_flush(void);
-+bool sweet_gpu_check_fault(void);
- void sweet_gpu_cache_sync(void *va, size_t len);
- uint32_t sweet_gpu_submit(const uint64_t *ib_iova, const uint32_t *ib_dwords, unsigned count);
- bool sweet_gpu_fence_done(uint32_t fence);
+ void bergamota_gpu_iova_free(uint64_t iova, uint64_t size);
+ bool bergamota_gpu_vm_map(uint64_t iova, uint64_t pa, bool readonly);
+ void bergamota_gpu_vm_unmap(uint64_t iova, uint64_t size);
++void bergamota_gpu_vm_flush(void);
++bool bergamota_gpu_check_fault(void);
+ void bergamota_gpu_cache_sync(void *va, size_t len);
+ uint32_t bergamota_gpu_submit(const uint64_t *ib_iova, const uint32_t *ib_dwords, unsigned count);
+ bool bergamota_gpu_fence_done(uint32_t fence);
 @@ -66,6 +68,7 @@
  #define WAIT_PATIENCE_MS        5000    /* a wait that asks for more than this is cut here and the GPU declared lost */
  #define CLOSE_PATIENCE_MS       2000
@@ -141,12 +141,12 @@ diff --git a/iokit/Kernel/arm/SweetAdreno.cpp b/iokit/Kernel/arm/SweetAdreno.cpp
  static IOLock *gAdrenoLock;
  static uint32_t gAdrenoClients;
 @@ -273,8 +276,8 @@
- 		if (sweet_gpu_fence_done(fence)) {
+ 		if (bergamota_gpu_fence_done(fence)) {
  			return true;
  		}
--		if (!sweet_gpu_ready()) {
+-		if (!bergamota_gpu_ready()) {
 -			return false;
-+		if (sweet_gpu_check_fault() || !sweet_gpu_ready()) {
++		if (bergamota_gpu_check_fault() || !bergamota_gpu_ready()) {
 +			return false;                   /* the CP faulted: fail now instead of waiting for the timeout */
  		}
  		if (waited >= limit || waited >= cap) {
@@ -160,15 +160,15 @@ diff --git a/iokit/Kernel/arm/SweetAdreno.cpp b/iokit/Kernel/arm/SweetAdreno.cpp
 +	for (; mapped < size && ok; mapped += GPU_PAGE) {
  		IOByteCount length = 0;
  		addr64_t pa = slot->md->getPhysicalSegment(mapped, &length, kIOMemoryMapperNone);
--		ok = pa != 0 && (pa & (PAGE_SIZE - 1)) == 0 && sweet_gpu_vm_map(iova + mapped, pa, ro);
-+		ok = pa != 0 && (pa & (GPU_PAGE - 1)) == 0 && sweet_gpu_vm_map(iova + mapped, pa, ro);
+-		ok = pa != 0 && (pa & (PAGE_SIZE - 1)) == 0 && bergamota_gpu_vm_map(iova + mapped, pa, ro);
++		ok = pa != 0 && (pa & (GPU_PAGE - 1)) == 0 && bergamota_gpu_vm_map(iova + mapped, pa, ro);
  	}
-+	sweet_gpu_vm_flush();
++	bergamota_gpu_vm_flush();
  	if (!ok) {
- 		sweet_gpu_vm_unmap(iova, mapped);
- 		sweet_gpu_iova_free(iova, taken);
--		IOLog("SWEET GPU: cannot map %llu bytes into the GPU address space (page %llu)\n", size, mapped / PAGE_SIZE);
-+		IOLog("SWEET GPU: cannot map %llu bytes into the GPU address space (page %llu)\n", size, mapped / GPU_PAGE);
+ 		bergamota_gpu_vm_unmap(iova, mapped);
+ 		bergamota_gpu_iova_free(iova, taken);
+-		IOLog("BERGAMOTA GPU: cannot map %llu bytes into the GPU address space (page %llu)\n", size, mapped / PAGE_SIZE);
++		IOLog("BERGAMOTA GPU: cannot map %llu bytes into the GPU address space (page %llu)\n", size, mapped / GPU_PAGE);
  		return kIOReturnNoMemory;
  	}
  	slot->iova = iova;
@@ -180,18 +180,18 @@ diff --git a/iokit/Kernel/arm/SweetAdreno.cpp b/iokit/Kernel/arm/SweetAdreno.cpp
 +				for (; mapped < g->size && ok; mapped += GPU_PAGE) {
  					IOByteCount length = 0;
  					addr64_t pa = g->md->getPhysicalSegment(mapped, &length, kIOMemoryMapperNone);
- 					ok = pa != 0 && sweet_gpu_vm_map(newIova + mapped, pa, (g->flags & SWEET_MSM_BO_GPU_READONLY) != 0);
+ 					ok = pa != 0 && bergamota_gpu_vm_map(newIova + mapped, pa, (g->flags & BERGAMOTA_MSM_BO_GPU_READONLY) != 0);
  				}
-+				sweet_gpu_vm_flush();
++				bergamota_gpu_vm_flush();
  				if (!ok) {
- 					sweet_gpu_vm_unmap(newIova, mapped);
- 					sweet_gpu_iova_free(newIova, g->size);
+ 					bergamota_gpu_vm_unmap(newIova, mapped);
+ 					bergamota_gpu_iova_free(newIova, g->size);
 @@ -668,7 +674,7 @@
  	} else {
  		uint64_t ns = (r->timeout.tv_sec < 0 || r->timeout.tv_nsec < 0) ? 0 :
  		    (uint64_t)r->timeout.tv_sec * NSEC_PER_SEC + (uint64_t)r->timeout.tv_nsec;
--		ret = waitFence(r->fence, ns) ? kIOReturnSuccess : (sweet_gpu_ready() ? kIOReturnTimeout : kIOReturnNotReady);
-+		ret = waitFence(r->fence, ns) ? kIOReturnSuccess : (sweet_gpu_ready() ? kIOReturnTimeout : kIOReturnIOError);
+-		ret = waitFence(r->fence, ns) ? kIOReturnSuccess : (bergamota_gpu_ready() ? kIOReturnTimeout : kIOReturnNotReady);
++		ret = waitFence(r->fence, ns) ? kIOReturnSuccess : (bergamota_gpu_ready() ? kIOReturnTimeout : kIOReturnIOError);
  	}
  	IOLockUnlock(gAdrenoLock);
  	return ret;

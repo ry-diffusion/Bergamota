@@ -8,7 +8,7 @@
  * aligned and no libc is used (-mstrict-align, no memcpy).
  *
  * The bring-up order is the one that finally enumerated in xnu
- * (xnu/patches 0072..0109, sweet_usb.c "sweetusbfix=7"): ABL leaves the
+ * (xnu/patches 0072..0109, bergamota_usb.c "bergamotausbfix=7"): ABL leaves the
  * QUSB2 PHY powered down after `fastboot boot` (PWR_CTRL1.POWER_DOWN set),
  * so a plain "take over the halted controller" times out in the first
  * SETEPCONFIG. Sequence: PIPE clock from the UTMI clock, QUSB2 power-up, Linux
@@ -221,7 +221,7 @@ static void note(void)
 	usb_info.change++;
 }
 
-/* ---- apps_smmu: stream 0x740 -> identity-mapped stage-1 bank (xnu sweet_smmu.c) ---- */
+/* ---- apps_smmu: stream 0x740 -> identity-mapped stage-1 bank (xnu bergamota_smmu.c) ---- */
 
 #define SMMU_BASE	0x15000000UL
 #define SMMU_SID	0x740u
@@ -757,7 +757,7 @@ int usb_dwc3_init(int use_smmu)
 	udelay(1000);
 	usb_info.qscratch_gen_cfg = rd_at(cfg);
 
-	/* 2. QUSB2 PHY power-up: ABL leaves PWR_CTRL1.POWER_DOWN set (the sweetusbfix finding). */
+	/* 2. QUSB2 PHY power-up: ABL leaves PWR_CTRL1.POWER_DOWN set (the bergamotausbfix finding). */
 	uint32_t pwr = rd_at(QUSB2_BASE + QUSB2_PWR_CTRL1) & 0xff;
 	usb_info.qusb_pwr_before = pwr;
 	if (pwr & QUSB2_PWR_DOWN) {

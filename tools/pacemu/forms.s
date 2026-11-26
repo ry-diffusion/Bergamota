@@ -1,4 +1,4 @@
-// Every instruction form the kernel PAC emulation (xnu patch 1019, osfmk/arm64/sweet_pacemu.h) decodes,
+// Every instruction form the kernel PAC emulation (xnu patch 1019, osfmk/arm64/bergamota_pacemu.h) decodes,
 // plus near neighbours it must leave alone. Assembled with `clang -arch arm64e` by check.py; the comment
 // after each line is the decoder's expected canonical output.
 	retaa                          // RET

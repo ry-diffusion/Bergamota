@@ -23,8 +23,8 @@ struct SettingsView: View {
             Section("Phone") {
                 TextField("Phone IP", text: $s.phoneIP)
                 Text("USB Ethernet is found by MAC \(PhoneMonitor.usbMAC); SSH as root@IP (key only).").font(.caption).foregroundStyle(Color.muted)
-                Toggle("Read the GPU INFO selector (opens a SweetAdreno630 user client every 2 s)", isOn: $s.metricsGPUInfo)
-                Text("Live metrics run /usr/local/bin/sweetmetrics over SSH every ~2 s while iOS is up. Off (default): read-only registry/sysctl sources only, no GPU client is opened.").font(.caption).foregroundStyle(Color.muted)
+                Toggle("Read the GPU INFO selector (opens a BergamotaAdreno630 user client every 2 s)", isOn: $s.metricsGPUInfo)
+                Text("Live metrics run /usr/local/bin/bergamotametrics over SSH every ~2 s while iOS is up. Off (default): read-only registry/sysctl sources only, no GPU client is opened.").font(.caption).foregroundStyle(Color.muted)
             }
             Section("Tools (leave empty to resolve via PATH, /opt/homebrew/bin, /usr/local/bin)") {
                 toolRow("fastboot", $s.fastbootPath, s.fastboot)
@@ -51,7 +51,7 @@ struct SettingsView: View {
                 Toggle("Notify when iOS comes up", isOn: $s.notifyOnIOS)
                 Toggle("Auto-reboot iOS into fastboot when a queued image is waiting", isOn: $s.autoRebootToFastboot)
                 Toggle("Prefer Bergamota fastboot for the auto-reboot", isOn: $s.preferBergamotaFastboot)
-                Text("Uses `sweetreboot bergamota` (kernel patch 0140); falls back to ABL fastboot if it fails. The 64 MiB large-image warning only applies to ABL fastboot. Phone's sweetreboot supports bergamota: \(model.monitor.sweetrebootBergamota.map { $0 ? "yes" : "no" } ?? "not checked yet (needs iOS up)").")
+                Text("Uses `bergamotareboot bergamota` (kernel patch 0140); falls back to ABL fastboot if it fails. The 64 MiB large-image warning only applies to ABL fastboot. Phone's bergamotareboot supports bergamota: \(model.monitor.bergamotarebootBergamota.map { $0 ? "yes" : "no" } ?? "not checked yet (needs iOS up)").")
                     .font(.caption).foregroundStyle(Color.muted)
                 TextField("Bergamota fastboot image", text: $s.bergamotaImagePath, prompt: Text(AppSettings.defaultBergamotaImage))
                 HStack(spacing: 4) {
@@ -75,7 +75,7 @@ struct SettingsView: View {
                 }
                 Text("Flashing goes through Bergamota fastboot (Enxerto writes UFS itself; needs python3). Userdata is sent as a delta against what the phone holds, boot and logo in full. Only userdata, boot and logo can be written.")
                     .font(.caption).foregroundStyle(Color.muted)
-                Text("Only while the queue is armed and the next item is pending, after iOS has been up for 30 s, once per queue item (SSH: /usr/local/bin/sweetreboot fastboot). If the phone is not in fastboot 90 s later the item is marked \"needs manual fastboot\" and auto-rebooting pauses.")
+                Text("Only while the queue is armed and the next item is pending, after iOS has been up for 30 s, once per queue item (SSH: /usr/local/bin/bergamotareboot fastboot). If the phone is not in fastboot 90 s later the item is marked \"needs manual fastboot\" and auto-rebooting pauses.")
                     .font(.caption).foregroundStyle(Color.muted)
             }
         }

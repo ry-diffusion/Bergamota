@@ -25,7 +25,7 @@ Adreno 630) are in Chlorophyll's own repository: `gpu/metal/docs/FIXES.md`.
 - **Why.** With 0243's `backlight-control` service published, every boot capped presentation at 0.98-0.99 frames/s,
   touch included (kernel `swaps_s`); boots without it ran 30-55 fps. Bluetooth was ruled out by unloading bluetoothd.
   The exact iOS-side reason is still being investigated.
-- **Fix (for now).** 0246 publishes the service only with boot-arg `sweetfb_blsvc=1`. Panel on/off (0242) still
+- **Fix (for now).** 0246 publishes the service only with boot-arg `bergamotafb_blsvc=1`. Panel on/off (0242) still
   follows iOS; the brightness slider does not reach the panel yet.
 
 ### Frames serialized behind the GPU (0241, and Chlorophyll's "scheduled")
@@ -47,13 +47,13 @@ Adreno 630) are in Chlorophyll's own repository: `gpu/metal/docs/FIXES.md`.
 
 - **Why.** 0235 copied every frame on the CPU: about 6.5 ms per frame (memcpy of 11 MB plus a cache clean of the
   source), while the GPU sat 13-17 % busy.
-- **Fix.** With `sweetfb_scancopy=2`, the framebuffer's low pool (252 MiB) is mapped into the GPU once, and each frame
+- **Fix.** With `bergamotafb_scancopy=2`, the framebuffer's low pool (252 MiB) is mapped into the GPU once, and each frame
   is one 2D-engine blit (`CP_BLIT`) submitted from the kernel. It uses freedreno's linear RGBA8 sequence, with register
   values from Mesa's `a6xx.xml.h` for chip 630 and the CCU switched to sysmem bypass first. The swap completes when the
   blit's fence passes. A CPU draw still dirty in the pool is cleaned first. After 3 failed blits in a row, the next
   120 frames are copied on the CPU and then the GPU is tried again. The first version stayed off for the whole boot
   after a few backboardd restarts.
-- **Result.** About 1.3 ms per frame. `kern.sweet_fb` reports `scan_gpu` (1 on, 2 resting), `scan_gpu_copies` and
+- **Result.** About 1.3 ms per frame. `kern.bergamota_fb` reports `scan_gpu` (1 on, 2 resting), `scan_gpu_copies` and
   `scan_gpu_fallbacks`. Needs 0237 (126 page tables for the pool alone).
 - **Then, async commits.** With the GPU copy and the 0229 scan-out gate, `bgmtl-bb.sync` is no longer needed. A/B over
   the same swipe script: sync 20.8 fps, async 28.4, dirty regions 22.7, both 25.0. The phone runs async with full
@@ -71,8 +71,8 @@ Adreno 630) are in Chlorophyll's own repository: `gpu/metal/docs/FIXES.md`.
   but a 10-24 MB target needed a fresh range, `gvm_slot` found no table page, and GEM_NEW failed. Separately, a full
   free list (512 ranges) silently dropped freed ranges, leaking address space.
 - **Fix.** 1028 table pages (4 MiB: enough for every 2 MiB of the window) and a 4096-range free list.
-  `kern.sweet_gpu` now reports `gvm_tables=used/total` and `gvm_free_ranges`.
-- **Check.** `sysctl kern.sweet_gpu`: `gvm_tables` stays below its total; no "would not allocate" lines in
+  `kern.bergamota_gpu` now reports `gvm_tables=used/total` and `gvm_free_ranges`.
+- **Check.** `sysctl kern.bergamota_gpu`: `gvm_tables` stays below its total; no "would not allocate" lines in
   `bgmtl.log`/traces; Control Center keeps its backdrop after long use.
 
 ### Locally built kernels: the GPU never comes up (0236)
@@ -82,7 +82,7 @@ Adreno 630) are in Chlorophyll's own repository: `gpu/metal/docs/FIXES.md`.
   the bring-up stalls. CI's clang 16 used a register offset, so CI kernels worked.
 - **Fix.** `gpu_rd`/`gpu_wr` (and the TTBR0 write) are single-instruction asm with a bare base register.
 - **Check.** After a local build, scan the driver disassembly for `ldr/str w.., [x..], #` near a `dmb`.
-  `SweetFramebuffer`'s plain C MMIO could hit the same thing with a newer compiler.
+  `BergamotaFramebuffer`'s plain C MMIO could hit the same thing with a newer compiler.
 
 ### Tearing at the bottom of the screen (0235)
 
@@ -90,7 +90,7 @@ Adreno 630) are in Chlorophyll's own repository: `gpu/metal/docs/FIXES.md`.
   completes. With swapdepth 1, SwapWait waits for the latch (~10 ms of every frame). With swapdepth 2, CA draws into the
   surface still on the panel, which tears.
 - **Fix.** Every frame is copied into one of three framebuffer-owned buffers, which are scanned instead; the swap
-  completes when the copy does (`sweetfb_scancopy=1`). Cost: ~6.5 ms per copy, which is what holds the panel at ~30 fps
+  completes when the copy does (`bergamotafb_scancopy=1`). Cost: ~6.5 ms per copy, which is what holds the panel at ~30 fps
   today.
 - **Check.** `sysctl` stats `scancopy`, `scan_copies`, `scan_copy_us`.
 

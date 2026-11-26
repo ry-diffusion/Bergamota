@@ -1,4 +1,4 @@
-1027: a second swap slot (kern.sweet_fb_queue2, default off) and Brightness_Scale on the framebuffer.
+1027: a second swap slot (kern.bergamota_fb_queue2, default off) and Brightness_Scale on the framebuffer.
 
 With async commits (1022) a swap arriving while another is pending held CoreAnimation's display thread in SwapEnd (1023)
 until the vsync tick took the pending one; that wait ended just after the next tick, which CoreAnimation then missed:
@@ -6,42 +6,42 @@ frames whose encode + GPU work take longer than one refresh were shown every oth
 set, the second swap waits in a second slot, promoted when the pending one is taken. Brightness_Scale (int, 16.16,
 1.0): CoreAnimation reads it at every frame, and kern_CopyProperty syslogged it as not found each time. Applies after 1026.
 
-Diagnostics: kern.sweet_fb gains queued= (swaps put in the second slot) and held_reuse= (swaps onto a surface a pending or
+Diagnostics: kern.bergamota_fb gains queued= (swaps put in the second slot) and held_reuse= (swaps onto a surface a pending or
 queued swap still shows: the stale-frame case).
 Ordering: a swap that goes straight to pending (the slot was empty for a moment during the early path's zero-copy try, or the
 display was off) drops an older queued swap, and promotion only moves forward in swap id (both counted: next_dropped).
 order_back= counts frames taken older than the one before them. Without this a queued frame was shown after a newer one: stale frames.
 
---- a/iokit/Kernel/arm/SweetFramebuffer.cpp
-+++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+--- a/iokit/Kernel/arm/BergamotaFramebuffer.cpp
++++ b/iokit/Kernel/arm/BergamotaFramebuffer.cpp
 @@ -68,6 +68,7 @@
- extern "C" uint32_t sweet_gpu_fence_snapshot(void);     /* bsd/dev/sweet_a630.c (0229) */
- extern "C" bool sweet_gpu_blit_window(uint64_t pa, uint64_t size);      /* bsd/dev/sweet_a630.c (0240) */
- extern "C" uint64_t sweet_fb_gate_committed, sweet_fb_gate_submitted;   /* 1022, bsd/dev/sweet_fb.c */
-+extern "C" uint32_t sweet_fb_queue2;   /* 1027, bsd/dev/sweet_fb.c */
- extern "C" uint32_t sweet_fb_gate_fence_of(uint64_t seq);               /* 1024, bsd/dev/sweet_fb.c */
- extern "C" uint32_t sweet_gpu_blit(uint64_t src_pa, uint32_t src_pitch, uint64_t dst_pa, uint32_t dst_pitch, uint32_t w, uint32_t h);
- extern "C" bool sweet_gpu_fence_passed(uint32_t fence);                    /* bsd/dev/sweet_fb.c: sysctl kern.sweet_fb_hud (patch 0213) */
+ extern "C" uint32_t bergamota_gpu_fence_snapshot(void);     /* bsd/dev/bergamota_a630.c (0229) */
+ extern "C" bool bergamota_gpu_blit_window(uint64_t pa, uint64_t size);      /* bsd/dev/bergamota_a630.c (0240) */
+ extern "C" uint64_t bergamota_fb_gate_committed, bergamota_fb_gate_submitted;   /* 1022, bsd/dev/bergamota_fb.c */
++extern "C" uint32_t bergamota_fb_queue2;   /* 1027, bsd/dev/bergamota_fb.c */
+ extern "C" uint32_t bergamota_fb_gate_fence_of(uint64_t seq);               /* 1024, bsd/dev/bergamota_fb.c */
+ extern "C" uint32_t bergamota_gpu_blit(uint64_t src_pa, uint32_t src_pitch, uint64_t dst_pa, uint32_t dst_pitch, uint32_t w, uint32_t h);
+ extern "C" bool bergamota_gpu_fence_passed(uint32_t fence);                    /* bsd/dev/bergamota_fb.c: sysctl kern.bergamota_fb_hud (patch 0213) */
 @@ -380,6 +381,20 @@
  	uint64_t      fPendAbs;         /* 0229: when it arrived */
  	bool          gpuGateOpen(uint64_t now);
  	uint64_t      fPendGate;        /* 1022: backboardd's async commits made before the pending swap */
 +	/*
-+	 * 1027 (kern.sweet_fb_queue2): with async commits, a swap that arrives while another is pending waits in this second
++	 * 1027 (kern.bergamota_fb_queue2): with async commits, a swap that arrives while another is pending waits in this second
 +	 * slot instead of holding CoreAnimation's display thread in SwapEnd (1023) until the vsync tick took the pending one:
 +	 * that wait ended just after the next tick, which CoreAnimation then missed, so a frame whose encode and GPU work
 +	 * take longer than one refresh was shown every other refresh (30 fps). The slot is promoted to pending when the
 +	 * pending swap is taken; its own gate values are kept from its arrival. Both full: SwapEnd waits as in 1023.
 +	 */
-+	uint8_t       fNextRec[SWEET_FB_SWAP_REC_SIZE];
++	uint8_t       fNextRec[BERGAMOTA_FB_SWAP_REC_SIZE];
 +	bool          fNextValid;
-+	SweetSurface *fNextHold[4];
++	BergamotaSurface *fNextHold[4];
 +	uint32_t      fNextFence;
 +	uint64_t      fNextAbs, fNextGate;
 +	void          promoteNext(void);
 +	uint32_t      fLastTakenID;     /* 1027: swap id of the last frame taken for the panel */
  	bool          submitGateOpen(uint64_t now);
- 	uint32_t      fSwapDepth;       /* sweetfb_swapdepth: 1 = SwapWait(N) waits until N latched, 2 (default) = until N-1 latched */
+ 	uint32_t      fSwapDepth;       /* bergamotafb_swapdepth: 1 = SwapWait(N) waits until N latched, 2 (default) = until N-1 latched */
  	bool          fWatching;        /* a frame is queued: the swap timer polls for its latch every 500 us */
 @@ -408,6 +423,8 @@
  		uint64_t cleanAbs, cleans, cleanSkips;
@@ -63,8 +63,8 @@ order_back= counts frames taken older than the one before them. Without this a q
 +	 */
 +	setProperty("Brightness_Scale", 65536ULL, 32);
  	registerService();
- 	__atomic_store_n(&sweet_fb_shot_fb, this, __ATOMIC_RELEASE);     /* kern.sweet_fb_shot (patch 0224) */
- 	IOLog("SWEET FB: AppleCLCD %ux%u stride %u at 0x%llx, default surface %u, presented as %ux%u, vsync %u us, copy every %u, scale %u (pad %d,%d), direct %d early %d\n",
+ 	__atomic_store_n(&bergamota_fb_shot_fb, this, __ATOMIC_RELEASE);     /* kern.bergamota_fb_shot (patch 0224) */
+ 	IOLog("BERGAMOTA FB: AppleCLCD %ux%u stride %u at 0x%llx, default surface %u, presented as %ux%u, vsync %u us, copy every %u, scale %u (pad %d,%d), direct %d early %d\n",
 @@ -1017,6 +1040,14 @@
  			fb->fDirty = false;
  			memcpy(taken, fb->fPendHold, sizeof(taken));
@@ -94,16 +94,16 @@ order_back= counts frames taken older than the one before them. Without this a q
 +	if (fLastTakenID != 0 && (int32_t)(get32(fNextRec, 0x50) - fLastTakenID) <= 0) {
 +		/* older than what was just taken: never show it after a newer frame */
 +		fSt.nextDropped++;
-+		SweetSurface *old[4];
++		BergamotaSurface *old[4];
 +		memcpy(old, fNextHold, sizeof(old));
 +		bzero(fNextHold, sizeof(fNextHold));
 +		fNextValid = false;
 +		IOLockUnlock(fLock);
-+		sweet_hold_release(old);
++		bergamota_hold_release(old);
 +		IOLockLock(fLock);
 +		return;
 +	}
-+	memcpy(fPending, fNextRec, SWEET_FB_SWAP_REC_SIZE);
++	memcpy(fPending, fNextRec, BERGAMOTA_FB_SWAP_REC_SIZE);
 +	memcpy(fPendHold, fNextHold, sizeof(fPendHold));
 +	bzero(fNextHold, sizeof(fNextHold));
 +	fPendFence = fNextFence;
@@ -119,8 +119,8 @@ order_back= counts frames taken older than the one before them. Without this a q
  	AppleCLCD *fb = (AppleCLCD *)owner;
 @@ -1150,6 +1210,20 @@
  	fb->quietConsole();
- 	if (!sweet_bootlog_keep() && fb->zcPresent(fb->fEarlyRec, get32(fb->fEarlyRec, 0x104))) {
- 		sweet_hold_release(taken);      /* zcPresent holds the surface itself until its frame latched */
+ 	if (!bergamota_bootlog_keep() && fb->zcPresent(fb->fEarlyRec, get32(fb->fEarlyRec, 0x104))) {
+ 		bergamota_hold_release(taken);      /* zcPresent holds the surface itself until its frame latched */
 +		IOLockLock(fb->fLock);
 +		{
 +			uint32_t id = get32(fb->fEarlyRec, 0x50);
@@ -145,24 +145,24 @@ order_back= counts frames taken older than the one before them. Without this a q
 -	    "scan_gpu_submit_fails=%llu scan_gpu_late=%llu scan_gpu_wait_us_max=%llu\n",
 +	    "scan_gpu_submit_fails=%llu scan_gpu_late=%llu scan_gpu_wait_us_max=%llu queued=%llu held_reuse=%llu next_dropped=%llu order_back=%llu\n",
  	    mode, hz, fFlushTicks, fHw ? 1 : 0, fFlip ? 1 : 0, smmu, fZcCleanMode == 0 ? "never" : (fZcCleanMode == 1 ? "always" : (fZcCleanMode == 2 ? "auto" : "tracked")),
- 	    sweet_abs_us(now) / 1000000, winUS / 1000,
+ 	    bergamota_abs_us(now) / 1000000, winUS / 1000,
  	    swaps, SW_F2(PER_S(dSwaps)), coalesced, SW_F2(PER_S(dCoal)),
 @@ -1245,7 +1319,7 @@
  	    c.gpuHolds, c.gpuHoldTimeouts, c.emptySwaps, c.emptyKept,
- 	    fScanCopy && !fScanFailed ? 1 : 0, c.scanCopies, SW_F2(scAvg), sweet_abs_us(c.scanCopyMaxAbs),
+ 	    fScanCopy && !fScanFailed ? 1 : 0, c.scanCopies, SW_F2(scAvg), bergamota_abs_us(c.scanCopyMaxAbs),
  	    fScanGpu && !fScanGpuOff ? (fScanGpuRest ? 2 : 1) : 0, c.scanGpuCopies, c.scanGpuFallbacks,
--	    c.scanGpuSubmitFails, c.scanGpuLate, sweet_abs_us(c.scanGpuWaitMaxAbs));
-+	    c.scanGpuSubmitFails, c.scanGpuLate, sweet_abs_us(c.scanGpuWaitMaxAbs), c.queued, c.heldReuse, c.nextDropped, c.orderBack);
+-	    c.scanGpuSubmitFails, c.scanGpuLate, bergamota_abs_us(c.scanGpuWaitMaxAbs));
++	    c.scanGpuSubmitFails, c.scanGpuLate, bergamota_abs_us(c.scanGpuWaitMaxAbs), c.queued, c.heldReuse, c.nextDropped, c.orderBack);
  	#undef PER_S
- 	sweet_fb_stats_publish(line);
- 	if (fStLogSecs != 0 && (fStLogT == 0 || sweet_abs_us(now - fStLogT) >= (uint64_t)fStLogSecs * 1000000)) {
+ 	bergamota_fb_stats_publish(line);
+ 	if (fStLogSecs != 0 && (fStLogT == 0 || bergamota_abs_us(now - fStLogT) >= (uint64_t)fStLogSecs * 1000000)) {
 @@ -1342,7 +1416,10 @@
- 		nanoseconds_to_absolutetime((SWEET_FB_GATE_CAP_MS + 20) * NSEC_PER_MSEC, &cap);
+ 		nanoseconds_to_absolutetime((BERGAMOTA_FB_GATE_CAP_MS + 20) * NSEC_PER_MSEC, &cap);
  		for (;;) {
  			IOLockLock(fLock);
 -			bool pending = fDirty && !fPowerOff && mach_absolute_time() - fPendAbs < cap;
 +			/* 1027: with the second slot, wait only while both are full (from the queued swap's arrival) */
-+			bool q2 = __atomic_load_n(&sweet_fb_queue2, __ATOMIC_RELAXED) != 0;
++			bool q2 = __atomic_load_n(&bergamota_fb_queue2, __ATOMIC_RELAXED) != 0;
 +			bool pending = q2 ? fNextValid && !fPowerOff && mach_absolute_time() - fNextAbs < cap :
 +			    fDirty && !fPowerOff && mach_absolute_time() - fPendAbs < cap;
  			IOLockUnlock(fLock);
@@ -172,21 +172,21 @@ order_back= counts frames taken older than the one before them. Without this a q
  	}
  	IOLockLock(fLock);
  	fSt.swaps++;
--	fPendFence = sweet_gpu_fence_snapshot();
--	fPendGate = __atomic_load_n(&sweet_fb_gate_committed, __ATOMIC_ACQUIRE);
+-	fPendFence = bergamota_gpu_fence_snapshot();
+-	fPendGate = __atomic_load_n(&bergamota_fb_gate_committed, __ATOMIC_ACQUIRE);
 -	fPendAbs = mach_absolute_time();
  	__atomic_store_n(&fSwapNewest, get32(rec, 0x50), __ATOMIC_RELEASE);
  	{
- 		struct sweet_fb_trace_rec *tr = &sweet_fb_trace[get32(rec, 0x50) & (SWEET_FB_TRACE_N - 1)];
+ 		struct bergamota_fb_trace_rec *tr = &bergamota_fb_trace[get32(rec, 0x50) & (BERGAMOTA_FB_TRACE_N - 1)];
  		bzero(tr, sizeof(*tr));
  		tr->id = get32(rec, 0x50);
  		tr->swap = mach_absolute_time();
 +	}
 +	/* 1027: a new frame drawn into a surface that a pending or queued swap still shows (not yet copied to the panel): what
 +	 * that swap shows is then the newer frame, and the older swap after it a step back */
-+	for (uint32_t i = 0; i < 4 && i < SWEET_FB_LAYERS; i++) {
++	for (uint32_t i = 0; i < 4 && i < BERGAMOTA_FB_LAYERS; i++) {
 +		uint32_t sid = (get32(rec, 0x104) & (1u << i)) ? get32(rec, 0x54 + 4 * i) : 0;
-+		for (uint32_t j = 0; sid != 0 && j < 4 && j < SWEET_FB_LAYERS; j++) {
++		for (uint32_t j = 0; sid != 0 && j < 4 && j < BERGAMOTA_FB_LAYERS; j++) {
 +			if ((fDirty && (get32(fPending, 0x104) & (1u << j)) && get32(fPending, 0x54 + 4 * j) == sid) ||
 +			    (fNextValid && (get32(fNextRec, 0x104) & (1u << j)) && get32(fNextRec, 0x54 + 4 * j) == sid)) {
 +				fSt.heldReuse++;
@@ -194,7 +194,7 @@ order_back= counts frames taken older than the one before them. Without this a q
 +		}
 +	}
 +	/* 1027: a swap behind a pending one waits in the second slot (one there already past the cap: replaced) */
-+	if (__atomic_load_n(&sweet_fb_queue2, __ATOMIC_RELAXED) != 0 && __atomic_load_n(&sweet_fb_gate_committed, __ATOMIC_ACQUIRE) != 0 &&
++	if (__atomic_load_n(&bergamota_fb_queue2, __ATOMIC_RELAXED) != 0 && __atomic_load_n(&bergamota_fb_gate_committed, __ATOMIC_ACQUIRE) != 0 &&
 +	    fDirty && !fPowerOff) {
 +		if (fNextValid) {
 +			fSt.coalesced++;
@@ -202,18 +202,18 @@ order_back= counts frames taken older than the one before them. Without this a q
 +		} else {
 +			bzero(dropped, sizeof(dropped));
 +		}
-+		memcpy(fNextRec, rec, SWEET_FB_SWAP_REC_SIZE);
++		memcpy(fNextRec, rec, BERGAMOTA_FB_SWAP_REC_SIZE);
 +		memcpy(fNextHold, held, sizeof(held));
-+		fNextFence = sweet_gpu_fence_snapshot();
-+		fNextGate = __atomic_load_n(&sweet_fb_gate_committed, __ATOMIC_ACQUIRE);
++		fNextFence = bergamota_gpu_fence_snapshot();
++		fNextGate = __atomic_load_n(&bergamota_fb_gate_committed, __ATOMIC_ACQUIRE);
 +		fNextAbs = mach_absolute_time();
 +		fNextValid = true;
 +		fSt.queued++;
 +		IOLockUnlock(fLock);
-+		sweet_hold_release(dropped);
++		bergamota_hold_release(dropped);
 +		return;
  	}
-+	SweetSurface *olderNext[4] = {};
++	BergamotaSurface *olderNext[4] = {};
 +	if (fNextValid) {
 +		/* 1027: this swap goes straight to pending (the slot was empty for a moment, or the display is off): the queued one
 +		 * is older and must not be promoted after it */
@@ -222,8 +222,8 @@ order_back= counts frames taken older than the one before them. Without this a q
 +		bzero(fNextHold, sizeof(fNextHold));
 +		fNextValid = false;
 +	}
-+	fPendFence = sweet_gpu_fence_snapshot();
-+	fPendGate = __atomic_load_n(&sweet_fb_gate_committed, __ATOMIC_ACQUIRE);
++	fPendFence = bergamota_gpu_fence_snapshot();
++	fPendGate = __atomic_load_n(&bergamota_fb_gate_committed, __ATOMIC_ACQUIRE);
 +	fPendAbs = mach_absolute_time();
  	if (fDirty) {
  		fSt.coalesced++;        /* the previous swap never reached the panel */
@@ -231,20 +231,20 @@ order_back= counts frames taken older than the one before them. Without this a q
 @@ -1378,6 +1495,7 @@
  	memcpy(fPendHold, held, sizeof(held));
  	IOLockUnlock(fLock);
- 	sweet_hold_release(dropped);
-+	sweet_hold_release(olderNext);
+ 	bergamota_hold_release(dropped);
++	bergamota_hold_release(olderNext);
  	if (fEarly && !fPowerOff) {
  		fSwapTimer->setTimeoutUS(1);    /* scan it now: the MDP latches at its next vsync */
  	}
---- a/bsd/dev/sweet_fb.c
-+++ b/bsd/dev/sweet_fb.c
+--- a/bsd/dev/bergamota_fb.c
++++ b/bsd/dev/bergamota_fb.c
 @@ -113,6 +113,9 @@
  	}
  	return 0;
  }
-+/* 1027: a swap behind a pending one waits in a second slot instead of holding SwapEnd (SweetFramebuffer.cpp); 0 = off */
-+uint32_t sweet_fb_queue2;
-+SYSCTL_UINT(_kern, OID_AUTO, sweet_fb_queue2, CTLFLAG_RW | CTLFLAG_LOCKED, &sweet_fb_queue2, 0, "second swap slot (1027)");
- SYSCTL_PROC(_kern, OID_AUTO, sweet_fb_gate_committed, CTLTYPE_QUAD | CTLFLAG_RW | CTLFLAG_ANYBODY | CTLFLAG_LOCKED,
-     &sweet_fb_gate_committed, 0, sysctl_sweet_fb_gate, "Q", "backboardd's async Metal commits (1022)");
- SYSCTL_PROC(_kern, OID_AUTO, sweet_fb_gate_submitted, CTLTYPE_QUAD | CTLFLAG_RW | CTLFLAG_ANYBODY | CTLFLAG_LOCKED,
++/* 1027: a swap behind a pending one waits in a second slot instead of holding SwapEnd (BergamotaFramebuffer.cpp); 0 = off */
++uint32_t bergamota_fb_queue2;
++SYSCTL_UINT(_kern, OID_AUTO, bergamota_fb_queue2, CTLFLAG_RW | CTLFLAG_LOCKED, &bergamota_fb_queue2, 0, "second swap slot (1027)");
+ SYSCTL_PROC(_kern, OID_AUTO, bergamota_fb_gate_committed, CTLTYPE_QUAD | CTLFLAG_RW | CTLFLAG_ANYBODY | CTLFLAG_LOCKED,
+     &bergamota_fb_gate_committed, 0, sysctl_bergamota_fb_gate, "Q", "backboardd's async Metal commits (1022)");
+ SYSCTL_PROC(_kern, OID_AUTO, bergamota_fb_gate_submitted, CTLTYPE_QUAD | CTLFLAG_RW | CTLFLAG_ANYBODY | CTLFLAG_LOCKED,

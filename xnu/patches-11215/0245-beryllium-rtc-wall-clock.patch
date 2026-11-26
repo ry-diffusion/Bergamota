@@ -2,14 +2,14 @@ Poco F1 wall clock from the PM8998 RTC: raw seconds plus an offset kept in the R
 disabled); the platform expert publishes IORTC and serves get/setGMTTimeOfDay, so a boot no longer starts in 1970
 (coreduetd spun ~75 % of a core re-ingesting Biome history after the 1970 -> 2026 jump).
 
---- a/bsd/dev/sweet_spmi.c
-+++ b/bsd/dev/sweet_spmi.c
+--- a/bsd/dev/bergamota_spmi.c
++++ b/bsd/dev/bergamota_spmi.c
 @@ -158,7 +158,7 @@
  		    peripheral == 0x16 || peripheral == 0x40 || peripheral == 0x41 ||
  		    peripheral == 0x45)) ||
  		    (sid == 3 && (peripheral == 0xd8 || peripheral == 0xd9)) ||
 -		    (sid == 0 && peripheral == 0x08);
-+		    (sid == 0 && (peripheral == 0x08 || peripheral == 0x60 || peripheral == 0x61));  /* 0x60/0x61: PM8998 RTC, alarm (sweet_rtc_*) */
++		    (sid == 0 && (peripheral == 0x08 || peripheral == 0x60 || peripheral == 0x61));  /* 0x60/0x61: PM8998 RTC, alarm (bergamota_rtc_*) */
  	} else {
  		allowed = sid == 0 && (peripheral == 0x10 || peripheral == 0x11 ||
  		    peripheral == 0x12 || peripheral == 0x13 || peripheral == 0x48);
@@ -18,7 +18,7 @@ disabled); the platform expert publishes IORTC and serves get/setGMTTimeOfDay, s
  	}
  	if (sid == 0) {
 -		return addr == 0x088fu && len == 1;
-+		/* PON spare (reboot reason); RTC alarm data 0x6140-0x6143 (the RTC offset, sweet_rtc_set) */
++		/* PON spare (reboot reason); RTC alarm data 0x6140-0x6143 (the RTC offset, bergamota_rtc_set) */
 +		return (addr == 0x088fu && len == 1) || (addr >= 0x6140u && addr + len <= 0x6144u);
  	}
  	if (sid != 3) {
@@ -49,7 +49,7 @@ disabled); the platform expert publishes IORTC and serves get/setGMTTimeOfDay, s
 +{
 +	uint8_t b[4];
 +	for (unsigned i = 0; i < 4; i++) {
-+		if (sweet_spmi_read(0, addr + i, &b[i]) != 0) {
++		if (bergamota_spmi_read(0, addr + i, &b[i]) != 0) {
 +			return -1;
 +		}
 +	}
@@ -62,12 +62,12 @@ disabled); the platform expert publishes IORTC and serves get/setGMTTimeOfDay, s
 +sr_raw(uint32_t *raw)
 +{
 +	uint8_t ctrl = 0, b0 = 0;
-+	if (!sweet_board_beryllium() || sweet_spmi_init() != 0 || sweet_spmi_read(0, SR_RTC_CTRL, &ctrl) != 0 ||
++	if (!bergamota_board_beryllium() || bergamota_spmi_init() != 0 || bergamota_spmi_read(0, SR_RTC_CTRL, &ctrl) != 0 ||
 +	    !(ctrl & SR_EN)) {
 +		return -1;
 +	}
 +	for (int t = 0; t < 2; t++) {
-+		if (sr_read32(SR_RTC_READ, raw) != 0 || sweet_spmi_read(0, SR_RTC_READ, &b0) != 0) {
++		if (sr_read32(SR_RTC_READ, raw) != 0 || bergamota_spmi_read(0, SR_RTC_READ, &b0) != 0) {
 +			return -1;
 +		}
 +		if (b0 == (uint8_t)*raw) {
@@ -82,7 +82,7 @@ disabled); the platform expert publishes IORTC and serves get/setGMTTimeOfDay, s
 +sr_offset(uint32_t *off)
 +{
 +	uint8_t actl = SR_EN;
-+	if (sweet_spmi_read(0, SR_ALARM_CTRL, &actl) != 0 || (actl & SR_EN)) {
++	if (bergamota_spmi_read(0, SR_ALARM_CTRL, &actl) != 0 || (actl & SR_EN)) {
 +		return -1;
 +	}
 +	return sr_read32(SR_ALARM_DATA, off);
@@ -90,7 +90,7 @@ disabled); the platform expert publishes IORTC and serves get/setGMTTimeOfDay, s
 +
 +/* Thread context. Unix seconds from the RTC (raw + stored offset, or raw when that is already wall time); 0 none. */
 +uint64_t
-+sweet_rtc_get(void)
++bergamota_rtc_get(void)
 +{
 +	static bool told;
 +	uint32_t raw, off = 0;
@@ -104,14 +104,14 @@ disabled); the platform expert publishes IORTC and serves get/setGMTTimeOfDay, s
 +	}
 +	if (!told) {
 +		told = true;
-+		printf("SWEET RTC: raw %u offset %u%s -> %llu\n", raw, off, have ? "" : " (alarm armed or unreadable)", t);
++		printf("BERGAMOTA RTC: raw %u offset %u%s -> %llu\n", raw, off, have ? "" : " (alarm armed or unreadable)", t);
 +	}
 +	return t;
 +}
 +
 +/* Thread context: keep the offset so the next boot starts at this time. Writes only when it moved by over 2 s. */
 +void
-+sweet_rtc_set(uint64_t unix_secs)
++bergamota_rtc_set(uint64_t unix_secs)
 +{
 +	uint32_t raw, off;
 +	if (unix_secs < SR_T_MIN || unix_secs >= SR_T_MAX || sr_raw(&raw) != 0 || unix_secs < raw ||
@@ -124,34 +124,34 @@ disabled); the platform expert publishes IORTC and serves get/setGMTTimeOfDay, s
 +	}
 +	uint8_t d[4] = { (uint8_t)want, (uint8_t)(want >> 8), (uint8_t)(want >> 16), (uint8_t)(want >> 24) };
 +	uint32_t back = 0;
-+	bool ok = sweet_spmi_write(0, SR_ALARM_DATA, &d[0], 2) == 0 && sweet_spmi_write(0, SR_ALARM_DATA + 2, &d[2], 2) == 0 &&
++	bool ok = bergamota_spmi_write(0, SR_ALARM_DATA, &d[0], 2) == 0 && bergamota_spmi_write(0, SR_ALARM_DATA + 2, &d[2], 2) == 0 &&
 +	    sr_read32(SR_ALARM_DATA, &back) == 0 && back == want;
-+	printf("SWEET RTC: offset %u -> %u (raw %u, time %llu)%s\n", off, want, raw, unix_secs, ok ? "" : " FAILED");
++	printf("BERGAMOTA RTC: offset %u -> %u (raw %u, time %llu)%s\n", off, want, raw, unix_secs, ok ? "" : " FAILED");
 +}
- #endif /* ARM64_BOARD_CONFIG_SWEET */
---- a/bsd/dev/sweet_spmi.h
-+++ b/bsd/dev/sweet_spmi.h
+ #endif /* ARM64_BOARD_CONFIG_BERGAMOTA */
+--- a/bsd/dev/bergamota_spmi.h
++++ b/bsd/dev/bergamota_spmi.h
 @@ -19,6 +19,9 @@
- int sweet_spmi_prepare_write(unsigned sid, unsigned addr);
+ int bergamota_spmi_prepare_write(unsigned sid, unsigned addr);
  /* Reset time: no more sleeping locks or mappings in this module. */
- void sweet_spmi_atomic(void);
+ void bergamota_spmi_atomic(void);
 +/* Poco F1 wall clock from the PM8998 RTC (patch 0245). Thread context. get: Unix seconds, 0 none. */
-+uint64_t sweet_rtc_get(void);
-+void sweet_rtc_set(uint64_t unix_secs);
++uint64_t bergamota_rtc_get(void);
++void bergamota_rtc_set(uint64_t unix_secs);
  #ifdef __cplusplus
  }
  #endif
---- a/iokit/Kernel/arm/SweetPlatformExpert.cpp
-+++ b/iokit/Kernel/arm/SweetPlatformExpert.cpp
+--- a/iokit/Kernel/arm/BergamotaPlatformExpert.cpp
++++ b/iokit/Kernel/arm/BergamotaPlatformExpert.cpp
 @@ -12,6 +12,8 @@
  
- extern "C" int sweet_reboot_restart(int panic_restart);
- extern "C" void sweet_reboot_note_panic(void);
-+#include "../../../bsd/dev/sweet_board.h"
-+#include "../../../bsd/dev/sweet_spmi.h"
+ extern "C" int bergamota_reboot_restart(int panic_restart);
+ extern "C" void bergamota_reboot_note_panic(void);
++#include "../../../bsd/dev/bergamota_board.h"
++#include "../../../bsd/dev/bergamota_spmi.h"
  
- class SweetPlatformExpert : public IODTPlatformExpert {
- 	OSDeclareDefaultStructors(SweetPlatformExpert);
+ class BergamotaPlatformExpert : public IODTPlatformExpert {
+ 	OSDeclareDefaultStructors(BergamotaPlatformExpert);
 @@ -22,6 +24,8 @@
  	const char *deleteList(void) APPLE_KEXT_OVERRIDE;
  	const char *excludeList(void) APPLE_KEXT_OVERRIDE;
@@ -160,12 +160,12 @@ disabled); the platform expert publishes IORTC and serves get/setGMTTimeOfDay, s
 +	void setGMTTimeOfDay(long secs) APPLE_KEXT_OVERRIDE;
  };
  
- OSDefineMetaClassAndStructors(SweetPlatformExpert, IODTPlatformExpert);
+ OSDefineMetaClassAndStructors(BergamotaPlatformExpert, IODTPlatformExpert);
 @@ -35,6 +39,9 @@
  	}
  	registerService();
- 	IOLog("SWEET: platform expert registered\n");
-+	if (sweet_board_beryllium()) {
+ 	IOLog("BERGAMOTA: platform expert registered\n");
++	if (bergamota_board_beryllium()) {
 +		publishResource("IORTC");       /* 0245: the PM8998 RTC below; IOKitInitializeTime waits up to 30 s for it */
 +	}
  	return true;
@@ -177,18 +177,18 @@ disabled); the platform expert publishes IORTC and serves get/setGMTTimeOfDay, s
  	return IODTPlatformExpert::haltRestart(type);
 +}
 +
-+/* 0245: wall clock from the PM8998 RTC and the offset kept beside it (bsd/dev/sweet_spmi.c), so a boot is not in 1970. */
++/* 0245: wall clock from the PM8998 RTC and the offset kept beside it (bsd/dev/bergamota_spmi.c), so a boot is not in 1970. */
 +long
-+SweetPlatformExpert::getGMTTimeOfDay(void)
++BergamotaPlatformExpert::getGMTTimeOfDay(void)
 +{
-+	return sweet_board_beryllium() ? (long)sweet_rtc_get() : 0;
++	return bergamota_board_beryllium() ? (long)bergamota_rtc_get() : 0;
 +}
 +
 +void
-+SweetPlatformExpert::setGMTTimeOfDay(long secs)
++BergamotaPlatformExpert::setGMTTimeOfDay(long secs)
 +{
-+	if (sweet_board_beryllium() && secs > 0) {
-+		sweet_rtc_set((uint64_t)secs);
++	if (bergamota_board_beryllium() && secs > 0) {
++		bergamota_rtc_set((uint64_t)secs);
 +	}
  }
  

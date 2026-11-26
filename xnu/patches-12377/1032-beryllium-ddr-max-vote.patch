@@ -1,7 +1,7 @@
-diff --git a/bsd/dev/sweet_rpmh.c b/bsd/dev/sweet_rpmh.c
+diff --git a/bsd/dev/bergamota_rpmh.c b/bsd/dev/bergamota_rpmh.c
 index 6ef2a78..fe28817 100644
---- a/bsd/dev/sweet_rpmh.c
-+++ b/bsd/dev/sweet_rpmh.c
+--- a/bsd/dev/bergamota_rpmh.c
++++ b/bsd/dev/bergamota_rpmh.c
 @@ -7,6 +7,7 @@
  #include <sys/param.h>
  #include <sys/systm.h>
@@ -9,16 +9,16 @@ index 6ef2a78..fe28817 100644
 +#include <sys/sysctl.h>
  #include <kern/clock.h>
  #include <machine/machine_routines.h>
- #include "sweet_board.h"
+ #include "bergamota_board.h"
 @@ -15,6 +16,7 @@ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
- int sweet_rpmh_vreg_enable(const char *res, unsigned mv);
- int sweet_rpmh_vreg_set(const char *res, unsigned mv, bool enable);
- int sweet_rpmh_arc_vote(const char *res, bool max);
-+int sweet_rpmh_ddr_max(void);
- int sweet_rpmh_rfclk_enable(const char *res);
+ int bergamota_rpmh_vreg_enable(const char *res, unsigned mv);
+ int bergamota_rpmh_vreg_set(const char *res, unsigned mv, bool enable);
+ int bergamota_rpmh_arc_vote(const char *res, bool max);
++int bergamota_rpmh_ddr_max(void);
+ int bergamota_rpmh_rfclk_enable(const char *res);
  
  /* Live downstream DT has two positional reg entries, no reg-names. */
-@@ -59,6 +61,7 @@ int sweet_rpmh_rfclk_enable(const char *res);
+@@ -59,6 +61,7 @@ int bergamota_rpmh_rfclk_enable(const char *res);
  #define RH_DB_MAX       0x100000u /* policy bound, not a DT size */
  #define RH_ARC          3u
  #define RH_VRM          4u
@@ -33,7 +33,7 @@ index 6ef2a78..fe28817 100644
 -			if (slave != want || (addr >> 16) != want || (addr & 15u) ||
 +			if (slave != want || (addr >> 16) != want || (addr & (want == RH_BCM ? 3u : 15u)) ||
  			    !rh_range(aux + rh_db16(e + 22), rh_db16(e + 20))) {
- 				printf("SWEET RPMH: invalid %s entry for %s\n", want == RH_ARC ? "ARC" : "VRM", res);
+ 				printf("BERGAMOTA RPMH: invalid %s entry for %s\n", want == RH_ARC ? "ARC" : "VRM", res);
  				return EINVAL;
 @@ -586,4 +589,54 @@ out:
  	__atomic_store_n(&rh_lock, 0, __ATOMIC_RELEASE);
@@ -41,16 +41,16 @@ index 6ef2a78..fe28817 100644
  }
 +
 +/*
-+ * kern.sweet_ddr_max (write 1): one ACTIVE vote of MC0 (DDR) and SH0 (memory NoC) at the
++ * kern.bergamota_ddr_max (write 1): one ACTIVE vote of MC0 (DDR) and SH0 (memory NoC) at the
 + * top of their range, BCM_TCS_CMD(commit, valid, x=0x3fff, y=0x3fff) as Linux's
 + * qcom,bcm-voter encodes it; the BCM clamps to its highest level. Nothing votes DDR on
 + * this kernel (the GMU's a630 bandwidth table is the zero vote). Never votes down: an
 + * apps-DRV vote replaces ABL's.
 + */
 +int
-+sweet_rpmh_ddr_max(void)
++bergamota_rpmh_ddr_max(void)
 +{
-+	if (!sweet_board_beryllium()) {
++	if (!bergamota_board_beryllium()) {
 +		return EINVAL;
 +	}
 +	if (__atomic_exchange_n(&rh_lock, 1, __ATOMIC_ACQUIRE)) {
@@ -64,14 +64,14 @@ index 6ef2a78..fe28817 100644
 +		vals[i] = (1u << 30) | (1u << 29) | (0x3fffu << 14) | 0x3fffu;
 +	}
 +	if (!error) {
-+		printf("SWEET RPMH: DDR max vote MC0 %#x SH0 %#x\n", addrs[0], addrs[1]);
++		printf("BERGAMOTA RPMH: DDR max vote MC0 %#x SH0 %#x\n", addrs[0], addrs[1]);
 +		/* one command each, so rh_cmds' same-16-byte-window rule holds per request */
 +		error = rh_cmds(&addrs[0], &vals[0], 1);
 +		if (!error) {
 +			error = rh_cmds(&addrs[1], &vals[1], 1);
 +		}
 +	}
-+	printf("SWEET RPMH: DDR max vote errno=%d\n", error);
++	printf("BERGAMOTA RPMH: DDR max vote errno=%d\n", error);
 +	__atomic_store_n(&rh_lock, 0, __ATOMIC_RELEASE);
 +	return error;
 +}
@@ -84,35 +84,35 @@ index 6ef2a78..fe28817 100644
 +	if (err || req->newptr == USER_ADDR_NULL) {
 +		return err;
 +	}
-+	return v == 1 ? sweet_rpmh_ddr_max() : EINVAL;
++	return v == 1 ? bergamota_rpmh_ddr_max() : EINVAL;
 +}
-+SYSCTL_PROC(_kern, OID_AUTO, sweet_ddr_max,
++SYSCTL_PROC(_kern, OID_AUTO, bergamota_ddr_max,
 +    CTLTYPE_INT | CTLFLAG_WR | CTLFLAG_LOCKED, 0, 0, rh_ddr_max_sysctl, "I",
 +    "1: vote DDR (MC0) and SH0 to their top level");
- #endif /* ARM64_BOARD_CONFIG_SWEET */
-diff --git a/iokit/Kernel/arm/SweetAdreno.cpp b/iokit/Kernel/arm/SweetAdreno.cpp
+ #endif /* ARM64_BOARD_CONFIG_BERGAMOTA */
+diff --git a/iokit/Kernel/arm/BergamotaAdreno.cpp b/iokit/Kernel/arm/BergamotaAdreno.cpp
 index 9aee09b..48d890d 100644
---- a/iokit/Kernel/arm/SweetAdreno.cpp
-+++ b/iokit/Kernel/arm/SweetAdreno.cpp
+--- a/iokit/Kernel/arm/BergamotaAdreno.cpp
++++ b/iokit/Kernel/arm/BergamotaAdreno.cpp
 @@ -37,6 +37,7 @@
  
- #include "SweetAdrenoABI.h"
- #include "SweetSurface.h"
-+extern "C" int sweet_rpmh_ddr_max(void);
+ #include "BergamotaAdrenoABI.h"
+ #include "BergamotaSurface.h"
++extern "C" int bergamota_rpmh_ddr_max(void);
  
  extern "C" {
- /* bsd/dev/sweet_a630.c: the kept-up GPU. Not thread safe; this file holds gAdrenoLock around every call. */
-@@ -221,6 +222,13 @@ SweetAdrenoPublish(void)
+ /* bsd/dev/bergamota_a630.c: the kept-up GPU. Not thread safe; this file holds gAdrenoLock around every call. */
+@@ -221,6 +222,13 @@ BergamotaAdrenoPublish(void)
  			svc->registerService();
- 			IOLog("SWEET GPU: %s published (user client class %s)\n", SWEET_GPU_SERVICE_NAME,
- 			    agx ? "AGXDeviceUserClient" : "SweetAdrenoUserClient");
-+			/* sweetddrmax=1: DDR and the memory NoC at their top level (kernel 1032); nothing else votes DDR,
+ 			IOLog("BERGAMOTA GPU: %s published (user client class %s)\n", BERGAMOTA_GPU_SERVICE_NAME,
+ 			    agx ? "AGXDeviceUserClient" : "BergamotaAdrenoUserClient");
++			/* bergamotaddrmax=1: DDR and the memory NoC at their top level (kernel 1032); nothing else votes DDR,
 +			 * and the App Library's glass passes are ~8 % faster with it */
 +			uint32_t ddr = 0;
-+			if (PE_parse_boot_argn("sweetddrmax", &ddr, sizeof(ddr)) && ddr) {
-+				int e = sweet_rpmh_ddr_max();
-+				IOLog("SWEET GPU: DDR max vote %s (%d)\n", e ? "failed" : "sent", e);
++			if (PE_parse_boot_argn("bergamotaddrmax", &ddr, sizeof(ddr)) && ddr) {
++				int e = bergamota_rpmh_ddr_max();
++				IOLog("BERGAMOTA GPU: DDR max vote %s (%d)\n", e ? "failed" : "sent", e);
 +			}
  		} else {
- 			IOLog("SWEET GPU: cannot attach %s to the platform\n", SWEET_GPU_SERVICE_NAME);
+ 			IOLog("BERGAMOTA GPU: cannot attach %s to the platform\n", BERGAMOTA_GPU_SERVICE_NAME);
  		}

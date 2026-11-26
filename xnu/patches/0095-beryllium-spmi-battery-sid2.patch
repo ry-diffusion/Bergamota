@@ -1,16 +1,16 @@
---- a/bsd/dev/sweet_spmi.c
-+++ b/bsd/dev/sweet_spmi.c
+--- a/bsd/dev/bergamota_spmi.c
++++ b/bsd/dev/bergamota_spmi.c
 @@ -11,6 +11,7 @@
  #include <machine/machine_routines.h>
  #include <IOKit/IOLocks.h>
- #include "sweet_spmi.h"
-+#include "sweet_board.h"
+ #include "bergamota_spmi.h"
++#include "bergamota_board.h"
  
  extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
  
 @@ -86,11 +87,22 @@
  int
- sweet_spmi_read(unsigned sid, unsigned addr, uint8_t *out)
+ bergamota_spmi_read(unsigned sid, unsigned addr, uint8_t *out)
  {
 -	/* Restrict access to the battery blocks; keys retain their own lanes. */
 +	/*
@@ -24,7 +24,7 @@
 -	    (peripheral != 0x10 && peripheral != 0x11 && peripheral != 0x12 &&
 -	    peripheral != 0x13 && peripheral != 0x48)) {
 +	bool allowed;
-+	if (sweet_board_beryllium()) {
++	if (bergamota_board_beryllium()) {
 +		allowed = sid == 2 && (peripheral == 0x10 || peripheral == 0x13 ||
 +		    peripheral == 0x40 || peripheral == 0x41);
 +	} else {

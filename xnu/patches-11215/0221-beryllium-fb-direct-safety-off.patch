@@ -1,7 +1,7 @@
-diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
+diff --git a/iokit/Kernel/arm/BergamotaFramebuffer.cpp b/iokit/Kernel/arm/BergamotaFramebuffer.cpp
 index f495b7e..e956ac6 100644
---- a/iokit/Kernel/arm/SweetFramebuffer.cpp
-+++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+--- a/iokit/Kernel/arm/BergamotaFramebuffer.cpp
++++ b/iokit/Kernel/arm/BergamotaFramebuffer.cpp
 @@ -337,7 +337,7 @@ public:
  	 * its vsync (it waits up to 20 ms, sleeping, for the latch) so a queued frame is never overwritten (scan_replaced) and
  	 * the address/flush registers are never rewritten around the latch itself. fLastStamp keeps vsync timestamps monotonic.
@@ -13,22 +13,22 @@ index f495b7e..e956ac6 100644
  	bool          waitReplace(void);
 @@ -599,7 +599,9 @@ AppleCLCD::start(IOService *provider)
  				fSwapDepth = depth <= 1 ? 1 : 2;
- 				PE_parse_boot_argn("sweetfb_swapsync", &ss, sizeof(ss));
- 				PE_parse_boot_argn("sweetfb_vsyncalign", &va, sizeof(va));
+ 				PE_parse_boot_argn("bergamotafb_swapsync", &ss, sizeof(ss));
+ 				PE_parse_boot_argn("bergamotafb_vsyncalign", &va, sizeof(va));
 -				int lc = 1, nr = 1, lg = 1000;
 +				int lc = 1, nr = 0, lg = 0, vs = 0;
-+				PE_parse_boot_argn("sweetfb_vsyncsmooth", &vs, sizeof(vs));
++				PE_parse_boot_argn("bergamotafb_vsyncsmooth", &vs, sizeof(vs));
 +				fVsyncSmooth = vs != 0;
- 				PE_parse_boot_argn("sweetfb_latchconfirm", &lc, sizeof(lc));
- 				PE_parse_boot_argn("sweetfb_noreplace", &nr, sizeof(nr));
- 				PE_parse_boot_argn("sweetfb_latchguard", &lg, sizeof(lg));
+ 				PE_parse_boot_argn("bergamotafb_latchconfirm", &lc, sizeof(lc));
+ 				PE_parse_boot_argn("bergamotafb_noreplace", &nr, sizeof(nr));
+ 				PE_parse_boot_argn("bergamotafb_latchguard", &lg, sizeof(lg));
 @@ -610,8 +612,8 @@ AppleCLCD::start(IOService *provider)
  					fGuardAbs = 0;
  				}
  				if (fEarly) {
--					IOLog("SWEET FB: direct safety: latch confirm %d, release guard %d us, no frame replacement %d (sweetfb_latchconfirm / sweetfb_latchguard / sweetfb_noreplace)\n",
+-					IOLog("BERGAMOTA FB: direct safety: latch confirm %d, release guard %d us, no frame replacement %d (bergamotafb_latchconfirm / bergamotafb_latchguard / bergamotafb_noreplace)\n",
 -					    fLatchConfirm ? 1 : 0, lg < 0 ? 0 : lg, fNoReplace ? 1 : 0);
-+					IOLog("SWEET FB: direct safety: latch confirm %d, release guard %d us, no frame replacement %d, vsync smoothing %d (sweetfb_latchconfirm / sweetfb_latchguard=US / sweetfb_noreplace / sweetfb_vsyncsmooth; all but the first default off since 0221)\n",
++					IOLog("BERGAMOTA FB: direct safety: latch confirm %d, release guard %d us, no frame replacement %d, vsync smoothing %d (bergamotafb_latchconfirm / bergamotafb_latchguard=US / bergamotafb_noreplace / bergamotafb_vsyncsmooth; all but the first default off since 0221)\n",
 +					    fLatchConfirm ? 1 : 0, lg < 0 ? 0 : lg, fNoReplace ? 1 : 0, fVsyncSmooth ? 1 : 0);
  				}
  				fSwapSync = fEarly && ss != 0;
@@ -37,8 +37,8 @@ index f495b7e..e956ac6 100644
  			if (left < per / 4) {
  				left += per;    /* too close to the boundary we just served: aim for the next one */
  			}
--			nextUS = (uint32_t)sweet_abs_us(left) + 500;    /* 0220: fire just AFTER the boundary, never before it */
-+			nextUS = (uint32_t)sweet_abs_us(left) + (fb->fVsyncSmooth ? 500 : 0);    /* 0220/0221 sweetfb_vsyncsmooth: fire just AFTER the boundary */
+-			nextUS = (uint32_t)bergamota_abs_us(left) + 500;    /* 0220: fire just AFTER the boundary, never before it */
++			nextUS = (uint32_t)bergamota_abs_us(left) + (fb->fVsyncSmooth ? 500 : 0);    /* 0220/0221 bergamotafb_vsyncsmooth: fire just AFTER the boundary */
  			if (nextUS < 1000) {
  				nextUS = 1000;
  			}

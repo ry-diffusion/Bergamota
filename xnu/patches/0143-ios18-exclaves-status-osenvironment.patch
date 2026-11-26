@@ -22,14 +22,14 @@
 + * only defined under CONFIG_EXCLAVES in xnu-11215; they stay absent (ENOENT),
 + * which callers treat as "no requirement relaxed".
 + */
-+#define SWEET_EXCLAVES_STATUS_NOT_SUPPORTED     0xFF
-+#define SWEET_EXCLAVES_BOOT_STAGE_NONE          (~0u)
++#define BERGAMOTA_EXCLAVES_STATUS_NOT_SUPPORTED     0xFF
++#define BERGAMOTA_EXCLAVES_BOOT_STAGE_NONE          (~0u)
 +
 +static int
 +sysctl_exclaves_status SYSCTL_HANDLER_ARGS
 +{
 +#pragma unused(oidp, arg1, arg2)
-+	int value = SWEET_EXCLAVES_STATUS_NOT_SUPPORTED;
++	int value = BERGAMOTA_EXCLAVES_STATUS_NOT_SUPPORTED;
 +	return sysctl_io_number(req, value, sizeof(value), NULL, NULL);
 +}
 +
@@ -41,7 +41,7 @@
 +sysctl_exclaves_boot_stage SYSCTL_HANDLER_ARGS
 +{
 +#pragma unused(oidp, arg1, arg2)
-+	int value = (int)SWEET_EXCLAVES_BOOT_STAGE_NONE;
++	int value = (int)BERGAMOTA_EXCLAVES_BOOT_STAGE_NONE;
 +	return sysctl_io_number(req, value, sizeof(value), NULL, NULL);
 +}
 +

@@ -31,7 +31,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
  		sta.eapol_msdu = id;
  		sta.tx_eapol++;
 +		uint16_t ki = len >= 14 + 7 ? (uint16_t)((eth[14 + 5] << 8) | eth[14 + 6]) : 0;
-+		printf("SWEET WLAN sta: EAPOL out: %zu bytes, key info %#x, msdu %d, tid %u, %s, CE4 wr %u\n", len - 14, ki, id,
++		printf("BERGAMOTA WLAN sta: EAPOL out: %zu bytes, key info %#x, msdu %d, tid %u, %s, CE4 wr %u\n", len - 14, ki, id,
 +		    tid, prot ? "protected" : "clear", wce.wr[4]);
  	}
  	sta.tx_frames++;
@@ -44,7 +44,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	sta.txlog = 0;
 +	memset(&sta.ar, 0, sizeof(sta.ar));
  	sta.svc_mgmt_wmi = wmi_svc_on(76);      /* WMI_TLV_SERVICE_MGMT_TX_WMI */
- 	printf("SWEET WLAN sta: join \"%.*s\" (%s), management TX %s, rx reorder offload %s\n", sta.req.ssid_len,
+ 	printf("BERGAMOTA WLAN sta: join \"%.*s\" (%s), management TX %s, rx reorder offload %s\n", sta.req.ssid_len,
  	    sta.req.ssid, sta.req.rsn_ie_len ? "WPA2-PSK" : "open", sta.svc_mgmt_wmi ? "WMI by reference" : "HTT",
 @@ -6439,8 +6452,24 @@
  	case ST_DOWN: {
@@ -58,7 +58,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			memcpy(&fl[1], sta.bssid, 6);
 +			sta_wmi(c, scan_cmd(c, 0x6003, 99, fl, 16), "peer flush tids");
 +			sta.flushed = true;
-+			printf("SWEET WLAN sta: %u frames still in flight at teardown: flushing the peer's TIDs\n", sta.tx_inflight);
++			printf("BERGAMOTA WLAN sta: %u frames still in flight at teardown: flushing the peer's TIDs\n", sta.tx_inflight);
 +		}
 +		if (sta.down_step == 0 && (!sta.mgmt_busy || in > 300) && ((sta.tx_inflight == 0 && sta.wq_n == 0) ||
 +		    in > 2000)) {
@@ -68,7 +68,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			 * VDEV_DOWN and PEER_DELETE
 +			 */
 +			if (sta.tx_inflight) {
-+				printf("SWEET WLAN sta: %u frames never completed: VDEV_DOWN anyway\n", sta.tx_inflight);
++				printf("BERGAMOTA WLAN sta: %u frames never completed: VDEV_DOWN anyway\n", sta.tx_inflight);
 +			}
  			if (sta.vdev_up) {
  				sta_wmi(c, scan_cmd(c, 0x5007, 94, v, 4), "vdev down");
@@ -89,7 +89,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
  		unsigned st = pl[1] & 7, num = pl[2];
 +		if ((!sta.connected || st) && sta.txlog < 64) {
 +			sta.txlog++;
-+			printf("SWEET WLAN sta: TX completion: %u msdu(s) status %u (%s), first id %u, %u in flight\n", num, st,
++			printf("BERGAMOTA WLAN sta: TX completion: %u msdu(s) status %u (%s), first id %u, %u in flight\n", num, st,
 +			    st == 0 ? "ok" : st == 1 ? "discard" : st == 2 ? "no ack" : st == 3 ? "postpone" : "?",
 +			    plen >= 6 ? (unsigned)(pl[4] | (pl[5] << 8)) : 0xffffu, sta.tx_inflight);
 +		}

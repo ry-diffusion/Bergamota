@@ -1,6 +1,6 @@
-diff --git a/bsd/dev/sweet_a630.c b/bsd/dev/sweet_a630.c
---- a/bsd/dev/sweet_a630.c
-+++ b/bsd/dev/sweet_a630.c
+diff --git a/bsd/dev/bergamota_a630.c b/bsd/dev/bergamota_a630.c
+--- a/bsd/dev/bergamota_a630.c
++++ b/bsd/dev/bergamota_a630.c
 @@ -206,6 +206,10 @@
  #define GMU_BOOT_SLUMBER_OPTION R(0x23f8)       /* in the GMU DTCM */
  #define GMU_GX_VOTE_IDX         R(0x23f9)
@@ -25,7 +25,7 @@ diff --git a/bsd/dev/sweet_a630.c b/bsd/dev/sweet_a630.c
  static uint32_t a630_timed;      /* last submission whose stamps were added to the busy time */
  static bool gpu_resume(void);
 +static bool gpu_hfi_start_dcvs(bool gx_on);
- bool sweet_gpu_recover(const char *why);
+ bool bergamota_gpu_recover(const char *why);
  
  static vm_offset_t ptp;
 @@ -3158,7 +3164,7 @@
@@ -75,12 +75,12 @@ diff --git a/bsd/dev/sweet_a630.c b/bsd/dev/sweet_a630.c
 +	if (ok && ret == 0) {
  		a630_level = lvl;
 -	} else {
--		printf("SWEET GPU: GX level vote %u failed; governor off\n", lvl);
+-		printf("BERGAMOTA GPU: GX level vote %u failed; governor off\n", lvl);
 -		a630_gov = 0;
 +		a630_level_sets++;
 +		dcvs_log_n++;
 +		if (dcvs_log_t == 0 || ns_since(dcvs_log_t) >= NSEC_PER_SEC) {  /* one line per second at most */
-+			printf("SWEET GPU: GX level %u (%u MHz) via DCVS OOB (%u change%s since the last line)\n", lvl, gpu_levels[lvl].mhz,
++			printf("BERGAMOTA GPU: GX level %u (%u MHz) via DCVS OOB (%u change%s since the last line)\n", lvl, gpu_levels[lvl].mhz,
 +			    dcvs_log_n, dcvs_log_n == 1 ? "" : "s");
 +			dcvs_log_t = mach_absolute_time();
 +			dcvs_log_n = 0;
@@ -90,7 +90,7 @@ diff --git a/bsd/dev/sweet_a630.c b/bsd/dev/sweet_a630.c
 -	return ok;
 +	a630_dcvs_errors++;
 +	a630_dcvs_broken = true;
-+	printf("SWEET GPU: GX level vote %u failed (OOB DCVS_SET %s, DCVS_RETURN 0x%08x); %sstaying at level %u\n", lvl,
++	printf("BERGAMOTA GPU: GX level vote %u failed (OOB DCVS_SET %s, DCVS_RETURN 0x%08x); %sstaying at level %u\n", lvl,
 +	    ok ? "acknowledged" : "TIMED OUT", ret, a630_gov ? "governor off, " : "", a630_level);
 +	a630_gov = 0;
 +	return false;

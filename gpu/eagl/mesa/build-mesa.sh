@@ -1,7 +1,7 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
 # Cross-build Mesa 25.0.7 (official release tag, no third-party code) for iOS arm64e: OSMesa frontend, GLES1/2/3 contexts, gallium
-# softpipe and (GPU_EAGL_HW=1, the default) freedreno/a6xx over the libdrm stand-in gpu/freedreno-sweet. No LLVM, no X11/Wayland/GBM/EGL/GLX.
+# softpipe and (GPU_EAGL_HW=1, the default) freedreno/a6xx over the libdrm stand-in gpu/freedreno-bergamota. No LLVM, no X11/Wayland/GBM/EGL/GLX.
 # Mesa is patched with bergamota-mesa-25.0.7.patch (OSMesa ES profile, GPU blit into IOSurfaces, iOS fixes for freedreno).
 # The hardware path needs libdrm headers: the official libdrm-2.4.124 tag is cloned (headers only) and a libdrm.pc points at the stand-in.
 #   GPU_EAGL_WORK=/some/scratch/dir gpu/eagl/mesa/build-mesa.sh      (needs ~1.6 GB; Xcode with the iphoneos SDK;
@@ -56,13 +56,13 @@ EOT
 if [ "$HW" = 1 ]; then
   BLD="$WORK/build-hw"
   [ -d libdrm ] || git clone -q --depth 1 --branch libdrm-2.4.124 https://gitlab.freedesktop.org/mesa/drm.git libdrm
-  "$HERE/../../freedreno-sweet/build.sh" "$WORK/drm-standin-out" >/dev/null
+  "$HERE/../../freedreno-bergamota/build.sh" "$WORK/drm-standin-out" >/dev/null
   mkdir -p drm-standin pc
   cp "$WORK/drm-standin-out/libdrm.2.arm64e.dylib" drm-standin/libdrm.2.dylib
   ln -sf libdrm.2.dylib drm-standin/libdrm.dylib
   cat > pc/libdrm.pc <<EOP
 Name: libdrm
-Description: Bergamota libdrm stand-in (gpu/freedreno-sweet)
+Description: Bergamota libdrm stand-in (gpu/freedreno-bergamota)
 Version: 2.4.124
 Cflags: -I$WORK/libdrm/include/drm -I$WORK/libdrm
 Libs: -L$WORK/drm-standin -ldrm

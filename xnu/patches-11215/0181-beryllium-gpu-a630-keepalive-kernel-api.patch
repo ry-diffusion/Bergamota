@@ -1,20 +1,20 @@
-diff --git a/bsd/dev/sweet_a630.c b/bsd/dev/sweet_a630.c
+diff --git a/bsd/dev/bergamota_a630.c b/bsd/dev/bergamota_a630.c
 index e83469d..6b78546 100644
---- a/bsd/dev/sweet_a630.c
-+++ b/bsd/dev/sweet_a630.c
+--- a/bsd/dev/bergamota_a630.c
++++ b/bsd/dev/bergamota_a630.c
 @@ -20,6 +20,13 @@
   *      configuration, SQE (a630_sqe.fw) + ring buffer in a GPU SMMU context
   *      (stream ID 0), SQE_CNTL=1, CP_ME_INIT, zap, CP_SET_SECURE_MODE 0, then
   *      a NOP/MEM_WRITE/CACHE_FLUSH_TS submission with timestamp readback
 + *   8  7, and when the self-test passes the GPU is KEPT UP (GMU running, GX
 + *      held on through OOB_GPU, zap authenticated and left running, CP ring
-+ *      live) and the msm-style kernel interface below (sweet_gpu_*) plus the
-+ *      IOKit service "SweetAdreno630" (iokit/Kernel/arm/SweetAdreno.cpp) are
++ *      live) and the msm-style kernel interface below (bergamota_gpu_*) plus the
++ *      IOKit service "BergamotaAdreno630" (iokit/Kernel/arm/BergamotaAdreno.cpp) are
 + *      published. docs/GPU_KERNEL.md. If the self-test fails, stage 8 ends
 + *      exactly like stage 7 (zap shutdown, slumber, GMU reset) and nothing is
 + *      published.
   *
-  * Stages >= 3 need firmware: files under /usr/standalone/firmware/sweet/
+  * Stages >= 3 need firmware: files under /usr/standalone/firmware/bergamota/
   * of the iOS root (a630_gmu.bin, a630_sqe.fw, a630_zap.mdt + a630_zap.bNN)
 @@ -161,6 +168,7 @@ enum { CC_AHB, CC_CX_GMU, CC_CXO, CC_CX_SNOC_DVM, CC_CX_APB, CC_CXO_AON, CC_GX_G
  #define GMU_GMU2HOST_INTR_INFO  R(0x5192)
@@ -63,7 +63,7 @@ index e83469d..6b78546 100644
 +		buf[i] = 0xdeadbeefu;
 +	}
 +	*ts = 0;
-+	sweet_dma_sync_va((const void *)(cp_memory + SCRATCH_OFF), 0x500);
++	bergamota_dma_sync_va((const void *)(cp_memory + SCRATCH_OFF), 0x500);
 +	ring_emit(pkt7(CP_MEM_WRITE, 2 + 64));
 +	ring_emit((uint32_t)(SCRATCH_VA + SCRATCH_FILL));
 +	ring_emit(0);
@@ -78,10 +78,10 @@ index e83469d..6b78546 100644
 +	ring_flush();
 +	bool idle = ring_wait_idle("fill submission");
 +	for (unsigned i = 0; i < 50000 && *ts != seq; i++) {
-+		sweet_dma_sync_va((const void *)(cp_memory + SCRATCH_OFF), 0x500);
++		bergamota_dma_sync_va((const void *)(cp_memory + SCRATCH_OFF), 0x500);
 +		delay(1);
 +	}
-+	sweet_dma_sync_va((const void *)(cp_memory + SCRATCH_OFF), 0x500);
++	bergamota_dma_sync_va((const void *)(cp_memory + SCRATCH_OFF), 0x500);
 +	for (unsigned i = 0; i < 64; i++) {
 +		bad += buf[i] != (0xc1ea0000u | i);
 +	}
@@ -89,23 +89,23 @@ index e83469d..6b78546 100644
 +	if (irq) {
 +		gpu_w(A6XX_RBBM_INT_CLEAR_CMD, irq & 0x00ffffffu);
 +	}
-+	printf("SWEET GPU: CP fill test: %u of 64 words wrong, timestamp 0x%08x (want 0x%08x), first/last 0x%08x 0x%08x\n",
++	printf("BERGAMOTA GPU: CP fill test: %u of 64 words wrong, timestamp 0x%08x (want 0x%08x), first/last 0x%08x 0x%08x\n",
 +	    bad, *ts, seq, buf[0], buf[63]);
 +	if (idle && bad == 0 && *ts == seq) {
-+		printf("SWEET GPU: CP fill test PASSED\n");
++		printf("BERGAMOTA GPU: CP fill test PASSED\n");
 +		return true;
 +	}
-+	printf("SWEET GPU: CP fill test FAILED\n");
++	printf("BERGAMOTA GPU: CP fill test FAILED\n");
 +	return false;
 +}
 +
 +/* ------------------------------------------------------------------ */
-+/* Stage 8: the kept-up GPU and its kernel interface (sweet_gpu_*)     */
++/* Stage 8: the kept-up GPU and its kernel interface (bergamota_gpu_*)     */
 +/* ------------------------------------------------------------------ */
 +
 +/*
 + * Everything below is only reachable after the stage-8 self-test passed
-+ * (a630_dev.ready). The IOKit side (SweetAdreno.cpp) serializes all calls with
++ * (a630_dev.ready). The IOKit side (BergamotaAdreno.cpp) serializes all calls with
 + * one lock; nothing here takes a lock of its own. Interface shape and the
 + * division of work (kernel allocates GPU addresses, userland only asks) follow
 + * what Linux msm exposes to Mesa freedreno (msm_gem_get_iova, MSM_INFO_GET_IOVA);
@@ -140,7 +140,7 @@ index e83469d..6b78546 100644
 +} gvm_free[GVM_MAXFREE];
 +static unsigned gvm_nfree;
 +
-+extern void SweetAdrenoPublish(void);   /* iokit/Kernel/arm/SweetAdreno.cpp */
++extern void BergamotaAdrenoPublish(void);   /* iokit/Kernel/arm/BergamotaAdreno.cpp */
 +
 +static bool
 +gvm_init(void)
@@ -224,7 +224,7 @@ index e83469d..6b78546 100644
 +
 +/* First-fit allocation of size bytes plus a guard page. */
 +bool
-+sweet_gpu_iova_alloc(uint64_t size, uint64_t *iova, uint64_t *taken)
++bergamota_gpu_iova_alloc(uint64_t size, uint64_t *iova, uint64_t *taken)
 +{
 +	uint64_t need = size + GVM_GUARD;
 +
@@ -249,7 +249,7 @@ index e83469d..6b78546 100644
 +
 +/* Take exactly [iova, iova+size) out of the free list (MSM_INFO_SET_IOVA). */
 +bool
-+sweet_gpu_iova_reserve(uint64_t iova, uint64_t size)
++bergamota_gpu_iova_reserve(uint64_t iova, uint64_t size)
 +{
 +	if (!a630_dev.ready || size == 0 || (size & 0xfff) || (iova & 0xfff) || iova < GVM_BASE || iova + size > GVM_END) {
 +		return false;
@@ -284,7 +284,7 @@ index e83469d..6b78546 100644
 +
 +/* Give a range back, coalescing; a full list drops the range (address space is lost, not corrupted). */
 +void
-+sweet_gpu_iova_free(uint64_t iova, uint64_t size)
++bergamota_gpu_iova_free(uint64_t iova, uint64_t size)
 +{
 +	unsigned i = 0;
 +
@@ -306,7 +306,7 @@ index e83469d..6b78546 100644
 +		return;
 +	}
 +	if (gvm_nfree == GVM_MAXFREE) {
-+		printf("SWEET GPU: iova free list full; %#llx+%#llx lost\n", iova, size);
++		printf("BERGAMOTA GPU: iova free list full; %#llx+%#llx lost\n", iova, size);
 +		return;
 +	}
 +	memmove(&gvm_free[i + 1], &gvm_free[i], (gvm_nfree - i) * sizeof(gvm_free[0]));
@@ -317,7 +317,7 @@ index e83469d..6b78546 100644
 +
 +/* One 4 KiB page; false when the table pool is full or pa does not fit the SMMU. */
 +bool
-+sweet_gpu_vm_map(uint64_t iova, uint64_t pa, bool readonly)
++bergamota_gpu_vm_map(uint64_t iova, uint64_t pa, bool readonly)
 +{
 +	volatile uint64_t *slot;
 +
@@ -331,7 +331,7 @@ index e83469d..6b78546 100644
 +
 +/* Clear the pages of [iova, iova+size) and invalidate the context's TLB. */
 +void
-+sweet_gpu_vm_unmap(uint64_t iova, uint64_t size)
++bergamota_gpu_vm_unmap(uint64_t iova, uint64_t size)
 +{
 +	for (uint64_t d = 0; d < size; d += 0x1000) {
 +		volatile uint64_t *slot = gvm_slot(iova + d, false);
@@ -344,21 +344,21 @@ index e83469d..6b78546 100644
 +}
 +
 +bool
-+sweet_gpu_ready(void)
++bergamota_gpu_ready(void)
 +{
 +	return a630_dev.ready && !a630_dev.lost;
 +}
 +
 +/* Make CPU stores to ordinary (cacheable) kernel memory visible to the GPU / drop stale lines. */
 +void
-+sweet_gpu_cache_sync(void *va, size_t len)
++bergamota_gpu_cache_sync(void *va, size_t len)
 +{
-+	sweet_dma_sync_va(va, len);
++	bergamota_dma_sync_va(va, len);
 +}
 +
 +/* msm MSM_PARAM_* values; false for parameters this driver does not answer. */
 +bool
-+sweet_gpu_param(uint32_t which, uint64_t *value)
++bergamota_gpu_param(uint32_t which, uint64_t *value)
 +{
 +	if (!a630_dev.ready) {
 +		return false;
@@ -382,13 +382,13 @@ index e83469d..6b78546 100644
 +}
 +
 +uint32_t
-+sweet_gpu_fence_last(void)
++bergamota_gpu_fence_last(void)
 +{
 +	return a630_dev.seqno;
 +}
 +
 +bool
-+sweet_gpu_fence_done(uint32_t fence)
++bergamota_gpu_fence_done(uint32_t fence)
 +{
 +	volatile uint32_t *word = (volatile uint32_t *)(cp_memory + SCRATCH_OFF + SCRATCH_FENCE);
 +	uint32_t v = *word;
@@ -399,26 +399,26 @@ index e83469d..6b78546 100644
 +
 +/* What the CP says when a submission does not come back. */
 +void
-+sweet_gpu_report(const char *why)
++bergamota_gpu_report(const char *why)
 +{
-+	printf("SWEET GPU: %s: submitted %u, completed %u; ring RPTR %u WPTR %u RBBM_STATUS %#x CP_STATUS_1 %#x HW_FAULT %#x CP_IRQ %#x PROTECT %#x RBBM_IRQ %#x\n",
++	printf("BERGAMOTA GPU: %s: submitted %u, completed %u; ring RPTR %u WPTR %u RBBM_STATUS %#x CP_STATUS_1 %#x HW_FAULT %#x CP_IRQ %#x PROTECT %#x RBBM_IRQ %#x\n",
 +	    why, a630_dev.seqno, *(volatile uint32_t *)(cp_memory + SCRATCH_OFF + SCRATCH_FENCE),
 +	    gpu_r(A6XX_CP_RB_RPTR), ring_wptr, gpu_r(A6XX_RBBM_STATUS), gpu_r(A6XX_CP_STATUS_1),
 +	    gpu_r(A6XX_CP_HW_FAULT), gpu_r(A6XX_CP_INTERRUPT_STATUS), gpu_r(A6XX_CP_PROTECT_STATUS),
 +	    gpu_r(A6XX_RBBM_INT_0_STATUS));
 +	gpu_smmu_cb_faults(CP_CB);
 +	gpu_smmu_faults();
-+	sweet_log_sync();
++	bergamota_log_sync();
 +}
 +
 +/* The GPU stopped answering; no recovery is attempted (docs/GPU_KERNEL.md, risks): nothing more is submitted. */
 +void
-+sweet_gpu_mark_lost(void)
++bergamota_gpu_mark_lost(void)
 +{
 +	if (!a630_dev.lost) {
 +		a630_dev.lost = true;
 +		a630_dev.hangs++;
-+		sweet_gpu_report("GPU LOST (no completion)");
++		bergamota_gpu_report("GPU LOST (no completion)");
 +	}
 +}
 +
@@ -428,11 +428,11 @@ index e83469d..6b78546 100644
 + * the sequence number, or 0 when the ring has no room for 2 s / the GPU is lost.
 + */
 +uint32_t
-+sweet_gpu_submit(const uint64_t *ib_iova, const uint32_t *ib_dwords, unsigned count)
++bergamota_gpu_submit(const uint64_t *ib_iova, const uint32_t *ib_dwords, unsigned count)
 +{
 +	unsigned need = 16 + 4 * count, room = 0;
 +
-+	if (!sweet_gpu_ready() || count == 0 || count > 128) {
++	if (!bergamota_gpu_ready() || count == 0 || count > 128) {
 +		return 0;
 +	}
 +	for (unsigned i = 0; i < 20000; i++) {
@@ -444,7 +444,7 @@ index e83469d..6b78546 100644
 +		delay(100);
 +	}
 +	if (room < need) {
-+		sweet_gpu_mark_lost();
++		bergamota_gpu_mark_lost();
 +		return 0;
 +	}
 +	if (++a630_dev.seqno == 0) {
@@ -479,7 +479,7 @@ index e83469d..6b78546 100644
 +gpu_keep_up(void)
 +{
 +	if (!gvm_init()) {
-+		printf("SWEET GPU: no memory for the GPU page-table pool; interface not published\n");
++		printf("BERGAMOTA GPU: no memory for the GPU page-table pool; interface not published\n");
 +		return false;
 +	}
 +	gmu_oob_clear(OOB_BOOT_SLUMBER);
@@ -487,9 +487,9 @@ index e83469d..6b78546 100644
 +	*(volatile uint32_t *)(cp_memory + SCRATCH_OFF + SCRATCH_FENCE) = 0;
 +	a630_dev.seqno = 0;
 +	a630_dev.ready = true;
-+	printf("SWEET GPU: KEPT UP: GX on (OOB_GPU held, GMU keep-alive), ring %u dwords at RPTR=WPTR=%u, client VA 0x%llx-0x%llx, %u table pages\n",
++	printf("BERGAMOTA GPU: KEPT UP: GX on (OOB_GPU held, GMU keep-alive), ring %u dwords at RPTR=WPTR=%u, client VA 0x%llx-0x%llx, %u table pages\n",
 +	    RING_SIZE / 4, ring_wptr, GVM_BASE, GVM_END, PTP_PAGES);
-+	sweet_log_sync();
++	bergamota_log_sync();
 +	return true;
 +}
 +
@@ -501,8 +501,8 @@ index e83469d..6b78546 100644
  		}
  		if (mode >= 6 && gx && (mode < 7 || cp_ok)) {
 +			bool nop_ok = false;
- 			if (!sweet_a630_zap_load()) {
- 				printf("SWEET GPU: zap load failed\n");
+ 			if (!bergamota_a630_zap_load()) {
+ 				printf("BERGAMOTA GPU: zap load failed\n");
  			} else if (mode >= 7) {
 @@ -2184,8 +2644,20 @@ gpu_gx_test(int mode)
  				ring_emit(0);
@@ -522,25 +522,25 @@ index e83469d..6b78546 100644
 +					return true;
  				}
 +			} else if (mode >= 8) {
-+				printf("SWEET GPU: stage 8 self-test did not pass; shutting the GPU down like stage 7\n");
++				printf("BERGAMOTA GPU: stage 8 self-test did not pass; shutting the GPU down like stage 7\n");
  			}
- 			if (!sweet_a630_zap_shutdown() && sweet_a630_zap_running()) {
- 				printf("SWEET GPU: zap operation not quiesced; retaining GX/GMU until reset\n");
+ 			if (!bergamota_a630_zap_shutdown() && bergamota_a630_zap_running()) {
+ 				printf("BERGAMOTA GPU: zap operation not quiesced; retaining GX/GMU until reset\n");
 @@ -2293,6 +2765,13 @@ a630_run(int mode)
  		if (!gpu_gx_test(mode)) {
  			return;
  		}
 +		if (a630_kept) {
 +			/* No GMU reset, no slumber: the GPU stays as gpu_keep_up left it. */
-+			sweet_log_sync();
-+			printf("SWEET GPU: stage %d finished: GPU kept up, publishing SweetAdreno630\n", mode);
-+			SweetAdrenoPublish();
++			bergamota_log_sync();
++			printf("BERGAMOTA GPU: stage %d finished: GPU kept up, publishing BergamotaAdreno630\n", mode);
++			BergamotaAdrenoPublish();
 +			return;
 +		}
  	} else if (rail) {
  		/* GX was voted on but the start did not complete: power it down again. */
  		gmu_oob_clear(OOB_BOOT_SLUMBER);
-@@ -2347,8 +2826,8 @@ sweet_a630_probe(void)
+@@ -2347,8 +2826,8 @@ bergamota_a630_probe(void)
  	if (mode <= 0) {
  		return;
  	}

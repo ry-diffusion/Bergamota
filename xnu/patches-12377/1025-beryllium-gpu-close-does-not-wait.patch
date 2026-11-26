@@ -6,8 +6,8 @@ of the frame before it: 133 closes of 3-28 ms in 24 home-screen page swipes (lib
 queued behind them. Such a BO now goes to a per-client zombie list (1024), its handle is free at once, and it is released
 by the next GEM_CLOSE or submit after its fence has passed; at client close as before (with the wait).
 
---- a/iokit/Kernel/arm/SweetAdreno.cpp
-+++ b/iokit/Kernel/arm/SweetAdreno.cpp
+--- a/iokit/Kernel/arm/BergamotaAdreno.cpp
++++ b/iokit/Kernel/arm/BergamotaAdreno.cpp
 @@ -70,6 +70,7 @@
  #define SUBMIT_RELOCS_MAX       65536
  #define WAIT_PATIENCE_MS        5000    /* a wait that asks for more than this is cut here and the GPU declared lost */
@@ -19,8 +19,8 @@ by the next GEM_CLOSE or submit after its fence has passed; at client close as b
 @@ -112,6 +113,8 @@
  	task_t            fTask;
  	int32_t           fPid;
- 	struct sweet_gem *fGems;
-+	struct sweet_gem *fZombies;     /* 1025: closed BOs the GPU may still use, released by reapZombies() */
+ 	struct bergamota_gem *fGems;
++	struct bergamota_gem *fZombies;     /* 1025: closed BOs the GPU may still use, released by reapZombies() */
 +	uint32_t          fZombieN;
  	uint32_t          fNextGem;
  	uint64_t          fQueues;      /* bit n = submitqueue id n open (id 0 = default, always) */
@@ -28,26 +28,26 @@ by the next GEM_CLOSE or submit after its fence has passed; at client close as b
 @@ -121,6 +124,8 @@
  	IOReturn copyIn(uint64_t addr, void *dst, size_t len);
  	bool waitFence(uint32_t fence, uint64_t ns);
- 	void releaseGem(struct sweet_gem *g);
-+	void closeGem(struct sweet_gem *g);
+ 	void releaseGem(struct bergamota_gem *g);
++	void closeGem(struct bergamota_gem *g);
 +	void reapZombies(void);
- 	IOReturn mapGem(struct sweet_gem *g, uint32_t flags, uint32_t *handle, uint64_t setIova, uint64_t tail = 0);
+ 	IOReturn mapGem(struct bergamota_gem *g, uint32_t flags, uint32_t *handle, uint64_t setIova, uint64_t tail = 0);
  
- 	IOReturn gemNew(struct sweet_msm_gem_new *r);
+ 	IOReturn gemNew(struct bergamota_msm_gem_new *r);
 @@ -254,6 +259,7 @@
  	}
  	IOLockUnlock(gClientsLock);
- 	fGems = (struct sweet_gem *)IOMallocZeroData(sizeof(struct sweet_gem) * GEM_MAX);
-+	fZombies = (struct sweet_gem *)IOMallocZeroData(sizeof(struct sweet_gem) * ZOMBIE_MAX);
+ 	fGems = (struct bergamota_gem *)IOMallocZeroData(sizeof(struct bergamota_gem) * GEM_MAX);
++	fZombies = (struct bergamota_gem *)IOMallocZeroData(sizeof(struct bergamota_gem) * ZOMBIE_MAX);
  	return fGems != NULL;
  }
  
 @@ -264,6 +270,10 @@
- 		IOFreeData(fGems, sizeof(struct sweet_gem) * GEM_MAX);
+ 		IOFreeData(fGems, sizeof(struct bergamota_gem) * GEM_MAX);
  		fGems = NULL;
  	}
 +	if (fZombies != NULL) {
-+		IOFreeData(fZombies, sizeof(struct sweet_gem) * ZOMBIE_MAX);
++		IOFreeData(fZombies, sizeof(struct bergamota_gem) * ZOMBIE_MAX);
 +		fZombies = NULL;
 +	}
  	IOUserClient::free();
@@ -63,7 +63,7 @@ by the next GEM_CLOSE or submit after its fence has passed; at client close as b
  		}
 +		fZombieN = 0;
  	}
- 	sweet_gpu_unlock();
+ 	bergamota_gpu_unlock();
  	terminate();
 @@ -431,6 +445,42 @@
  }
@@ -77,10 +77,10 @@ by the next GEM_CLOSE or submit after its fence has passed; at client close as b
 + * fence has passed (Linux keeps the object alive the same way). With the list full, the old wait. Lock held.
 + */
 +void
-+SweetAdrenoUserClient::closeGem(struct sweet_gem *g)
++BergamotaAdrenoUserClient::closeGem(struct bergamota_gem *g)
 +{
 +	reapZombies();
-+	if (g->lastFence == 0 || sweet_gpu_fence_done(g->lastFence) || !sweet_gpu_ready() || fZombies == NULL ||
++	if (g->lastFence == 0 || bergamota_gpu_fence_done(g->lastFence) || !bergamota_gpu_ready() || fZombies == NULL ||
 +	    fZombieN >= ZOMBIE_MAX) {
 +		releaseGem(g);
 +		return;
@@ -92,10 +92,10 @@ by the next GEM_CLOSE or submit after its fence has passed; at client close as b
 +
 +/* Releases the zombies whose last submission is done (or all of them when the GPU is gone: releaseGem leaks those). Lock held. */
 +void
-+SweetAdrenoUserClient::reapZombies(void)
++BergamotaAdrenoUserClient::reapZombies(void)
 +{
 +	for (uint32_t i = 0; i < fZombieN;) {
-+		if (sweet_gpu_fence_done(fZombies[i].lastFence) || !sweet_gpu_ready()) {
++		if (bergamota_gpu_fence_done(fZombies[i].lastFence) || !bergamota_gpu_ready()) {
 +			releaseGem(&fZombies[i]);
 +			fZombies[i] = fZombies[--fZombieN];
 +		} else {
@@ -114,8 +114,8 @@ by the next GEM_CLOSE or submit after its fence has passed; at client close as b
  	}
 +	reapZombies();          /* 1025 */
  	for (uint32_t i = 0; i < r->nr_bos; i++) {
- 		if ((bos[i].flags & ~(uint32_t)(SWEET_MSM_SUBMIT_BO_READ | SWEET_MSM_SUBMIT_BO_WRITE |
- 		    SWEET_MSM_SUBMIT_BO_DUMP | SWEET_MSM_SUBMIT_BO_NO_IMPLICIT)) != 0 || (objs[i] = gem(bos[i].handle)) == NULL) {
+ 		if ((bos[i].flags & ~(uint32_t)(BERGAMOTA_MSM_SUBMIT_BO_READ | BERGAMOTA_MSM_SUBMIT_BO_WRITE |
+ 		    BERGAMOTA_MSM_SUBMIT_BO_DUMP | BERGAMOTA_MSM_SUBMIT_BO_NO_IMPLICIT)) != 0 || (objs[i] = gem(bos[i].handle)) == NULL) {
 @@ -1278,7 +1329,7 @@
  			if (g == NULL) {
  				ret = kIOReturnBadArgument;
@@ -124,4 +124,4 @@ by the next GEM_CLOSE or submit after its fence has passed; at client close as b
 +				closeGem(g);
  			}
  		}
- 		sweet_gpu_unlock();
+ 		bergamota_gpu_unlock();

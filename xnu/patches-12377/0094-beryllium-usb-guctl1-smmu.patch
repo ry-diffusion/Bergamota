@@ -2,19 +2,19 @@ diff --git a/bsd/conf/files b/bsd/conf/files
 index d8900b13817bb9cb4a48e0216aace8656d1a0d23..805491ee85dfbaa1e74373760ecfc687ad366ba1 100644
 --- a/bsd/conf/files
 +++ b/bsd/conf/files
-@@ -111,6 +111,7 @@ bsd/dev/sweet_rpmh.c			standard
- bsd/dev/sweet_spmi.c			standard
- bsd/dev/sweet_usb.c			standard
- bsd/dev/sweet_cpufreq.c			standard
-+bsd/dev/sweet_smmu.c			standard
+@@ -111,6 +111,7 @@ bsd/dev/bergamota_rpmh.c			standard
+ bsd/dev/bergamota_spmi.c			standard
+ bsd/dev/bergamota_usb.c			standard
+ bsd/dev/bergamota_cpufreq.c			standard
++bsd/dev/bergamota_smmu.c			standard
  bsd/dev/mem.c				standard
  bsd/dev/munge.c 			optional config_requires_u32_munging
  bsd/dev/unix_startup.c			standard
-diff --git a/bsd/dev/sweet_smmu.c b/bsd/dev/sweet_smmu.c
+diff --git a/bsd/dev/bergamota_smmu.c b/bsd/dev/bergamota_smmu.c
 new file mode 100644
 index 0000000000000000000000000000000000000000..398855e3cc3e5c15e9f432b030f23e97ee335248
 --- /dev/null
-+++ b/bsd/dev/sweet_smmu.c
++++ b/bsd/dev/bergamota_smmu.c
 @@ -0,0 +1,232 @@
 +/*
 + * Taken from anonbeat1/ios-sweet (Nothing Phone (1), SM7325) patch 0091,
@@ -23,8 +23,8 @@ index 0000000000000000000000000000000000000000..398855e3cc3e5c15e9f432b030f23e97
 + * it (iommus = <&apps_smmu 0x740 0>). Unchanged below.
 + */
 +/*
-+ * SWEET Spacewar apps_smmu: a translating stage-1 context bank that
-+ * identity-maps DRAM, shared by the DMA masters the SWEET drivers drive.
++ * BERGAMOTA Spacewar apps_smmu: a translating stage-1 context bank that
++ * identity-maps DRAM, shared by the DMA masters the BERGAMOTA drivers drive.
 + *
 + * Under the Qualcomm hypervisor an unmatched stream faults (sCR0.USFCFG=1),
 + * a written S2CR bypass reads back as fault, and an unidentified-stream
@@ -35,12 +35,12 @@ index 0000000000000000000000000000000000000000..398855e3cc3e5c15e9f432b030f23e97
 + * PA, so drivers keep using physical addresses and clean/invalidate their
 + * own buffers.
 + *
-+ * The bank and its page table are built on the first sweet_smmu_map_sid();
++ * The bank and its page table are built on the first bergamota_smmu_map_sid();
 + * later calls reuse them and only add an SMR. Callers decide whether their
 + * board needs it (sweet never calls this). The identity-mapped FTS/SPI path
-+ * (bsd/dev/sweet_fts_spi.c) programs its own bank and does not use this.
++ * (bsd/dev/bergamota_fts_spi.c) programs its own bank and does not use this.
 + */
-+#if defined(ARM64_BOARD_CONFIG_SWEET)
++#if defined(ARM64_BOARD_CONFIG_BERGAMOTA)
 +#include <sys/param.h>
 +#include <sys/systm.h>
 +#include <sys/errno.h>
@@ -52,7 +52,7 @@ index 0000000000000000000000000000000000000000..398855e3cc3e5c15e9f432b030f23e97
 +
 +extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
 +extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
-+int sweet_smmu_map_sid(unsigned sid);
++int bergamota_smmu_map_sid(unsigned sid);
 +
 +#define SMMU_PA         0x15000000u     /* apps_smmu */
 +#define SMMU_SIZE       0x100000u
@@ -114,7 +114,7 @@ index 0000000000000000000000000000000000000000..398855e3cc3e5c15e9f432b030f23e97
 +		}
 +	}
 +	if (smmu_cb < 0) {
-+		printf("SWEET SMMU: no free context bank\n");
++		printf("BERGAMOTA SMMU: no free context bank\n");
 +		return ENODEV;
 +	}
 +
@@ -122,7 +122,7 @@ index 0000000000000000000000000000000000000000..398855e3cc3e5c15e9f432b030f23e97
 +	vm_offset_t l1v = 0;
 +	if (kmem_alloc_contig(kernel_map, &l1v, L1_SIZE, PAGE_MASK, 0, 0,
 +	    KMA_DATA | KMA_ZERO | KMA_PERMANENT, VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS) {
-+		printf("SWEET SMMU: no page-table memory\n");
++		printf("BERGAMOTA SMMU: no page-table memory\n");
 +		smmu_cb = -1;
 +		return ENOMEM;
 +	}
@@ -157,17 +157,17 @@ index 0000000000000000000000000000000000000000..398855e3cc3e5c15e9f432b030f23e97
 +	}
 +	smmu_wr(cb + 0x0, 1u << 6 | 1u << 5 | 1u << 2 | 1u << 1 | 1); /* CFIE CFRE AFE TRE M */
 +	if (!(smmu_rd(cb + 0x0) & 1)) {
-+		printf("SWEET SMMU: context bank %d did not enable\n", smmu_cb);
++		printf("BERGAMOTA SMMU: context bank %d did not enable\n", smmu_cb);
 +		smmu_cb = -1;
 +		return EIO;
 +	}
-+	printf("SWEET SMMU: context bank %d, identity map, ttbr0 0x%llx\n", smmu_cb, l1_pa);
++	printf("BERGAMOTA SMMU: context bank %d, identity map, ttbr0 0x%llx\n", smmu_cb, l1_pa);
 +	return 0;
 +}
 +
 +/* Map one stream ID to the shared translating bank. Idempotent per SID. */
 +int
-+sweet_smmu_map_sid(unsigned sid)
++bergamota_smmu_map_sid(unsigned sid)
 +{
 +	int error = EIO;
 +
@@ -177,7 +177,7 @@ index 0000000000000000000000000000000000000000..398855e3cc3e5c15e9f432b030f23e97
 +	if (smmu_base == 0) {
 +		smmu_base = ml_io_map(SMMU_PA, SMMU_SIZE);
 +		if (smmu_base == 0) {
-+			printf("SWEET SMMU: map failed\n");
++			printf("BERGAMOTA SMMU: map failed\n");
 +			goto out;
 +		}
 +	}
@@ -211,7 +211,7 @@ index 0000000000000000000000000000000000000000..398855e3cc3e5c15e9f432b030f23e97
 +	if (match >= 0) {
 +		uint32_t smr = smmu_rd(0x800 + 4 * (unsigned)match);
 +		uint32_t s2cr = smmu_rd(0xc00 + 4 * (unsigned)match);
-+		printf("SWEET SMMU: sid 0x%x already matched by smr %d (smr 0x%x s2cr 0x%x)\n",
++		printf("BERGAMOTA SMMU: sid 0x%x already matched by smr %d (smr 0x%x s2cr 0x%x)\n",
 +		    sid, match, smr, s2cr);
 +		if ((s2cr & 0xff) == (uint32_t)smmu_cb && ((s2cr >> 16) & 3) == 0) {
 +			error = 0;      /* an earlier call mapped it */
@@ -219,20 +219,20 @@ index 0000000000000000000000000000000000000000..398855e3cc3e5c15e9f432b030f23e97
 +		}
 +		if ((smr >> 16) & 0x7fff) {
 +			/* masked entry covers other streams too: do not repoint it */
-+			printf("SWEET SMMU: smr %d is masked; leaving it alone\n", match);
++			printf("BERGAMOTA SMMU: smr %d is masked; leaving it alone\n", match);
 +			error = EEXIST;
 +			goto out;
 +		}
 +		/* exact entry: point its S2CR at our bank instead of adding a duplicate */
 +		smmu_wr(0xc00 + 4 * (unsigned)match, (uint32_t)smmu_cb);
 +		s2cr = smmu_rd(0xc00 + 4 * (unsigned)match);
-+		printf("SWEET SMMU: sid 0x%x smr %d s2cr now 0x%x (%s)\n", sid, match, s2cr,
++		printf("BERGAMOTA SMMU: sid 0x%x smr %d s2cr now 0x%x (%s)\n", sid, match, s2cr,
 +		    (((s2cr >> 16) & 3) == 0 && (s2cr & 0xff) == (uint32_t)smmu_cb) ? "translate" : "REFUSED");
 +		error = (((s2cr >> 16) & 3) == 0 && (s2cr & 0xff) == (uint32_t)smmu_cb) ? 0 : EIO;
 +		goto out;
 +	}
 +	if (free_smr < 0) {
-+		printf("SWEET SMMU: no free SMR for sid 0x%x\n", sid);
++		printf("BERGAMOTA SMMU: no free SMR for sid 0x%x\n", sid);
 +		error = ENOSPC;
 +		goto out;
 +	}
@@ -240,31 +240,31 @@ index 0000000000000000000000000000000000000000..398855e3cc3e5c15e9f432b030f23e97
 +	smmu_wr(0x800 + 4 * (unsigned)free_smr, 1u << 31 | (sid & 0x7fff)); /* SMR valid, mask 0 */
 +	smmu_next_smr = free_smr + 1;
 +	uint32_t s2cr = smmu_rd(0xc00 + 4 * (unsigned)free_smr);
-+	printf("SWEET SMMU: sid 0x%x -> smr %d s2cr 0x%x (%s)\n", sid, free_smr, s2cr,
++	printf("BERGAMOTA SMMU: sid 0x%x -> smr %d s2cr 0x%x (%s)\n", sid, free_smr, s2cr,
 +	    (((s2cr >> 16) & 3) == 0 && (s2cr & 0xff) == (uint32_t)smmu_cb) ? "translate" : "REFUSED");
 +	error = (((s2cr >> 16) & 3) == 0 && (s2cr & 0xff) == (uint32_t)smmu_cb) ? 0 : EIO;
 +out:
 +	__atomic_store_n(&smmu_lock, 0, __ATOMIC_RELEASE);
 +	return error;
 +}
-+#endif /* ARM64_BOARD_CONFIG_SWEET */
-diff --git a/bsd/dev/sweet_usb.c b/bsd/dev/sweet_usb.c
++#endif /* ARM64_BOARD_CONFIG_BERGAMOTA */
+diff --git a/bsd/dev/bergamota_usb.c b/bsd/dev/bergamota_usb.c
 index 1f39e2959463b4cd1645a4328fdac51404c70566..a08fbd0250fb326572349e8aaf48a2fd08ee31b3 100644
---- a/bsd/dev/sweet_usb.c
-+++ b/bsd/dev/sweet_usb.c
+--- a/bsd/dev/bergamota_usb.c
++++ b/bsd/dev/bergamota_usb.c
 @@ -39,6 +39,7 @@
  #include <sys/kern_event.h>
  
  extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
-+extern int sweet_smmu_map_sid(unsigned sid);
- void sweet_usb_probe(void);
- static void sweet_usb_gadget_start(vm_offset_t dwc);
++extern int bergamota_smmu_map_sid(unsigned sid);
+ void bergamota_usb_probe(void);
+ static void bergamota_usb_gadget_start(vm_offset_t dwc);
  extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
-@@ -937,6 +938,22 @@ sweet_usb_gadget_start(vm_offset_t dwc)
- 	printf("SWEET USB: GCTL before reset 0x%08x, after 0x%08x, now 0x%08x; GUSB3PIPECTL 0x%08x GUSB2PHYCFG 0x%08x GUCTL 0x%08x GSTS 0x%08x\n",
+@@ -937,6 +938,22 @@ bergamota_usb_gadget_start(vm_offset_t dwc)
+ 	printf("BERGAMOTA USB: GCTL before reset 0x%08x, after 0x%08x, now 0x%08x; GUSB3PIPECTL 0x%08x GUSB2PHYCFG 0x%08x GUCTL 0x%08x GSTS 0x%08x\n",
  	    gctl_abl, gctl_rst, dwc_rd(GCTL), dwc_rd(0xc2c0), dwc_rd(0xc200), dwc_rd(0xc12c), dwc_rd(0xc118));
  
-+	if (sweet_board_beryllium()) {
++	if (bergamota_board_beryllium()) {
 +		/*
 +		 * DWC3 >= 2.90a used at high speed only: Linux dwc3_core_init sets
 +		 * GUCTL1.DEV_FORCE_20_CLK_FOR_30_CLK so the USB3 logic runs from the
@@ -273,11 +273,11 @@ index 1f39e2959463b4cd1645a4328fdac51404c70566..a08fbd0250fb326572349e8aaf48a2fd
 +		 */
 +		uint32_t guctl1 = dwc_rd(0xc11c);
 +		dwc_wr(0xc11c, guctl1 | (1u << 26));
-+		printf("SWEET USB: GUCTL1 0x%08x -> 0x%08x (force 2.0 clock for 3.0 logic)\n",
++		printf("BERGAMOTA USB: GUCTL1 0x%08x -> 0x%08x (force 2.0 clock for 3.0 logic)\n",
 +		    guctl1, dwc_rd(0xc11c));
 +		/* apps_smmu stream 0x740: the first DMA would fault and reset the SoC */
-+		int se = sweet_smmu_map_sid(0x740);
-+		printf("SWEET USB: apps_smmu sid 0x740 -> %d\n", se);
++		int se = bergamota_smmu_map_sid(0x740);
++		printf("BERGAMOTA USB: apps_smmu sid 0x740 -> %d\n", se);
 +	}
 +
  	dwc_wr(GEVNTADRLO, (uint32_t)(ud.dma_pa + UD_EVT));

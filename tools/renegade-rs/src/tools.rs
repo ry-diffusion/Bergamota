@@ -14,15 +14,15 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::io::Result;
 
-pub const BLUETOOL_STUB: &str = "sweetnet/bluetool-stub";
-const HCITEST: &str = "sweetnet/hcitest";
-const DROPBEAR_LABEL: &str = "org.sweet.dropbear";
+pub const BLUETOOL_STUB: &str = "bergamotanet/bluetool-stub";
+const HCITEST: &str = "bergamotanet/hcitest";
+const DROPBEAR_LABEL: &str = "org.bergamota.dropbear";
 const DROPBEAR_KEY: &str = "/private/etc/dropbear/dropbear_ed25519_host_key";
 const FIRSTBOOT_LABEL: &str = "org.bergamota.renegade-firstboot";
 const FIRSTBOOT_SH: &str = "usr/local/libexec/renegade-firstboot.sh";
 const FIRSTBOOT_SCRIPT: &str = include_str!("../data/firstboot.sh");
 const WALLPAPER_COLLECTIONS: &str = "com.apple.WallpaperKit.CollectionsPoster:5010";
-const SWEETFP_PATH: &str = "/usr/local/lib/sweetfp.dylib";
+const BERGAMOTAFP_PATH: &str = "/usr/local/lib/bergamotafp.dylib";
 const POSTER_BIN: &str = "Applications/PosterBoard.app/PosterBoard";
 const BGL_FILES: [&str; 4] = ["bgl-launch", "OpenGLES.framework/OpenGLES", "libOSMesa.8.dylib", "libdrm.2.dylib"];
 const BGL_DIR: &str = "usr/local/lib/bergamota-gl";
@@ -31,14 +31,14 @@ const BACKBOARDD_LABEL: &str = "com.apple.backboardd";
 const BACKBOARDD_PATH: &str = "/usr/libexec/backboardd";
 const TOYBOX_CONFIG: &str = include_str!("../../ssh/toybox.config");
 
-/// The files of berga-tools.zip the tweaks use, by their path in the zip ("ssh/dropbear", "sweetnet/hcitest", ...).
+/// The files of berga-tools.zip the tweaks use, by their path in the zip ("ssh/dropbear", "bergamotanet/hcitest", ...).
 #[derive(Default, Clone)]
 pub struct Tools {
     files: BTreeMap<String, Vec<u8>>,
 }
 
 impl Tools {
-    /// Reads the bundle, keeping `ssh/`, `sweetnet/` and `bergamota-gl/` and checking each file's SHA-256 against
+    /// Reads the bundle, keeping `ssh/`, `bergamotanet/` and `bergamota-gl/` and checking each file's SHA-256 against
     /// `berga-tools.json`. A file the manifest does not list, or lists differently, is an error.
     pub fn from_zip(src: Src) -> Result<Self> {
         let zip = Zip::open(src)?;
@@ -55,7 +55,7 @@ impl Tools {
         }
         let mut files = BTreeMap::new();
         for e in &zip.entries {
-            if !(e.name.starts_with("ssh/") || e.name.starts_with("sweetnet/") || e.name.starts_with("bergamota-gl/")) || e.name.ends_with('/') {
+            if !(e.name.starts_with("ssh/") || e.name.starts_with("bergamotanet/") || e.name.starts_with("bergamota-gl/")) || e.name.ends_with('/') {
                 continue;
             }
             let data = zip.read_all(e)?;
@@ -314,22 +314,22 @@ pub fn has_dylib(d: &[u8], dylib: &str) -> bool {
     false
 }
 
-/// posterboard(): sweetfp.dylib into /usr/local/lib and an extra LC_LOAD_DYLIB in PosterBoard (stripped and re-signed
+/// posterboard(): bergamotafp.dylib into /usr/local/lib and an extra LC_LOAD_DYLIB in PosterBoard (stripped and re-signed
 /// ad hoc, keeping identifier, flags and entitlements).
 fn posterboard(fs: &mut dyn Fs, log: &mut Log, t: &Tools) -> Result<()> {
     if !fs.exists(POSTER_BIN) {
         log.push(format!("posterboard: no {POSTER_BIN} in the image: skipped"));
         return Ok(());
     }
-    let Some(dylib) = t.get("sweetnet/ios18/sweetfp.dylib") else {
-        log.push("posterboard: sweetfp.dylib not built (tools/sweetnet/build.sh): skipped, PosterBoard left alone".into());
+    let Some(dylib) = t.get("bergamotanet/ios18/bergamotafp.dylib") else {
+        log.push("posterboard: bergamotafp.dylib not built (tools/bergamotanet/build.sh): skipped, PosterBoard left alone".into());
         return Ok(());
     };
-    install(fs, dylib, SWEETFP_PATH.trim_start_matches('/'), 0o755)?;
-    log.push(format!("posterboard: {SWEETFP_PATH} installed"));
+    install(fs, dylib, BERGAMOTAFP_PATH.trim_start_matches('/'), 0o755)?;
+    log.push(format!("posterboard: {BERGAMOTAFP_PATH} installed"));
     let bin = fs.read(POSTER_BIN)?;
-    if has_dylib(&bin, SWEETFP_PATH) {
-        log.push(format!("posterboard: PosterBoard already links {SWEETFP_PATH}"));
+    if has_dylib(&bin, BERGAMOTAFP_PATH) {
+        log.push(format!("posterboard: PosterBoard already links {BERGAMOTAFP_PATH}"));
         return Ok(());
     }
     let (_, _, mode) = fs.stat(POSTER_BIN)?;
@@ -337,47 +337,47 @@ fn posterboard(fs: &mut dyn Fs, log: &mut Log, t: &Tools) -> Result<()> {
     // the macho stage strips the files of the IPSW, not the ones the tweaks write: strip it first, as the Python order does
     let mut d = bin;
     crate::pacstrip::strip(&mut d, &crate::pacstrip::Options { write: true, ..Default::default() })?;
-    add_load_dylib(&mut d, SWEETFP_PATH)?;
+    add_load_dylib(&mut d, BERGAMOTAFP_PATH)?;
     let signed = crate::codesign::resign(&d, None, None)?;
     let after = crate::codesign::identity(&signed).ok_or_else(|| bad("posterboard: the re-sign lost the signature"))?;
     if after.ident != before.ident {
         return Err(bad("posterboard: the identifier changed by the re-sign: PosterBoard left alone"));
     }
-    if !has_dylib(&signed, SWEETFP_PATH) {
+    if !has_dylib(&signed, BERGAMOTAFP_PATH) {
         return Err(bad("posterboard: LC_LOAD_DYLIB missing after addlc"));
     }
     install(fs, &signed, POSTER_BIN, mode)?;
-    log.push(format!("posterboard: PosterBoard links {SWEETFP_PATH} (re-signed ad hoc as {})", before.ident));
+    log.push(format!("posterboard: PosterBoard links {BERGAMOTAFP_PATH} (re-signed ad hoc as {})", before.ident));
     Ok(())
 }
 
-/// firstboot(): the first-boot job (app registration with sweetuicache, default wallpaper and icon style).
+/// firstboot(): the first-boot job (app registration with bergamotauicache, default wallpaper and icon style).
 fn firstboot(fs: &mut dyn Fs, log: &mut Log, t: &Tools) -> Result<()> {
     if !fs.exists("bin/sh") {
         log.push("firstboot: /bin/sh missing (the ssh tweak installs dash): skipped".into());
         return Ok(());
     }
     let (mut appreg, mut wallpaper) = (true, true);
-    match t.get("sweetnet/ios18/sweetuicache") {
-        Some(u) => install(fs, u, "usr/local/bin/sweetuicache", 0o755)?,
+    match t.get("bergamotanet/ios18/bergamotauicache") {
+        Some(u) => install(fs, u, "usr/local/bin/bergamotauicache", 0o755)?,
         None => {
-            log.push("firstboot: sweetuicache not built (tools/sweetnet/build.sh): app registration skipped".into());
+            log.push("firstboot: bergamotauicache not built (tools/bergamotanet/build.sh): app registration skipped".into());
             appreg = false;
             wallpaper = false;
         }
     }
     if wallpaper {
-        let names = ["sweetposterset", "sweeticonstyle", "sweetopen"];
-        let have: Vec<Option<&[u8]>> = names.iter().map(|n| t.get(&format!("sweetnet/ios18/{n}"))).collect();
-        let app = t.under("sweetnet/ios18/SweetRun.app/");
+        let names = ["bergamotaposterset", "bergamotaiconstyle", "bergamotaopen"];
+        let have: Vec<Option<&[u8]>> = names.iter().map(|n| t.get(&format!("bergamotanet/ios18/{n}"))).collect();
+        let app = t.under("bergamotanet/ios18/BergamotaRun.app/");
         if have.iter().any(Option::is_none) || app.is_empty() {
-            log.push("firstboot: sweetposterset/sweeticonstyle/sweetopen/SweetRun.app not built (tools/sweetnet/build.sh): default wallpaper and icon style skipped".into());
+            log.push("firstboot: bergamotaposterset/bergamotaiconstyle/bergamotaopen/BergamotaRun.app not built (tools/bergamotanet/build.sh): default wallpaper and icon style skipped".into());
             wallpaper = false;
         } else {
             for (n, d) in names.iter().zip(have) {
                 install(fs, d.unwrap(), &format!("usr/local/bin/{n}"), 0o755)?;
             }
-            let dir = "Applications/SweetRun.app";
+            let dir = "Applications/BergamotaRun.app";
             fs.makedirs(dir)?;
             fs.chown(dir, 0, 0);
             for (rel, data) in app {
@@ -390,9 +390,9 @@ fn firstboot(fs: &mut dyn Fs, log: &mut Log, t: &Tools) -> Result<()> {
                 }
                 fs.write(&p, data)?;
                 fs.chown(&p, 0, 0);
-                fs.chmod(&p, if rel == "SweetRun" { 0o755 } else { 0o644 })?;
+                fs.chmod(&p, if rel == "BergamotaRun" { 0o755 } else { 0o644 })?;
             }
-            log.push("firstboot: sweetposterset, sweeticonstyle, sweetopen, /Applications/SweetRun.app installed".into());
+            log.push("firstboot: bergamotaposterset, bergamotaiconstyle, bergamotaopen, /Applications/BergamotaRun.app installed".into());
         }
     }
     let (wp, wd) = WALLPAPER_COLLECTIONS.split_once(':').unwrap();
@@ -471,15 +471,15 @@ fn bglrender(fs: &mut dyn Fs, log: &mut Log, t: &Tools) -> Result<()> {
     Ok(())
 }
 
-/// sweetprefs_tool(): sweetprefs, sweetshot and sweettouch in /usr/local/bin.
-fn sweetprefs_tools(fs: &mut dyn Fs, log: &mut Log, t: &Tools) -> Result<()> {
-    match t.get("sweetnet/ios18/sweetprefs") {
-        None => log.push("sweetprefs: not built (tools/sweetnet/build.sh): skipped".into()),
+/// bergamotaprefs_tool(): bergamotaprefs, bergamotashot and bergamotatouch in /usr/local/bin.
+fn bergamotaprefs_tools(fs: &mut dyn Fs, log: &mut Log, t: &Tools) -> Result<()> {
+    match t.get("bergamotanet/ios18/bergamotaprefs") {
+        None => log.push("bergamotaprefs: not built (tools/bergamotanet/build.sh): skipped".into()),
         Some(d) => {
-            install(fs, d, "usr/local/bin/sweetprefs", 0o755)?;
-            log.push("sweetprefs: /usr/local/bin/sweetprefs installed".into());
-            for n in ["sweetshot", "sweettouch"] {
-                if let Some(d) = t.get(&format!("sweetnet/ios18/{n}")) {
+            install(fs, d, "usr/local/bin/bergamotaprefs", 0o755)?;
+            log.push("bergamotaprefs: /usr/local/bin/bergamotaprefs installed".into());
+            for n in ["bergamotashot", "bergamotatouch"] {
+                if let Some(d) = t.get(&format!("bergamotanet/ios18/{n}")) {
                     install(fs, d, &format!("usr/local/bin/{n}"), 0o755)?;
                     log.push(format!("{n}: /usr/local/bin/{n} installed"));
                 }
@@ -506,9 +506,9 @@ fn console_job(fs: &mut dyn Fs, log: &mut Log) -> Result<()> {
     if !fs.exists("bin/sh") {
         return Ok(());
     }
-    let label = "org.sweet.ios18.hello";
+    let label = "org.bergamota.ios18.hello";
     let jpath = format!("System/Library/LaunchDaemons/{label}.plist");
-    let args = ["/bin/sh", "-c", "echo \"SWEET iOS18 full root: launchd runs jobs, 6*7=$((6*7))\"; /usr/local/bin/toybox uname -a; /usr/local/bin/toybox cat /etc/master.passwd"];
+    let args = ["/bin/sh", "-c", "echo \"BERGAMOTA iOS18 full root: launchd runs jobs, 6*7=$((6*7))\"; /usr/local/bin/toybox uname -a; /usr/local/bin/toybox cat /etc/master.passwd"];
     let xml = JOB_XML.replace("{label}", label).replace("{args}", &args.iter().map(|a| format!("<string>{a}</string>")).collect::<String>());
     fs.makedirs("System/Library/LaunchDaemons")?;
     fs.write(&jpath, xml.as_bytes())?;
@@ -524,7 +524,7 @@ fn console_job(fs: &mut dyn Fs, log: &mut Log) -> Result<()> {
     Ok(())
 }
 
-/// The ssh tweak (runs right after sweetreboot).
+/// The ssh tweak (runs right after bergamotareboot).
 pub fn run_ssh(fs: &mut dyn Fs, cfg: &Config, log: &mut Log) -> Result<()> {
     match &cfg.tools {
         Some(t) => ssh(fs, log, t, cfg.ssh_key.as_deref(), cfg.ssh_key_name.as_deref()),
@@ -539,7 +539,7 @@ pub fn run_rest(fs: &mut dyn Fs, cfg: &Config, log: &mut Log) -> Result<()> {
     posterboard(fs, log, t)?;
     firstboot(fs, log, t)?;
     bglrender(fs, log, t)?;
-    sweetprefs_tools(fs, log, t)?;
+    bergamotaprefs_tools(fs, log, t)?;
     console_job(fs, log)
 }
 
@@ -563,18 +563,18 @@ mod tests {
     #[test]
     fn adds_a_load_command_in_the_slack_like_addlc_py() {
         let mut d = macho(0x400);
-        assert!(!has_dylib(&d, SWEETFP_PATH));
-        add_load_dylib(&mut d, SWEETFP_PATH).unwrap();
-        assert!(has_dylib(&d, SWEETFP_PATH));
+        assert!(!has_dylib(&d, BERGAMOTAFP_PATH));
+        add_load_dylib(&mut d, BERGAMOTAFP_PATH).unwrap();
+        assert!(has_dylib(&d, BERGAMOTAFP_PATH));
         assert_eq!(u32::from_le_bytes(d[16..20].try_into().unwrap()), 2);
-        let want = (24 + SWEETFP_PATH.len() + 1 + 7) & !7;
+        let want = (24 + BERGAMOTAFP_PATH.len() + 1 + 7) & !7;
         assert_eq!(u32::from_le_bytes(d[20..24].try_into().unwrap()) as usize, 72 + 80 + want);
         // struct.pack('<IIIIII', 0xc, cmdsz, 24, 2, 0x10000, 0x10000) + name
         let at = 32 + 72 + 80;
         assert_eq!(&d[at..at + 4], &0xCu32.to_le_bytes());
-        assert_eq!(&d[at + 24..at + 24 + SWEETFP_PATH.len()], SWEETFP_PATH.as_bytes());
+        assert_eq!(&d[at + 24..at + 24 + BERGAMOTAFP_PATH.len()], BERGAMOTAFP_PATH.as_bytes());
         // no slack: refused, nothing changed
         let mut tight = macho(32 + 152 + 8);
-        assert!(add_load_dylib(&mut tight, SWEETFP_PATH).is_err());
+        assert!(add_load_dylib(&mut tight, BERGAMOTAFP_PATH).is_err());
     }
 }

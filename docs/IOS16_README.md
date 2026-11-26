@@ -7,7 +7,7 @@
 
 A port of [ios-sweet](https://github.com/dipa-studio/ios-sweet) (iOS 16 on the Redmi Note 10 Pro) to the Xiaomi Poco F1. The same XNU kernel (xnu-8796) runs both phones; the Poco F1 specifics are kernel patches 0082+ (selected at runtime from the device tree, `bsd/dev/sweet_board.h`) and `tools/mkadt.py --board beryllium`. On top runs the **unmodified iPhone X iOS 16.7.16 (20H392) userland**.
 
-As of **2026-10-20** the Poco F1 boots to the **iOS lock and home screen with its wallpaper**: touch (including the swipe-up home gesture), buttons, navigation, Control Center, Settings and Safari work, and the phone shows up on a computer as **USB Ethernet**: SSH (`ssh root@192.168.7.2`, key-only, dropbear), a live kernel log, and internet shared from the Mac (Safari loads and renders sites). Photos works: pictures pushed with `tools/sweet-push-photo.sh` show up in the Photos app. Sideloading works: `tools/sweet-install-ipa.sh App.ipa` re-signs a decrypted iOS 16 arm64 app, installs it to /Applications and registers it (system app; App Store downloads are FairPlay-encrypted and will not run). Everything is rendered by the CPU.
+As of **2026-10-20** the Poco F1 boots to the **iOS lock and home screen with its wallpaper**: touch (including the swipe-up home gesture), buttons, navigation, Control Center, Settings and Safari work, and the phone shows up on a computer as **USB Ethernet**: SSH (`ssh root@192.168.7.2`, key-only, dropbear), a live kernel log, and internet shared from the Mac (Safari loads and renders sites). Photos works: pictures pushed with `tools/bergamota-push-photo.sh` show up in the Photos app. Sideloading works: `tools/bergamota-install-ipa.sh App.ipa` re-signs a decrypted iOS 16 arm64 app, installs it to /Applications and registers it (system app; App Store downloads are FairPlay-encrypted and will not run). Everything is rendered by the CPU.
 
 > Experimental, not a usable phone OS. It installs into `userdata` and **erases Android's user data**; security is mostly off.
 
@@ -19,14 +19,14 @@ As of **2026-10-20** the Poco F1 boots to the **iOS lock and home screen with it
 | CPU | All 8 cores (4x A55 + 4x A75) via PSCI, `cpus=8` |
 | Memory | 0x1_00000000 + 0xfcc00000 (upper DDR bank, above every Qualcomm carve-out) |
 | Storage | UFS (same host as sweet), iOS root = HFS+ in `userdata` (sda21, LUN 0) |
-| Display | Continuous-splash framebuffer 1080x2246 @0x9d400000; iOS renders at @2x (750x1624, ADT `--display-scale 2`), scaled to fit (`sweetfb_scale=1`) or stretched (`=2`); page flipping on the MDP VIG0 pipe (`sweetfb_flip=1`) |
+| Display | Continuous-splash framebuffer 1080x2246 @0x9d400000; iOS renders at @2x (750x1624, ADT `--display-scale 2`), scaled to fit (`bergamotafb_scale=1`) or stretched (`=2`); page flipping on the MDP VIG0 pipe (`bergamotafb_flip=1`) |
 | Touch | Tianma panel's Novatek NT36672A at 0x01 on I2C14; the QUP is GSI-only, so the bus is bit-banged on GPIO 33/34 with the TLMM edge latch of GPIO 31 as IRQ |
 | Buttons | Power and volume-down (PM8998 PON), volume-up (PM8998 GPIO6), SPMI arbiter v5 |
-| Battery | PMI8998 fuel gauge (real SOC, voltage, current) and charger state with `sweetbattery=1` |
-| USB | Device mode at high speed as CDC-ECM Ethernet: phone 192.168.7.2, host 192.168.7.1, live kernel log on UDP 5140 (`sweetusb=2`). The fix was powering up the QUSB2 PHY that ABL leaves powered down (patches 0102, 0107-0109) |
-| Wallpaper | Works once `lsd` re-seeds its database (patch 0099 makes the extension catalog readable; `sweetlsreset=1` once, or a fresh image, drops a database seeded before it) |
+| Battery | PMI8998 fuel gauge (real SOC, voltage, current) and charger state with `bergamotabattery=1` |
+| USB | Device mode at high speed as CDC-ECM Ethernet: phone 192.168.7.2, host 192.168.7.1, live kernel log on UDP 5140 (`bergamotausb=2`). The fix was powering up the QUSB2 PHY that ABL leaves powered down (patches 0102, 0107-0109) |
+| Wallpaper | Works once `lsd` re-seeds its database (patch 0099 makes the extension catalog readable; `bergamotalsreset=1` once, or a fresh image, drops a database seeded before it) |
 | Boot time | A few minutes on the Apple logo; the first boot of a fresh image also seeds the LaunchServices database once |
-| In progress | GPU (Adreno 630) bring-up stages `sweetgpu=N` (patch 0103, untested on hardware; `docs/GPU_A630_BRINGUP.md`), Wi-Fi/Bluetooth probes `sweetwlan=N` (patch 0104; `docs/WIFI_BT_PLAN.md`) |
+| In progress | GPU (Adreno 630) bring-up stages `bergamotagpu=N` (patch 0103, untested on hardware; `docs/GPU_A630_BRINGUP.md`), Wi-Fi/Bluetooth probes `bergamotawlan=N` (patch 0104; `docs/WIFI_BT_PLAN.md`) |
 | Not working | Wi-Fi/modem, Bluetooth, GPU acceleration, audio, camera, sensors, SEP |
 
 The boot used to stall on the Apple logo forever: MobileGestalt resolves the Wi-Fi MAC from `/chosen mac-address-wifi0`, else waits for an `IONetworkController` that never appears, once per question, while `lsd` seeds its database. The ADT now carries synthetic `mac-address-wifi0`/`mac-address-bluetooth0` (see `NOTES.md` for the whole bring-up log).
@@ -42,11 +42,11 @@ python3 tools/img2simg.py ios16-root.img ios16-root.simg
 fastboot -S 512M flash userdata ios16-root.simg      # erases Android data
 # boot image
 python3 tools/mkadt.py shim/out/beryllium.adt --board beryllium --highmem --display-scale 2
-python3 tools/mkpayload.py kernel.development.sweet shim/out/beryllium.adt payload.bin --cmdline 'debug=0xc serial=3 cpus=8 keepsyms=1 -noprogress rd=ufsroot0 unentitled_ios_sim_launch=1 ignition_level=1 wdt_test=no_user_checkin ufsrw=1 rootrw=1 launchd_unsecure_cache=1 wdt=-1 sweetfb_noconsole=1 sweetfb_hz=30 sweetfb_vsync=1 sweetfb_scale=1 sweetfb_flip=1 sweetusb=2 sweetbattery=1 sweetsample=-'
+python3 tools/mkpayload.py kernel.development.bergamota shim/out/beryllium.adt payload.bin --cmdline 'debug=0xc serial=3 cpus=8 keepsyms=1 -noprogress rd=ufsroot0 unentitled_ios_sim_launch=1 ignition_level=1 wdt_test=no_user_checkin ufsrw=1 rootrw=1 launchd_unsecure_cache=1 wdt=-1 bergamotafb_noconsole=1 bergamotafb_hz=30 bergamotafb_vsync=1 bergamotafb_scale=1 bergamotafb_flip=1 bergamotausb=2 bergamotabattery=1 bergamotasample=-'
 BOARD=beryllium shim/build.sh ../payload.bin && fastboot boot shim/out/shim-boot.img
 ```
 
-Live log over USB: `tools/sweet-usbnet.sh logs/usb.txt` (macOS/Linux; gives the host 192.168.7.1 and listens on UDP 5140). Logs without USB: boot OrangeFox temporarily (`fastboot boot recovery.img`), then `tools/sweet-log-pull.sh` (kernel console ring) and `tools/sweet-ios-pull.sh` (iOS unified log via a static `hfsdump`).
+Live log over USB: `tools/bergamota-usbnet.sh logs/usb.txt` (macOS/Linux; gives the host 192.168.7.1 and listens on UDP 5140). Logs without USB: boot OrangeFox temporarily (`fastboot boot recovery.img`), then `tools/bergamota-log-pull.sh` (kernel console ring) and `tools/bergamota-ios-pull.sh` (iOS unified log via a static `hfsdump`).
 
 ---
 
@@ -94,7 +94,7 @@ ABL (stock Xiaomi bootloader, unlocked)
               -> dyld + shared cache -> launchd -> daemons -> backboardd + SpringBoard
 ```
 
-There is no serial port (the debug UART is wired as SPI on this board). The kernel draws its console into the framebuffer that ABL leaves at `0x9c000000`, and keeps a persistent 4 MiB log ring at the end of `userdata`. You read that log from OrangeFox recovery with `tools/sweet-log-pull.sh`, so you don't have to film the screen.
+There is no serial port (the debug UART is wired as SPI on this board). The kernel draws its console into the framebuffer that ABL leaves at `0x9c000000`, and keeps a persistent 4 MiB log ring at the end of `userdata`. You read that log from OrangeFox recovery with `tools/bergamota-log-pull.sh`, so you don't have to film the screen.
 
 ## How to do it yourself
 
@@ -130,12 +130,12 @@ Download the iPhone X (iPhone10,3) iOS 16.7.16 (20H392) IPSW from Apple. Then, o
 tools/mkiosroot.sh OS.dmg SystemOS.dmg AppOS.dmg ios16-root.img 16G
 sudo fsck.hfsplus -fy ios16-root.img
 sudo mount -t hfsplus -o loop,force ios16-root.img /mnt/iosroot
-sudo python3 tools/sweet-root-tweaks.py /mnt/iosroot
+sudo python3 tools/bergamota-root-tweaks.py /mnt/iosroot
 sudo umount /mnt/iosroot
 img2simg ios16-root.img ios16-root.simg
 ```
 
-`mkiosroot.sh` copies the OS volume and both cryptexes into one case-sensitive journaled HFS+ volume. It adds the dyld cache links, the plain system keybag and the log directories the daemons expect. `sweet-root-tweaks.py` applies the bring-up changes: it skips Setup, seeds the activation state, removes the baseband daemon, disables the watchdogs that kill slow apps and the crash-looping media paths, and so on. The script's header explains each change.
+`mkiosroot.sh` copies the OS volume and both cryptexes into one case-sensitive journaled HFS+ volume. It adds the dyld cache links, the plain system keybag and the log directories the daemons expect. `bergamota-root-tweaks.py` applies the bring-up changes: it skips Setup, seeds the activation state, removes the baseband daemon, disables the watchdogs that kill slow apps and the crash-looping media paths, and so on. The script's header explains each change.
 
 The device tree builder copies `/product` from the real iPhone X device tree, which MobileGestalt needs. Extract it once, without downloading the whole IPSW:
 
@@ -150,8 +150,8 @@ Needs `aarch64-linux-gnu-gcc` and `mkbootimg`.
 
 ```sh
 python3 tools/mkadt.py shim/out/sweet.adt --highmem
-python3 tools/mkpayload.py xnu/out/kernel.development.sweet shim/out/sweet.adt shim/out/payload.bin \
-    --cmdline 'debug=0xc serial=3 cpus=6 keepsyms=1 -enable_kprintf_spam -noprogress rd=ufsroot0 unentitled_ios_sim_launch=1 ignition_level=1 wdt_test=no_user_checkin ufsrw=1 rootrw=1 launchd_unsecure_cache=1 wdt=-1 sweetfb_noconsole=1 sweetfb_hz=30'
+python3 tools/mkpayload.py xnu/out/kernel.development.bergamota shim/out/sweet.adt shim/out/payload.bin \
+    --cmdline 'debug=0xc serial=3 cpus=6 keepsyms=1 -enable_kprintf_spam -noprogress rd=ufsroot0 unentitled_ios_sim_launch=1 ignition_level=1 wdt_test=no_user_checkin ufsrw=1 rootrw=1 launchd_unsecure_cache=1 wdt=-1 bergamotafb_noconsole=1 bergamotafb_hz=30'
 shim/build.sh ../shim/out/payload.bin      # -> shim/out/shim-boot.img
 ```
 
@@ -163,9 +163,9 @@ What the less obvious boot-args do:
 | `cpus=6` | Start the six A55 cores; `cpus=1` is the safe fallback |
 | `launchd_unsecure_cache=1` | launchd accepts its job cache without AMFI |
 | `wdt=-1 wdt_test=no_user_checkin` | No hardware watchdog |
-| `sweetfb_noconsole=1` | Stop drawing kernel text over the GUI. It still goes to the persistent log; panics are drawn |
-| `sweetfb_hz=30` | Panel refresh rate of the CPU copy |
-| `sweettouch=0`, `sweetkeys=0` | Disable the touch or button driver |
+| `bergamotafb_noconsole=1` | Stop drawing kernel text over the GUI. It still goes to the persistent log; panics are drawn |
+| `bergamotafb_hz=30` | Panel refresh rate of the CPU copy |
+| `bergamotatouch=0`, `bergamotakeys=0` | Disable the touch or button driver |
 
 ### 4. Flash the root and boot
 
@@ -181,15 +181,15 @@ The first boot takes about 4–5 minutes on the Apple logo, then the lock screen
 
 ```sh
 fastboot boot recovery/recovery.img        # OrangeFox, temporary
-tools/sweet-log-pull.sh logs/boot.txt      # 4 MiB console ring from the end of userdata
+tools/bergamota-log-pull.sh logs/boot.txt      # 4 MiB console ring from the end of userdata
 adb reboot bootloader
 ```
 
-The log contains crash reports with backtraces (`CRASH name ...`), IOKit traces of backboardd and SpringBoard, and the drivers' `SWEET ...` lines. `tools/sweet-crash.py` symbolicates them against the shared cache.
+The log contains crash reports with backtraces (`CRASH name ...`), IOKit traces of backboardd and SpringBoard, and the drivers' `BERGAMOTA ...` lines. `tools/bergamota-crash.py` symbolicates them against the shared cache.
 
 ### QEMU
 
-`tools/qemu-sweet.py` boots the same kernel on QEMU `virt` with a test RAM-disk root. It is useful for kernel-only changes; see `NOTES.md`.
+`tools/qemu-bergamota.py` boots the same kernel on QEMU `virt` with a test RAM-disk root. It is useful for kernel-only changes; see `NOTES.md`.
 
 ## Repository layout
 
@@ -201,11 +201,11 @@ The log contains crash reports with backtraces (`CRASH name ...`), IOKit traces 
 | `tools/mkadt.py` | Generates the Apple Device Tree from sweet's MMIO layout and the iPhone X identity |
 | `tools/mkpayload.py` | Packs kernel + ADT + boot-args into the shim payload |
 | `tools/mkiosroot.sh` | Builds the HFS+ iOS root from the IPSW images |
-| `tools/sweet-root-tweaks.py` | Bring-up changes to the root (Setup skip, activation, daemons) |
-| `tools/sweet-log-pull.sh`, `sweet-log.py` | Read the persistent kernel log from recovery |
-| `tools/sweet-crash.py` | Symbolicate console crash reports |
+| `tools/bergamota-root-tweaks.py` | Bring-up changes to the root (Setup skip, activation, daemons) |
+| `tools/bergamota-log-pull.sh`, `bergamota-log.py` | Read the persistent kernel log from recovery |
+| `tools/bergamota-crash.py` | Symbolicate console crash reports |
 | `tools/xnu-cc.py` | Local single-file compile check from a CI log |
-| `tools/qemu-sweet.py` | QEMU test boots with framebuffer text decoding |
+| `tools/qemu-bergamota.py` | QEMU test boots with framebuffer text decoding |
 | `tools/adt.py`, `remotezip.py`, `unpack_bootv2.py`, `sparsediff.py` | Helpers |
 | `NOTES.md` | Detailed engineering log: every boot, crash and decision, plus hardware facts |
 
@@ -215,7 +215,7 @@ Not in git: partition backups, live device trees, recovery images, Apple firmwar
 
 | # | What |
 | --- | --- |
-| 0001–0009 | Toolchain compatibility, SWEET machine config, non-PAC arm64, stubs for Apple-internal pieces |
+| 0001–0009 | Toolchain compatibility, BERGAMOTA machine config, non-PAC arm64, stubs for Apple-internal pieces |
 | 0010–0018 | Early framebuffer console, physmap fix, PRNG without corecrypto, device-tree platform expert, timer PPI, boot CPU driver |
 | 0019–0020 | Apple open-source libpthread kernel provider; BearSSL AES |
 | 0021–0027 | RAM-disk root, mockfs, SHA-256, minimal AMFI, Apple open-source HFS+, MD5 |

@@ -13,7 +13,7 @@ struct AppsView: View {
         let t = model.tools
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 16) {
-                PageHeader("Apps", subtitle: "Sideload decrypted .ipa files over SSH: tools/sweet-install-ipa.sh re-signs ad hoc, copies to /Applications and registers.")
+                PageHeader("Apps", subtitle: "Sideload decrypted .ipa files over SSH: tools/bergamota-install-ipa.sh re-signs ad hoc, copies to /Applications and registers.")
                 if let r = t.disabledReason { Notice(text: r) }
                 HStack(alignment: .top, spacing: 18) {
                     VStack(spacing: 12) {

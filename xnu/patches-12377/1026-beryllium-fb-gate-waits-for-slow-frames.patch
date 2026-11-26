@@ -1,5 +1,5 @@
---- a/iokit/Kernel/arm/SweetFramebuffer.cpp
-+++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+--- a/iokit/Kernel/arm/BergamotaFramebuffer.cpp
++++ b/iokit/Kernel/arm/BergamotaFramebuffer.cpp
 @@ -1060,7 +1060,15 @@
  /*
   * 0229: the pending swap is taken only once the GPU work submitted before it has completed (it may be drawing that very
@@ -11,7 +11,7 @@
 + * showed what that framebuffer held two or three frames earlier: frames going back. A slow frame is now shown late; the
 + * cap is only for a dead backboardd or a stuck GPU.
   */
-+#define SWEET_FB_GATE_CAP_MS 500
++#define BERGAMOTA_FB_GATE_CAP_MS 500
 +
  bool
  AppleCLCD::gpuGateOpen(uint64_t now)
@@ -21,7 +21,7 @@
  	}
  	uint64_t cap;
 -	nanoseconds_to_absolutetime(50 * NSEC_PER_MSEC, &cap);
-+	nanoseconds_to_absolutetime(SWEET_FB_GATE_CAP_MS * NSEC_PER_MSEC, &cap);
++	nanoseconds_to_absolutetime(BERGAMOTA_FB_GATE_CAP_MS * NSEC_PER_MSEC, &cap);
  	if (now - fPendAbs > cap) {
  		fSt.gpuHoldTimeouts++;
  		fPendFence = 0;
@@ -30,7 +30,7 @@
  	}
  	uint64_t cap;
 -	nanoseconds_to_absolutetime(100 * NSEC_PER_MSEC, &cap);
-+	nanoseconds_to_absolutetime(SWEET_FB_GATE_CAP_MS * NSEC_PER_MSEC, &cap);
++	nanoseconds_to_absolutetime(BERGAMOTA_FB_GATE_CAP_MS * NSEC_PER_MSEC, &cap);
  	if (now - fPendAbs > cap) {
  		fSt.gpuHoldTimeouts++;
  		fPendGate = 0;
@@ -41,10 +41,10 @@
 -	 * one is 120 ms old (just past the gates' own 100 ms cap, so the tick after it still takes the frame).
 +	 * one is just past the gates' own cap (1026), so the tick after it still takes the frame.
  	 */
- 	if (__atomic_load_n(&sweet_fb_gate_committed, __ATOMIC_ACQUIRE) != 0) {
+ 	if (__atomic_load_n(&bergamota_fb_gate_committed, __ATOMIC_ACQUIRE) != 0) {
  		uint64_t cap;
 -		nanoseconds_to_absolutetime(120 * NSEC_PER_MSEC, &cap);
-+		nanoseconds_to_absolutetime((SWEET_FB_GATE_CAP_MS + 20) * NSEC_PER_MSEC, &cap);
++		nanoseconds_to_absolutetime((BERGAMOTA_FB_GATE_CAP_MS + 20) * NSEC_PER_MSEC, &cap);
  		for (;;) {
  			IOLockLock(fLock);
  			bool pending = fDirty && !fPowerOff && mach_absolute_time() - fPendAbs < cap;

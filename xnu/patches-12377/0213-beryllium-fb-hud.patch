@@ -1,18 +1,18 @@
-diff --git a/bsd/dev/sweet_a630.c b/bsd/dev/sweet_a630.c
+diff --git a/bsd/dev/bergamota_a630.c b/bsd/dev/bergamota_a630.c
 index 2edadc1939fb3d7eae620551e3d52aa6e21a1479..6148ba85b15e98fe23a2fb493984433688f55de5 100644
---- a/bsd/dev/sweet_a630.c
-+++ b/bsd/dev/sweet_a630.c
-@@ -3431,6 +3431,23 @@ sweet_gpu_sysctl SYSCTL_HANDLER_ARGS
- SYSCTL_PROC(_kern, OID_AUTO, sweet_gpu, CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, 0, 0, sweet_gpu_sysctl, "A",
+--- a/bsd/dev/bergamota_a630.c
++++ b/bsd/dev/bergamota_a630.c
+@@ -3431,6 +3431,23 @@ bergamota_gpu_sysctl SYSCTL_HANDLER_ARGS
+ SYSCTL_PROC(_kern, OID_AUTO, bergamota_gpu, CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, 0, 0, bergamota_gpu_sysctl, "A",
      "Adreno 630 metrics: key=value line (docs/GPU_KERNEL.md)");
  
 +/*
-+ * The same numbers as kern.sweet_gpu's level/mhz/busy_pct/freq/state, for the framebuffer's on-screen HUD (patch 0213):
++ * The same numbers as kern.bergamota_gpu's level/mhz/busy_pct/freq/state, for the framebuffer's on-screen HUD (patch 0213):
 + * no formatting, no locks, plain reads of the governor's words. state: 0 off, 1 on, 2 slumber, 3 lost; gov: 1 governor.
 + */
-+void sweet_gpu_hud_state(unsigned *mhz, unsigned *level, unsigned *busy_pct, int *gov, int *state);
++void bergamota_gpu_hud_state(unsigned *mhz, unsigned *level, unsigned *busy_pct, int *gov, int *state);
 +void
-+sweet_gpu_hud_state(unsigned *mhz, unsigned *level, unsigned *busy_pct, int *gov, int *state)
++bergamota_gpu_hud_state(unsigned *mhz, unsigned *level, unsigned *busy_pct, int *gov, int *state)
 +{
 +	unsigned lvl = a630_awake ? a630_level : 0;
 +
@@ -26,22 +26,22 @@ index 2edadc1939fb3d7eae620551e3d52aa6e21a1479..6148ba85b15e98fe23a2fb4939844336
  /* ---- the PM thread: idle slumber, governor, residency, heartbeat ---- */
  
  static void
-diff --git a/bsd/dev/sweet_cpufreq.c b/bsd/dev/sweet_cpufreq.c
+diff --git a/bsd/dev/bergamota_cpufreq.c b/bsd/dev/bergamota_cpufreq.c
 index 50b04bead8b12b5f0fc9a9859ad8961096ae6eff..578f6b9e3ad83e5a3b324283449642e128e477fc 100644
---- a/bsd/dev/sweet_cpufreq.c
-+++ b/bsd/dev/sweet_cpufreq.c
+--- a/bsd/dev/bergamota_cpufreq.c
++++ b/bsd/dev/bergamota_cpufreq.c
 @@ -634,4 +634,20 @@ cf_sysctl SYSCTL_HANDLER_ARGS
- SYSCTL_PROC(_kern, OID_AUTO, sweet_cpufreq,
+ SYSCTL_PROC(_kern, OID_AUTO, bergamota_cpufreq,
      CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, 0, 0, cf_sysctl, "A",
-     "Poco F1 cpufreq governor state per cluster (see bsd/dev/sweet_cpufreq.c)");
+     "Poco F1 cpufreq governor state per cluster (see bsd/dev/bergamota_cpufreq.c)");
 +
 +/*
 + * Current clock of the A55 and A75 clusters in MHz (0 = cluster not under our control), read live from
 + * PERF_STATE like cur_khz above; for the framebuffer's on-screen HUD (patch 0213).
 + */
-+void sweet_cpufreq_hud_mhz(unsigned *a55_mhz, unsigned *a75_mhz);
++void bergamota_cpufreq_hud_mhz(unsigned *a55_mhz, unsigned *a75_mhz);
 +void
-+sweet_cpufreq_hud_mhz(unsigned *a55_mhz, unsigned *a75_mhz)
++bergamota_cpufreq_hud_mhz(unsigned *a55_mhz, unsigned *a75_mhz)
 +{
 +	unsigned *out[2] = { a55_mhz, a75_mhz };
 +
@@ -50,95 +50,95 @@ index 50b04bead8b12b5f0fc9a9859ad8961096ae6eff..578f6b9e3ad83e5a3b324283449642e1
 +		*out[i] = d->state == CF_APPLIED ? cf_state_khz(d, cf_rd(d, CPUFREQ_PERF_STATE)) / 1000 : 0;
 +	}
 +}
- #endif /* ARM64_BOARD_CONFIG_SWEET */
-diff --git a/bsd/dev/sweet_fb.c b/bsd/dev/sweet_fb.c
+ #endif /* ARM64_BOARD_CONFIG_BERGAMOTA */
+diff --git a/bsd/dev/bergamota_fb.c b/bsd/dev/bergamota_fb.c
 index 3cd194d5c8d820544f76eae87174fec8bda586c4..2afd1f2baf5533802093cd87d24c8b147aac3901 100644
---- a/bsd/dev/sweet_fb.c
-+++ b/bsd/dev/sweet_fb.c
-@@ -52,6 +52,15 @@ static int sweet_fb_sysctl SYSCTL_HANDLER_ARGS
+--- a/bsd/dev/bergamota_fb.c
++++ b/bsd/dev/bergamota_fb.c
+@@ -52,6 +52,15 @@ static int bergamota_fb_sysctl SYSCTL_HANDLER_ARGS
  	return sysctl_handle_string(oidp, buf, sizeof(buf), req);
  }
  
 +/*
-+ * sysctl kern.sweet_fb_hud (patch 0213): the on-screen performance HUD drawn by the framebuffer
-+ * (SweetFramebuffer.cpp hudTick/hudBlit). 0 = off (default), nonzero = on; boot-arg sweetfb_hud=1 sets
++ * sysctl kern.bergamota_fb_hud (patch 0213): the on-screen performance HUD drawn by the framebuffer
++ * (BergamotaFramebuffer.cpp hudTick/hudBlit). 0 = off (default), nonzero = on; boot-arg bergamotafb_hud=1 sets
 + * the initial value. The framebuffer only reads it (a relaxed load per frame / vsync tick).
 + */
-+int sweet_fb_hud;
-+SYSCTL_INT(_kern, OID_AUTO, sweet_fb_hud, CTLFLAG_RW | CTLFLAG_LOCKED, &sweet_fb_hud, 0,
++int bergamota_fb_hud;
++SYSCTL_INT(_kern, OID_AUTO, bergamota_fb_hud, CTLFLAG_RW | CTLFLAG_LOCKED, &bergamota_fb_hud, 0,
 +    "Poco F1 on-screen performance HUD (0 off, 1 on); needs the copy scan-out path");
 +
- SYSCTL_PROC(_kern, OID_AUTO, sweet_fb,
-     CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, 0, 0, sweet_fb_sysctl, "A",
-     "Poco F1 display path statistics, key=value string (see bsd/dev/sweet_fb.c)");
-diff --git a/iokit/Kernel/arm/SweetBattery.cpp b/iokit/Kernel/arm/SweetBattery.cpp
+ SYSCTL_PROC(_kern, OID_AUTO, bergamota_fb,
+     CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, 0, 0, bergamota_fb_sysctl, "A",
+     "Poco F1 display path statistics, key=value string (see bsd/dev/bergamota_fb.c)");
+diff --git a/iokit/Kernel/arm/BergamotaBattery.cpp b/iokit/Kernel/arm/BergamotaBattery.cpp
 index e40174885569fd9a9ad3f7a75a7047eedbb1922e..56b6f9c95674556fe86a2131861d2254caa1a364 100644
---- a/iokit/Kernel/arm/SweetBattery.cpp
-+++ b/iokit/Kernel/arm/SweetBattery.cpp
+--- a/iokit/Kernel/arm/BergamotaBattery.cpp
++++ b/iokit/Kernel/arm/BergamotaBattery.cpp
 @@ -17,6 +17,22 @@
- extern "C" int sweet_spmi_init(void);
- extern "C" int sweet_spmi_read(unsigned sid, unsigned addr, uint8_t *out);
+ extern "C" int bergamota_spmi_init(void);
+ extern "C" int bergamota_spmi_read(unsigned sid, unsigned addr, uint8_t *out);
  
 +/*
 + * Last published state of charge and charge current (positive = charging), for the framebuffer's on-screen
-+ * HUD (patch 0213, sweet_battery_hud): two words written by publish(), read without a lock.
++ * HUD (patch 0213, bergamota_battery_hud): two words written by publish(), read without a lock.
 + */
-+static volatile int sweet_batt_percent = -1, sweet_batt_ma;
-+extern "C" int sweet_battery_hud(int *percent, int *ma);
++static volatile int bergamota_batt_percent = -1, bergamota_batt_ma;
++extern "C" int bergamota_battery_hud(int *percent, int *ma);
 +extern "C" int
-+sweet_battery_hud(int *percent, int *ma)
++bergamota_battery_hud(int *percent, int *ma)
 +{
-+	int p = sweet_batt_percent;
++	int p = bergamota_batt_percent;
 +
 +	*percent = p < 0 ? 0 : p;
-+	*ma = sweet_batt_ma;
++	*ma = bergamota_batt_ma;
 +	return p >= 0;
 +}
 +
- class SweetBattery : public IOPMPowerSource {
- 	OSDeclareDefaultStructors(SweetBattery);
+ class BergamotaBattery : public IOPMPowerSource {
+ 	OSDeclareDefaultStructors(BergamotaBattery);
  public:
-@@ -111,6 +127,8 @@ SweetBattery::publish(unsigned percent, unsigned mv, int ma, bool external,
+@@ -111,6 +127,8 @@ BergamotaBattery::publish(unsigned percent, unsigned mv, int ma, bool external,
  	 * item, powerd's "Current Capacity") saw 5020 here. DT nominal = 5020 mAh.
  	 */
  	const unsigned capacity = (5020u * percent + 50u) / 100u;
-+	sweet_batt_ma = ma;
-+	sweet_batt_percent = (int)percent;
++	bergamota_batt_ma = ma;
++	bergamota_batt_percent = (int)percent;
  	setBatteryInstalled(true);
  	setCurrentCapacity(percent);
  	setMaxCapacity(100);
-diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
+diff --git a/iokit/Kernel/arm/BergamotaFramebuffer.cpp b/iokit/Kernel/arm/BergamotaFramebuffer.cpp
 index 5ebf6d7e67b2a4f8f7604f61d359fa541e7e53a2..bc5e6879b9a6eaab3fac0b99d8fefe8fd1fc7da3 100644
---- a/iokit/Kernel/arm/SweetFramebuffer.cpp
-+++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
-@@ -47,6 +47,11 @@ extern "C" void sweet_busy_init(void);          /* iokit/Kernel/arm/SweetBusy.cp
- #include "../../../bsd/dev/sweet_spmi.h"
- extern "C" int sweet_smmu_probe_sid(unsigned sid, unsigned level); /* bsd/dev/sweet_smmu.c, read only */
- extern "C" void sweet_fb_stats_publish(const char *text);       /* bsd/dev/sweet_fb.c: sysctl kern.sweet_fb */
-+extern "C" int sweet_fb_hud;                    /* bsd/dev/sweet_fb.c: sysctl kern.sweet_fb_hud (patch 0213) */
+--- a/iokit/Kernel/arm/BergamotaFramebuffer.cpp
++++ b/iokit/Kernel/arm/BergamotaFramebuffer.cpp
+@@ -47,6 +47,11 @@ extern "C" void bergamota_busy_init(void);          /* iokit/Kernel/arm/BergamotaBusy.cp
+ #include "../../../bsd/dev/bergamota_spmi.h"
+ extern "C" int bergamota_smmu_probe_sid(unsigned sid, unsigned level); /* bsd/dev/bergamota_smmu.c, read only */
+ extern "C" void bergamota_fb_stats_publish(const char *text);       /* bsd/dev/bergamota_fb.c: sysctl kern.bergamota_fb */
++extern "C" int bergamota_fb_hud;                    /* bsd/dev/bergamota_fb.c: sysctl kern.bergamota_fb_hud (patch 0213) */
 +extern "C" unsigned char iso_font[256 * 16];    /* osfmk/console/iso_font.c: the 8x16 console font */
-+extern "C" void sweet_gpu_hud_state(unsigned *mhz, unsigned *level, unsigned *busy_pct, int *gov, int *state); /* bsd/dev/sweet_a630.c */
-+extern "C" void sweet_cpufreq_hud_mhz(unsigned *a55_mhz, unsigned *a75_mhz);    /* bsd/dev/sweet_cpufreq.c */
-+extern "C" int sweet_battery_hud(int *percent, int *ma);        /* iokit/Kernel/arm/SweetBattery.cpp, 0 = nothing published yet */
- class SweetSurface;
- static void sweet_hold_release(SweetSurface **set);
++extern "C" void bergamota_gpu_hud_state(unsigned *mhz, unsigned *level, unsigned *busy_pct, int *gov, int *state); /* bsd/dev/bergamota_a630.c */
++extern "C" void bergamota_cpufreq_hud_mhz(unsigned *a55_mhz, unsigned *a75_mhz);    /* bsd/dev/bergamota_cpufreq.c */
++extern "C" int bergamota_battery_hud(int *percent, int *ma);        /* iokit/Kernel/arm/BergamotaBattery.cpp, 0 = nothing published yet */
+ class BergamotaSurface;
+ static void bergamota_hold_release(BergamotaSurface **set);
  static uint32_t get32(const uint8_t *p, uint32_t off);
 @@ -85,6 +90,9 @@ enum {
- #define SWEET_FB_DOT_PITCH              458     /* ppi, as the iPhone X panel */
- #define SWEET_FB_BL_STEPS               12      /* vsyncs of backlight ramp */
- #define SWEET_FB_STATS_MAX              1024    /* kern.sweet_fb line (bsd/dev/sweet_fb.c) */
-+#define SWEET_FB_HUD_ROWS               6       /* patch 0213: text rows of the performance HUD */
-+#define SWEET_FB_HUD_COLS               26      /* and columns (8x16 glyph cells) */
-+#define SWEET_FB_HUD_PERIOD_US          500000  /* text refresh: twice a second */
+ #define BERGAMOTA_FB_DOT_PITCH              458     /* ppi, as the iPhone X panel */
+ #define BERGAMOTA_FB_BL_STEPS               12      /* vsyncs of backlight ramp */
+ #define BERGAMOTA_FB_STATS_MAX              1024    /* kern.bergamota_fb line (bsd/dev/bergamota_fb.c) */
++#define BERGAMOTA_FB_HUD_ROWS               6       /* patch 0213: text rows of the performance HUD */
++#define BERGAMOTA_FB_HUD_COLS               26      /* and columns (8x16 glyph cells) */
++#define BERGAMOTA_FB_HUD_PERIOD_US          500000  /* text refresh: twice a second */
  /*
   * The iOS userland only has status bar / layout data for real iPhone
   * screens (UIKit: "No status bar visual provider for screen", the red
 @@ -257,6 +265,44 @@ public:
- 	uint32_t      fStLogSecs;       /* sweetfb_statlog: seconds between IOLog lines, 0 = sysctl only */
+ 	uint32_t      fStLogSecs;       /* bergamotafb_statlog: seconds between IOLog lines, 0 = sysctl only */
  	int           fSmmuA, fSmmuB;   /* MDP SMMU probe results, -2 = not probed */
  	void          statsTick(uint64_t now);
 +	/*
-+	 * Performance HUD (patch 0213, sysctl kern.sweet_fb_hud, boot-arg sweetfb_hud=1). A box of text drawn
++	 * Performance HUD (patch 0213, sysctl kern.bergamota_fb_hud, boot-arg bergamotafb_hud=1). A box of text drawn
 +	 * into the frame the panel scans: the copy path draws it into the back buffer after the copy (hudBlit,
 +	 * before scanTo) and hudTick redraws it into the front buffer on a static screen. Both run on the work
 +	 * loop thread. The box is rendered (hudRender) into a cached image once per refresh, so a frame costs
@@ -152,10 +152,10 @@ index 5ebf6d7e67b2a4f8f7604f61d359fa541e7e53a2..bc5e6879b9a6eaab3fac0b99d8fefe8f
 +	struct {
 +		uint64_t swaps, coalesced, zc, copy, copyAbs;
 +	} fHudPrev;
-+	char          fHudText[SWEET_FB_HUD_ROWS][SWEET_FB_HUD_COLS + 1];
++	char          fHudText[BERGAMOTA_FB_HUD_ROWS][BERGAMOTA_FB_HUD_COLS + 1];
 +	/*
 +	 * Zero-copy / direct scan-out (patch 0213): the scanned buffer is the app's IOSurface, so the box is a
-+	 * second hardware layer instead: a DMA pipe (fHudPipe, an index into sweet_mdp_pipes) fetches a small
++	 * second hardware layer instead: a DMA pipe (fHudPipe, an index into bergamota_mdp_pipes) fetches a small
 +	 * ARGB image of ours (two buffers at the end of the splash carve-out, double buffered) and the mixer
 +	 * (LM0) blends it above ABL's base layer at the box position, coverage blend. fHudLayerOn: the mixer
 +	 * stage is enabled; fHudLayerFail: setup failed once, never tried again (scan-out is not touched).
@@ -179,42 +179,42 @@ index 5ebf6d7e67b2a4f8f7604f61d359fa541e7e53a2..bc5e6879b9a6eaab3fac0b99d8fefe8f
  	void          zcStats(const char *when);
  	void          zcPoll(void);
 @@ -425,6 +471,13 @@ AppleCLCD::start(IOService *provider)
- 		PE_parse_boot_argn("sweetfb_statlog", &secs, sizeof(secs));
+ 		PE_parse_boot_argn("bergamotafb_statlog", &secs, sizeof(secs));
  		fStLogSecs = secs;
  	}
 +	{
 +		int hud = 0;
-+		if (PE_parse_boot_argn("sweetfb_hud", &hud, sizeof(hud))) {
-+			__atomic_store_n(&sweet_fb_hud, hud != 0, __ATOMIC_RELAXED);    /* sysctl kern.sweet_fb_hud (patch 0213) */
-+			IOLog("SWEET FB: sweetfb_hud=%d: performance HUD %s (sysctl kern.sweet_fb_hud)\n", hud, hud ? "on" : "off");
++		if (PE_parse_boot_argn("bergamotafb_hud", &hud, sizeof(hud))) {
++			__atomic_store_n(&bergamota_fb_hud, hud != 0, __ATOMIC_RELAXED);    /* sysctl kern.bergamota_fb_hud (patch 0213) */
++			IOLog("BERGAMOTA FB: bergamotafb_hud=%d: performance HUD %s (sysctl kern.bergamota_fb_hud)\n", hud, hud ? "on" : "off");
 +		}
 +	}
- 	if (sweet_board_beryllium()) {
+ 	if (bergamota_board_beryllium()) {
  		mdpProbe();
  		int flip = 0;
 @@ -616,6 +669,7 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
  	}
- 	sweet_hold_release(taken);      /* copied: CA may render into them again */
+ 	bergamota_hold_release(taken);      /* copied: CA may render into them again */
  	fb->statsTick(now);
 +	fb->hudTick(now);
  	sender->setTimeoutUS(fb->fVsyncUS);
  }
  
 @@ -904,6 +958,11 @@ static const struct {
- #define SWEET_MDP_LM_BORDER0    0x08u   /* LM0 +0x08 / +0x10, flushed with CTL_FLUSH BIT(6) (LM_0) */
- #define SWEET_MDP_LM_BORDER1    0x10u
- #define SWEET_MDP_LM0_FLUSH     (1u << 6)
+ #define BERGAMOTA_MDP_LM_BORDER0    0x08u   /* LM0 +0x08 / +0x10, flushed with CTL_FLUSH BIT(6) (LM_0) */
+ #define BERGAMOTA_MDP_LM_BORDER1    0x10u
+ #define BERGAMOTA_MDP_LM0_FLUSH     (1u << 6)
 +#define SSPP_SRC_UNPACK         0x34u   /* HUD layer (patch 0213) */
 +#define SSPP_DANGER_LUT         0x60u   /* DANGER, SAFE, CREQ LUTs and QOS_CTRL, cloned from the base pipe */
 +#define SSPP_QOS_CTRL           0x6cu
-+#define SWEET_MDP_LM_BLEND0     0x20u   /* LM0 blend block of stage 0 (sdm845 blendstage_base 0x20, 0x38, 0x50 ...) */
-+#define SWEET_MDP_LM_BLEND_STRIDE 0x18u
++#define BERGAMOTA_MDP_LM_BLEND0     0x20u   /* LM0 blend block of stage 0 (sdm845 blendstage_base 0x20, 0x38, 0x50 ...) */
++#define BERGAMOTA_MDP_LM_BLEND_STRIDE 0x18u
  
  /*
   * panic: put back everything the page flipper / scaler changed, so ABL's
 @@ -1297,6 +1356,7 @@ AppleCLCD::scanAddr(uint32_t pa, uint32_t stride, bool hwFrame)
  	} else if (!hwFrame && fHwOn) {
- 		sweet_mdp_restore_apply();      /* boot geometry, scaler off (address/stride follow below) */
+ 		bergamota_mdp_restore_apply();      /* boot geometry, scaler off (address/stride follow below) */
  		fHwOn = false;
 +		fHudLayerOn = false;    /* the table put the boot mixer layer config back: the HUD stage is gone (patch 0213) */
  		fLmPending = fBorderFix;
@@ -227,14 +227,14 @@ index 5ebf6d7e67b2a4f8f7604f61d359fa541e7e53a2..bc5e6879b9a6eaab3fac0b99d8fefe8f
 +/*
 + * Performance HUD (patch 0213).
 + *
-+ * Boot-arg sweetfb_hud=1 sets the initial value of sysctl kern.sweet_fb_hud (bsd/dev/sweet_fb.c), 0 = off.
++ * Boot-arg bergamotafb_hud=1 sets the initial value of sysctl kern.bergamota_fb_hud (bsd/dev/bergamota_fb.c), 0 = off.
 + * Rows (every 500 ms, one window):
 + *   DISP  frames pushed to the panel per second (zero-copy + copy), and the vsync rate in Hz
 + *   APP   backboardd swaps per second, and the ones coalesced (replaced before they were shown)
 + *   COPY  copy time per frame, average and maximum of the window (latch waits and the HUD excluded)
-+ *   GPU   MHz, level, busy % and governor mode (sweet_a630.c, as kern.sweet_gpu)
-+ *   CPU   current MHz of the A55 and A75 clusters (sweet_cpufreq.c, live PERF_STATE)
-+ *   BAT   percent and charge current, + charging (SweetBattery.cpp; "--" until it published)
++ *   GPU   MHz, level, busy % and governor mode (bergamota_a630.c, as kern.bergamota_gpu)
++ *   CPU   current MHz of the A55 and A75 clusters (bergamota_cpufreq.c, live PERF_STATE)
++ *   BAT   percent and charge current, + charging (BergamotaBattery.cpp; "--" until it published)
 + * Everything is read through exported getters or the driver's own counters: nothing is parsed, and the
 + * only per frame work is hudBlit (write-only, no allocation). The buffers we draw into are write-combined
 + * mappings (kIOMapWriteCombineCache), so a "dsb sy" is the whole cache maintenance; there are no dirty
@@ -253,17 +253,17 @@ index 5ebf6d7e67b2a4f8f7604f61d359fa541e7e53a2..bc5e6879b9a6eaab3fac0b99d8fefe8f
 +	uint32_t bw = hwFrame ? fLogicalW : fWidth, bh = hwFrame ? fLogicalH : fHeight;     /* the layer is in panel pixels */
 +	uint32_t s = bw >= 1000 ? 3 : 2;
 +	uint32_t pad = 2 * s;
-+	uint32_t w = SWEET_FB_HUD_COLS * 8 * s + 2 * pad, h = SWEET_FB_HUD_ROWS * 16 * s + 2 * pad;
++	uint32_t w = BERGAMOTA_FB_HUD_COLS * 8 * s + 2 * pad, h = BERGAMOTA_FB_HUD_ROWS * 16 * s + 2 * pad;
 +
 +	if (w + 8 > bw || h + bh / 16 > bh) {
 +		fHudWarned = true;
-+		IOLog("SWEET FB: HUD does not fit the %ux%u buffer\n", bw, bh);
++		IOLog("BERGAMOTA FB: HUD does not fit the %ux%u buffer\n", bw, bh);
 +		return false;
 +	}
 +	fHudImg = (uint32_t *)IOMallocData((size_t)w * h * sizeof(uint32_t));       /* once, never per frame */
 +	if (fHudImg == NULL) {
 +		fHudWarned = true;
-+		IOLog("SWEET FB: HUD: no memory for the box image\n");
++		IOLog("BERGAMOTA FB: HUD: no memory for the box image\n");
 +		return false;
 +	}
 +	fHudW = w;
@@ -272,7 +272,7 @@ index 5ebf6d7e67b2a4f8f7604f61d359fa541e7e53a2..bc5e6879b9a6eaab3fac0b99d8fefe8f
 +	fHudY = bh / 16;
 +	fHudStyleLayer = !hudUsable();
 +	fHudScale = s;
-+	IOLog("SWEET FB: HUD box %ux%u at %u,%u in the %ux%u %s %s, font x%u\n", w, h, fHudX, fHudY, bw, bh,
++	IOLog("BERGAMOTA FB: HUD box %ux%u at %u,%u in the %ux%u %s %s, font x%u\n", w, h, fHudX, fHudY, bw, bh,
 +	    hwFrame ? "canvas" : "panel", fHudStyleLayer ? "(hardware layer)" : "buffer", s);
 +	return true;
 +}
@@ -294,8 +294,8 @@ index 5ebf6d7e67b2a4f8f7604f61d359fa541e7e53a2..bc5e6879b9a6eaab3fac0b99d8fefe8f
 +			}
 +		}
 +	}
-+	for (uint32_t r = 0; r < SWEET_FB_HUD_ROWS; r++) {
-+		for (uint32_t c = 0; c < SWEET_FB_HUD_COLS && fHudText[r][c] != 0; c++) {
++	for (uint32_t r = 0; r < BERGAMOTA_FB_HUD_ROWS; r++) {
++		for (uint32_t c = 0; c < BERGAMOTA_FB_HUD_COLS && fHudText[r][c] != 0; c++) {
 +			unsigned char ch = (unsigned char)fHudText[r][c];
 +			if (ch == ' ') {
 +				continue;
@@ -369,12 +369,12 @@ index 5ebf6d7e67b2a4f8f7604f61d359fa541e7e53a2..bc5e6879b9a6eaab3fac0b99d8fefe8f
 + *   CTL0 FLUSH: pipe bit | CTL bit 17 (| LM0 bit 6 when the mixer config changed).
 + * A failed check or write-back mismatch logs once and leaves the layer off; the base pipe, LM0 geometry and the
 + * scan-out buffers are never written. The boot value of LAYER0 goes into the panic restore table, so the panic
-+ * console shows without the box. sweetfb_hudlayer=0 turns the layer off altogether.
++ * console shows without the box. bergamotafb_hudlayer=0 turns the layer off altogether.
 + */
-+static const struct { int pipe; uint32_t shift; } sweet_hud_pipes[] = { { 4, 18 }, { 5, 21 } };  /* DMA0, DMA1 */
++static const struct { int pipe; uint32_t shift; } bergamota_hud_pipes[] = { { 4, 18 }, { 5, 21 } };  /* DMA0, DMA1 */
 +
 +static uint32_t
-+sweet_mix_shift(int pipe)       /* CTL_LAYER field of a source pipe; 0xff = not known */
++bergamota_mix_shift(int pipe)       /* CTL_LAYER field of a source pipe; 0xff = not known */
 +{
 +	static const uint8_t shifts[] = { 0, 3, 6, 26, 18, 21, 0xff, 0xff };    /* VIG0-3, DMA0-3 */
 +	return shifts[pipe];
@@ -385,35 +385,35 @@ index 5ebf6d7e67b2a4f8f7604f61d359fa541e7e53a2..bc5e6879b9a6eaab3fac0b99d8fefe8f
 +{
 +	fHudLayerTried = true;
 +	int dis = 1;
-+	PE_parse_boot_argn("sweetfb_hudlayer", &dis, sizeof(dis));
++	PE_parse_boot_argn("bergamotafb_hudlayer", &dis, sizeof(dis));
 +	if (!dis) {
-+		IOLog("SWEET FB: HUD layer disabled by sweetfb_hudlayer=0: no HUD with zero-copy / direct scan-out\n");
++		IOLog("BERGAMOTA FB: HUD layer disabled by bergamotafb_hudlayer=0: no HUD with zero-copy / direct scan-out\n");
 +		return false;
 +	}
 +	if (fMdp == 0 || fPipe < 0 || !fFlip || !fHw || fHudImg == NULL) {
-+		IOLog("SWEET FB: HUD layer: no MDP pipe / page flipping / scaler state\n");
++		IOLog("BERGAMOTA FB: HUD layer: no MDP pipe / page flipping / scaler state\n");
 +		return false;
 +	}
-+	vm_offset_t ctl = fMdp + SWEET_MDP_CTL0;
++	vm_offset_t ctl = fMdp + BERGAMOTA_MDP_CTL0;
 +	uint32_t layer0 = mdp_rd(ctl, 0x00);
-+	uint32_t bshift = sweet_mix_shift(fPipe);
++	uint32_t bshift = bergamota_mix_shift(fPipe);
 +	uint32_t m0 = bshift == 0xff ? 0 : (layer0 >> bshift) & 7u;
 +	if (m0 == 0 || m0 >= 7) {
-+		IOLog("SWEET FB: HUD layer: base pipe %s is at mixer value %u (layer0 0x%08x): no stage above it\n",
-+		    sweet_mdp_pipes[fPipe].name, m0, layer0);
++		IOLog("BERGAMOTA FB: HUD layer: base pipe %s is at mixer value %u (layer0 0x%08x): no stage above it\n",
++		    bergamota_mdp_pipes[fPipe].name, m0, layer0);
 +		return false;
 +	}
 +	int pi = -1;
-+	for (unsigned i = 0; i < sizeof(sweet_hud_pipes) / sizeof(sweet_hud_pipes[0]); i++) {
-+		if (sweet_hud_pipes[i].pipe != fPipe && ((layer0 >> sweet_hud_pipes[i].shift) & 7u) == 0) {
++	for (unsigned i = 0; i < sizeof(bergamota_hud_pipes) / sizeof(bergamota_hud_pipes[0]); i++) {
++		if (bergamota_hud_pipes[i].pipe != fPipe && ((layer0 >> bergamota_hud_pipes[i].shift) & 7u) == 0) {
 +			pi = (int)i;
 +			break;
 +		}
 +	}
-+	vm_offset_t base = fMdp + sweet_mdp_pipes[fPipe].off;
++	vm_offset_t base = fMdp + bergamota_mdp_pipes[fPipe].off;
 +	uint32_t fmt = mdp_rd(base, SSPP_SRC_FORMAT);
 +	if (pi < 0 || !((fmt >> 8) & 1)) {
-+		IOLog("SWEET FB: HUD layer: no free DMA pipe in the mixer (layer0 0x%08x) or the base format 0x%x has no alpha\n", layer0, fmt);
++		IOLog("BERGAMOTA FB: HUD layer: no free DMA pipe in the mixer (layer0 0x%08x) or the base format 0x%x has no alpha\n", layer0, fmt);
 +		return false;
 +	}
 +	/* two buffers at the end of the splash carve-out, past the flip buffers */
@@ -423,7 +423,7 @@ index 5ebf6d7e67b2a4f8f7604f61d359fa541e7e53a2..bc5e6879b9a6eaab3fac0b99d8fefe8f
 +	uint64_t slot = (bytes + 0xfffffu) & ~0xfffffull;
 +	uint64_t flipEnd = fBufPA[2] + (fHw ? (uint64_t)fHwStride * fLogicalH : (uint64_t)fRowBytes * fHeight);
 +	if (region_end - 2 * slot < flipEnd || (region_end >> 32)) {
-+		IOLog("SWEET FB: HUD layer: no room behind the flip buffers (end 0x%llx, need 2 x 0x%llx before 0x%llx)\n",
++		IOLog("BERGAMOTA FB: HUD layer: no room behind the flip buffers (end 0x%llx, need 2 x 0x%llx before 0x%llx)\n",
 +		    flipEnd, slot, region_end);
 +		return false;
 +	}
@@ -441,19 +441,19 @@ index 5ebf6d7e67b2a4f8f7604f61d359fa541e7e53a2..bc5e6879b9a6eaab3fac0b99d8fefe8f
 +		fHudBufVA[i] = (uintptr_t)fHudBufMap[i]->getVirtualAddress();
 +		bzero((void *)fHudBufVA[i], (size_t)bytes);
 +	}
-+	fHudPipe = sweet_hud_pipes[pi].pipe;
-+	fHudShift = sweet_hud_pipes[pi].shift;
++	fHudPipe = bergamota_hud_pipes[pi].pipe;
++	fHudShift = bergamota_hud_pipes[pi].shift;
 +	fHudMix = m0 + 1;
 +	fHudOrigLayer = layer0;
 +	fHudCur = 1;
 +	/* the boot mixer layer config comes back on panic / boot-frame scan-out */
-+	if (sweet_mdp_restore.base != 0 && sweet_mdp_restore.n < SWEET_MDP_RESTORE_MAX) {
-+		sweet_mdp_restore.r[sweet_mdp_restore.n].off = SWEET_MDP_CTL0 + 0x00;
-+		sweet_mdp_restore.r[sweet_mdp_restore.n++].val = layer0;
-+		sweet_mdp_restore.flush |= SWEET_MDP_LM0_FLUSH | sweet_mdp_pipes[fHudPipe].flush;
++	if (bergamota_mdp_restore.base != 0 && bergamota_mdp_restore.n < BERGAMOTA_MDP_RESTORE_MAX) {
++		bergamota_mdp_restore.r[bergamota_mdp_restore.n].off = BERGAMOTA_MDP_CTL0 + 0x00;
++		bergamota_mdp_restore.r[bergamota_mdp_restore.n++].val = layer0;
++		bergamota_mdp_restore.flush |= BERGAMOTA_MDP_LM0_FLUSH | bergamota_mdp_pipes[fHudPipe].flush;
 +	}
-+	IOLog("SWEET FB: HUD layer: %s above %s (mixer value %u -> %u, layer0 0x%08x), %ux%u ARGB at panel %u,%u, buffers 0x%llx 0x%llx stride %u\n",
-+	    sweet_mdp_pipes[fHudPipe].name, sweet_mdp_pipes[fPipe].name, m0, fHudMix, layer0, fHudW, fHudH, fHudX, fHudY,
++	IOLog("BERGAMOTA FB: HUD layer: %s above %s (mixer value %u -> %u, layer0 0x%08x), %ux%u ARGB at panel %u,%u, buffers 0x%llx 0x%llx stride %u\n",
++	    bergamota_mdp_pipes[fHudPipe].name, bergamota_mdp_pipes[fPipe].name, m0, fHudMix, layer0, fHudW, fHudH, fHudX, fHudY,
 +	    fHudBufPA[0], fHudBufPA[1], fHudStride);
 +	return true;
 +}
@@ -465,10 +465,10 @@ index 5ebf6d7e67b2a4f8f7604f61d359fa541e7e53a2..bc5e6879b9a6eaab3fac0b99d8fefe8f
 +	if (!fHudLayerOn) {
 +		return;
 +	}
-+	vm_offset_t ctl = fMdp + SWEET_MDP_CTL0;
++	vm_offset_t ctl = fMdp + BERGAMOTA_MDP_CTL0;
 +	mdp_wr(ctl, 0x00, fHudOrigLayer);
 +	__asm__ volatile ("dsb sy" ::: "memory");
-+	mdp_wr(ctl, SWEET_MDP_CTL_FLUSH, SWEET_MDP_LM0_FLUSH | sweet_mdp_pipes[fHudPipe].flush | SWEET_MDP_CTL_BIT);
++	mdp_wr(ctl, BERGAMOTA_MDP_CTL_FLUSH, BERGAMOTA_MDP_LM0_FLUSH | bergamota_mdp_pipes[fHudPipe].flush | BERGAMOTA_MDP_CTL_BIT);
 +	__asm__ volatile ("dsb sy" ::: "memory");
 +	fHudLayerOn = false;
 +}
@@ -477,20 +477,20 @@ index 5ebf6d7e67b2a4f8f7604f61d359fa541e7e53a2..bc5e6879b9a6eaab3fac0b99d8fefe8f
 +void
 +AppleCLCD::hudLayerUpdate(void)
 +{
-+	vm_offset_t ctl = fMdp + SWEET_MDP_CTL0;
-+	uint32_t pflush = sweet_mdp_pipes[fHudPipe].flush;
++	vm_offset_t ctl = fMdp + BERGAMOTA_MDP_CTL0;
++	uint32_t pflush = bergamota_mdp_pipes[fHudPipe].flush;
 +	uint32_t next = fHudCur ^ 1u;
 +
-+	if (mdp_rd(ctl, SWEET_MDP_CTL_FLUSH) & pflush) {
++	if (mdp_rd(ctl, BERGAMOTA_MDP_CTL_FLUSH) & pflush) {
 +		return;         /* the last update has not latched: the idle buffer may still be scanned; next refresh */
 +	}
 +	uint64_t t0 = mach_absolute_time();
 +	for (uint32_t y = 0; y < fHudH; y++) {
 +		memcpy((void *)(fHudBufVA[next] + (uint64_t)y * fHudStride), fHudImg + (size_t)y * fHudW, (size_t)fHudW * 4);
 +	}
-+	vm_offset_t p = fMdp + sweet_mdp_pipes[fHudPipe].off;
-+	vm_offset_t b = fMdp + sweet_mdp_pipes[fPipe].off;
-+	uint32_t flush = pflush | SWEET_MDP_CTL_BIT;
++	vm_offset_t p = fMdp + bergamota_mdp_pipes[fHudPipe].off;
++	vm_offset_t b = fMdp + bergamota_mdp_pipes[fPipe].off;
++	uint32_t flush = pflush | BERGAMOTA_MDP_CTL_BIT;
 +	if (!fHudLayerOn) {
 +		uint32_t size = (fHudH << 16) | fHudW;
 +		mdp_wr(p, SSPP_SRC_SIZE, size);
@@ -504,7 +504,7 @@ index 5ebf6d7e67b2a4f8f7604f61d359fa541e7e53a2..bc5e6879b9a6eaab3fac0b99d8fefe8f
 +			mdp_wr(p, o, mdp_rd(b, o));
 +		}
 +		mdp_wr(p, SSPP_OP_MODE, 0);
-+		vm_offset_t lm = fMdp + SWEET_MDP_LM0 + SWEET_MDP_LM_BLEND0 + SWEET_MDP_LM_BLEND_STRIDE * (fHudMix - 2);
++		vm_offset_t lm = fMdp + BERGAMOTA_MDP_LM0 + BERGAMOTA_MDP_LM_BLEND0 + BERGAMOTA_MDP_LM_BLEND_STRIDE * (fHudMix - 2);
 +		mdp_wr(lm, 0x04, 0xff);         /* FG_ALPHA */
 +		mdp_wr(lm, 0x08, 0);            /* BG_ALPHA */
 +		mdp_wr(lm, 0x00, 0x602);        /* OP: coverage blend */
@@ -517,14 +517,14 @@ index 5ebf6d7e67b2a4f8f7604f61d359fa541e7e53a2..bc5e6879b9a6eaab3fac0b99d8fefe8f
 +		if (((mdp_rd(ctl, 0x00) >> fHudShift) & 7u) != fHudMix) {
 +			mdp_wr(ctl, 0x00, fHudOrigLayer);       /* the mixer did not take it: leave everything as it was */
 +			fHudLayerFail = true;
-+			IOLog("SWEET FB: HUD layer: mixer layer register reads back 0x%08x, layer disabled\n", mdp_rd(ctl, 0x00));
++			IOLog("BERGAMOTA FB: HUD layer: mixer layer register reads back 0x%08x, layer disabled\n", mdp_rd(ctl, 0x00));
 +			return;
 +		}
-+		flush |= SWEET_MDP_LM0_FLUSH;
++		flush |= BERGAMOTA_MDP_LM0_FLUSH;
 +		__asm__ volatile ("dsb sy" ::: "memory");
 +		fHudLayerOn = true;
 +	}
-+	mdp_wr(ctl, SWEET_MDP_CTL_FLUSH, flush);
++	mdp_wr(ctl, BERGAMOTA_MDP_CTL_FLUSH, flush);
 +	__asm__ volatile ("dsb sy" ::: "memory");
 +	fHudCur = next;
 +	fHudDrawAbs += mach_absolute_time() - t0;
@@ -534,7 +534,7 @@ index 5ebf6d7e67b2a4f8f7604f61d359fa541e7e53a2..bc5e6879b9a6eaab3fac0b99d8fefe8f
 +void
 +AppleCLCD::hudTick(uint64_t now)
 +{
-+	if (__atomic_load_n(&sweet_fb_hud, __ATOMIC_RELAXED) == 0) {
++	if (__atomic_load_n(&bergamota_fb_hud, __ATOMIC_RELAXED) == 0) {
 +		fHudReady = false;      /* the next enable starts a fresh window */
 +		fHudT = 0;
 +		hudLayerHide();
@@ -550,7 +550,7 @@ index 5ebf6d7e67b2a4f8f7604f61d359fa541e7e53a2..bc5e6879b9a6eaab3fac0b99d8fefe8f
 +		if (!fHudLayerTried && !hudLayerSetup()) {
 +			fHudLayerFail = true;
 +			fHudWarned = true;
-+			IOLog("SWEET FB: HUD unavailable with zero-copy / direct scan-out (no usable hardware layer): kern.sweet_fb_hud ignored\n");
++			IOLog("BERGAMOTA FB: HUD unavailable with zero-copy / direct scan-out (no usable hardware layer): kern.bergamota_fb_hud ignored\n");
 +			return;
 +		}
 +	}
@@ -569,20 +569,20 @@ index 5ebf6d7e67b2a4f8f7604f61d359fa541e7e53a2..bc5e6879b9a6eaab3fac0b99d8fefe8f
 +		fHudCopyMaxAbs = 0;
 +		return;
 +	}
-+	uint64_t winUS = sweet_abs_us(now - fHudT);
-+	if (winUS < SWEET_FB_HUD_PERIOD_US) {
++	uint64_t winUS = bergamota_abs_us(now - fHudT);
++	if (winUS < BERGAMOTA_FB_HUD_PERIOD_US) {
 +		return;
 +	}
 +	uint64_t dSw = swaps - fHudPrev.swaps, dCo = coalesced - fHudPrev.coalesced;
 +	uint64_t dFr = (fSt.zc - fHudPrev.zc) + (fSt.copy - fHudPrev.copy), dCp = fSt.copy - fHudPrev.copy;
 +	#define HUD_S10(n) ((unsigned)((uint64_t)(n) * 10000000ull / winUS))   /* per second x10 */
-+	uint64_t cpAvg = dCp ? sweet_abs_us(fSt.copyAbs - fHudPrev.copyAbs) / dCp : 0;
-+	uint64_t cpMax = sweet_abs_us(fHudCopyMaxAbs);
++	uint64_t cpAvg = dCp ? bergamota_abs_us(fSt.copyAbs - fHudPrev.copyAbs) / dCp : 0;
++	uint64_t cpMax = bergamota_abs_us(fHudCopyMaxAbs);
 +	unsigned gmhz = 0, glvl = 0, gbusy = 0, a55 = 0, a75 = 0;
 +	int ggov = 0, gstate = 0, bpct = 0, bma = 0;
-+	sweet_gpu_hud_state(&gmhz, &glvl, &gbusy, &ggov, &gstate);
-+	sweet_cpufreq_hud_mhz(&a55, &a75);
-+	int bat = sweet_battery_hud(&bpct, &bma);
++	bergamota_gpu_hud_state(&gmhz, &glvl, &gbusy, &ggov, &gstate);
++	bergamota_cpufreq_hud_mhz(&a55, &a75);
++	int bat = bergamota_battery_hud(&bpct, &bma);
 +	unsigned fr = HUD_S10(dFr), sw = HUD_S10(dSw), co = HUD_S10(dCo);
 +	uint32_t hz = fVsyncUS ? 1000000u / fVsyncUS : 0;
 +	snprintf(fHudText[0], sizeof(fHudText[0]), "DISP %u.%u/s  VSYNC %uHz", fr / 10, fr % 10, hz);
@@ -643,7 +643,7 @@ index 5ebf6d7e67b2a4f8f7604f61d359fa541e7e53a2..bc5e6879b9a6eaab3fac0b99d8fefe8f
  		}
  		s->release();
  	}
-+	if (fHudReady && __atomic_load_n(&sweet_fb_hud, __ATOMIC_RELAXED) != 0 && hudUsable()) {
++	if (fHudReady && __atomic_load_n(&bergamota_fb_hud, __ATOMIC_RELAXED) != 0 && hudUsable()) {
 +		hudBlit(fDraw, fHw && fFlip ? fHwStride : fRowBytes);   /* on top of the copied frame, before it is scanned */
 +	}
  	if (fFlip) {

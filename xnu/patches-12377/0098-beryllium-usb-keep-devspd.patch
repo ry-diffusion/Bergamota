@@ -1,8 +1,8 @@
-diff --git a/bsd/dev/sweet_usb.c b/bsd/dev/sweet_usb.c
+diff --git a/bsd/dev/bergamota_usb.c b/bsd/dev/bergamota_usb.c
 index a08fbd0250fb326572349e8aaf48a2fd08ee31b3..a9aa072a3125de5e09ac83c233a35bd3bfb59b32 100644
---- a/bsd/dev/sweet_usb.c
-+++ b/bsd/dev/sweet_usb.c
-@@ -960,9 +960,19 @@ sweet_usb_gadget_start(vm_offset_t dwc)
+--- a/bsd/dev/bergamota_usb.c
++++ b/bsd/dev/bergamota_usb.c
+@@ -960,9 +960,19 @@ bergamota_usb_gadget_start(vm_offset_t dwc)
  	dwc_wr(GEVNTCOUNT, dwc_rd(GEVNTCOUNT) & 0xffff);
  	ud.evt_pos = 0;
  
@@ -21,7 +21,7 @@ index a08fbd0250fb326572349e8aaf48a2fd08ee31b3..a9aa072a3125de5e09ac83c233a35bd3
 +		dcfg &= ~7u;
 +	}
 +	dwc_wr(DCFG, dcfg);
-+	printf("SWEET USB: DCFG 0x%08x (DEVSPD %u)\n", dwc_rd(DCFG), dwc_rd(DCFG) & 7u);
++	printf("BERGAMOTA USB: DCFG 0x%08x (DEVSPD %u)\n", dwc_rd(DCFG), dwc_rd(DCFG) & 7u);
  	/* Events: disconnect, USB reset, connect done */
  	dwc_wr(DEVTEN, 0x7);
  

@@ -1,11 +1,11 @@
---- a/iokit/Kernel/arm/SweetFramebuffer.cpp
-+++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+--- a/iokit/Kernel/arm/BergamotaFramebuffer.cpp
++++ b/iokit/Kernel/arm/BergamotaFramebuffer.cpp
 @@ -1742,12 +1742,33 @@
  		break;
- 	case kSweetFBSwapEnd: {
- 		uint8_t rec[SWEET_FB_SWAP_REC_SIZE];
+ 	case kBergamotaFBSwapEnd: {
+ 		uint8_t rec[BERGAMOTA_FB_SWAP_REC_SIZE];
 -		if (args->structureInputDescriptor != NULL ||
--		    args->structureInputSize < SWEET_FB_SWAP_REC_SIZE) {
+-		    args->structureInputSize < BERGAMOTA_FB_SWAP_REC_SIZE) {
 +		/*
 +		 * iOS 18 IOMobileFramebuffer sends a 0x514 byte record (client+0x18) whose fields sit 0x48 bytes later than
 +		 * the iOS 16 record this driver was written for (read from IOMobileFramebufferSwapSetLayer/SwapBegin):

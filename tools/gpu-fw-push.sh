@@ -5,10 +5,10 @@
 #        ../ios-beryllium/research/gpu-fw/dl next to this repository.
 # ZAPDIR holds the phone's own signed zap shader from its Android /vendor/firmware:
 #        a630_zap.mdt + a630_zap.b00 .b01 .b02 ... (not in any backup image; docs/GPU_KERNEL.md).
-# Files go to /usr/local/share/firmware/ (the kernel also looks in /usr/standalone/firmware/sweet/).
-# Needs the phone booted with SSH up (docs/NOTES.md, root@192.168.7.2); SWEET_HOST overrides.
+# Files go to /usr/local/share/firmware/ (the kernel also looks in /usr/standalone/firmware/bergamota/).
+# Needs the phone booted with SSH up (docs/NOTES.md, root@192.168.7.2); BERGAMOTA_HOST overrides.
 set -eu
-host=${SWEET_HOST:-root@192.168.7.2}
+host=${BERGAMOTA_HOST:-root@192.168.7.2}
 here=$(cd "$(dirname "$0")" && pwd)
 fwdir=$here/../../ios-beryllium/research/gpu-fw/dl
 zapdir=

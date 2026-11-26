@@ -1,5 +1,5 @@
---- a/bsd/dev/sweet_touch.c
-+++ b/bsd/dev/sweet_touch.c
+--- a/bsd/dev/bergamota_touch.c
++++ b/bsd/dev/bergamota_touch.c
 @@ -45,6 +45,7 @@
  #define NVT_PARAMS_LEN   15u
  #define NVT_CHIP_ID      0x08u

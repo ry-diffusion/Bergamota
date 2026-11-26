@@ -1,12 +1,12 @@
 #!/bin/bash
 # macOS version of tools/mkiosroot.sh: one case-sensitive journaled HFS+
 # image with an iOS OS root plus its cryptexes, for the userdata partition
-# (rd=ufsroot0). Same layout and SWEET additions as mkiosroot.sh.
+# (rd=ufsroot0). Same layout and BERGAMOTA additions as mkiosroot.sh.
 #
 #   sudo tools/mkiosroot-macos.sh OS.dmg SYSTEMOS.dmg APPOS.dmg OUT.img [SIZE]   (SIZE default 16g)
 #
 # macOS mounts the IPSW's APFS images itself (hdiutil); ditto
-# --nohfsCompression --nopreserveHFSCompression writes every file uncompressed (the SWEET kernel has no
+# --nohfsCompression --nopreserveHFSCompression writes every file uncompressed (the BERGAMOTA kernel has no
 # decmpfs/LZBITMAP) and, as root, keeps owners, modes and symlinks. OUT.img is
 # a raw volume (no partition map), flashable with
 #   fastboot -S 512M flash userdata OUT.img
@@ -111,12 +111,12 @@ printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' \
 	> "$work/root/private/var/keybags/systembag.kb"
 chmod 0600 "$work/root/private/var/keybags/systembag.kb"
 
-# The SWEET kernel has no decmpfs: one compressed file (launchd!) is fatal.
+# The BERGAMOTA kernel has no decmpfs: one compressed file (launchd!) is fatal.
 ncomp=$(find "$work/root" -flags +compressed 2>/dev/null | wc -l | tr -d ' ')
 [[ $ncomp == 0 ]] || { echo "error: $ncomp files are still HFS-compressed" >&2; exit 1; }
 
 # Bring-up tweaks (Setup skip, activation, launchd jobs, ...).
-python3 "$(dirname "$0")/sweet-root-tweaks.py" "$work/root"
+python3 "$(dirname "$0")/bergamota-root-tweaks.py" "$work/root"
 
 df -h "$work/root"
 umount "$work/root"

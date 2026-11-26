@@ -186,15 +186,15 @@ class TestGating(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         os.environ['RENEGADE_PLATFORM'] = 'linux'
-        os.environ['RENEGADE_SWEETNET'] = self.tmp                      # empty: nothing prebuilt
+        os.environ['RENEGADE_BERGAMOTANET'] = self.tmp                      # empty: nothing prebuilt
         rp.set_backend(None)
         self.rt = load('root_tweaks18_t', 'root_tweaks18.py')
-        self.rt.SWEETNET_DIRS[:] = [self.tmp]                           # the checkout's and the main checkout's dirs too
+        self.rt.BERGAMOTANET_DIRS[:] = [self.tmp]                           # the checkout's and the main checkout's dirs too
         self.rt.BGL_DIRS[:] = [self.tmp]
 
     def tearDown(self):
         os.environ.pop('RENEGADE_PLATFORM', None)
-        os.environ.pop('RENEGADE_SWEETNET', None)
+        os.environ.pop('RENEGADE_BERGAMOTANET', None)
         rp.set_backend(None)
         shutil.rmtree(self.tmp, ignore_errors=True)
 
@@ -208,7 +208,7 @@ class TestGating(unittest.TestCase):
 
     def test_present_artifact_is_used(self):
         os.makedirs(os.path.join(self.tmp, 'ios18'))
-        open(os.path.join(self.tmp, 'ios18', 'sweetuicache'), 'w').write('x')
+        open(os.path.join(self.tmp, 'ios18', 'bergamotauicache'), 'w').write('x')
         gaps = self.rt.tool_gaps({'appreg': True, 'wallpaper': False, 'posterboard': False, 'bglrender': False})
         self.assertEqual(gaps, {})
 
@@ -229,21 +229,21 @@ class TestGating(unittest.TestCase):
         self.addCleanup(lambda: (setattr(os, 'chown', saved[0]), setattr(os, 'lchown', saved[1])))
         with contextlib.redirect_stdout(io.StringIO()) as out:
             self.rt.bluetooth(root)
-            self.rt.sweetmetrics(root)
-            self.rt.sweetprefs_tool(root)
+            self.rt.bergamotametrics(root)
+            self.rt.bergamotaprefs_tool(root)
             self.rt.netcfg(root)
-            self.rt.sweetreboot(root)
+            self.rt.bergamotareboot(root)
             self.rt.posterboard(root)
             self.rt.bglrender(root)
             self.rt.firstboot(root, appreg=True, jb=True, wallpaper=True)
             self.rt.skip_summary()
         text = out.getvalue()
         feats = [f for f, _ in self.rt.SKIPPED]
-        for want in ('bluetooth BlueTool stub + hcitest', 'sweetmetrics', 'sweetprefs tool', 'bglrender',
-                     'appreg (sweetuicache)', 'wallpaper + icon style'):
+        for want in ('bluetooth BlueTool stub + hcitest', 'bergamotametrics', 'bergamotaprefs tool', 'bglrender',
+                     'appreg (bergamotauicache)', 'wallpaper + icon style'):
             self.assertIn(want, feats)
         self.assertIn('skipped features', text)
-        # bluetoothd's environment was still written; the first-boot job exists (jailbreak post-install) without sweetuicache
+        # bluetoothd's environment was still written; the first-boot job exists (jailbreak post-install) without bergamotauicache
         env = plistlib.load(open(lp, 'rb'))['LaunchDaemons']['/a']['EnvironmentVariables']
         self.assertIn('BT_HCI_TRANSPORT', env)
         script = open(os.path.join(root, self.rt.FIRSTBOOT_SH)).read()

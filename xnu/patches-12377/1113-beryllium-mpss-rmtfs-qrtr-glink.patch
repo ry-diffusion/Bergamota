@@ -10,11 +10,11 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
  /*
   * Boot 32: the console stopped right after the stage-4 banner (USB console and persistent log are
 @@ -1022,7 +1023,7 @@
-  * and waits 1.5 s for the USB console; sweetmssstep=N stops after step N (then tears down).
+  * and waits 1.5 s for the USB console; bergamotamssstep=N stops after step N (then tears down).
   * Steps: 1 map, 2 read mba.mbn, 3 copy MBA, 4 QMP, 5 ARC votes, 6 clocks + alt reset, 7 SCM assign,
-  * 8 QDSP6 boot; with sweetmpss=1: 9 SMP2P outbound item, 10 modem.mdt, 11 metadata auth, 12 segments,
+  * 8 QDSP6 boot; with bergamotampss=1: 9 SMP2P outbound item, 10 modem.mdt, 11 metadata auth, 12 segments,
 - * 13 AUTH_COMPLETE, 14 SMP2P watch.
-+ * 13 AUTH_COMPLETE, 14 SMP2P watch; with sweetrmtfs=1: 15 rmtfs over QRTR over GLINK.
++ * 13 AUTH_COMPLETE, 14 SMP2P watch; with bergamotarmtfs=1: 15 rmtfs over QRTR over GLINK.
   */
  static int ms_step_max = 99;
  
@@ -52,7 +52,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	}
 +	uint32_t w1 = smem_u32(it + 4), pids = smem_u32(it + 8), ents = smem_u32(it + 12);
 +	if (!mw.seen) {
-+		printf("SWEET MSS: smp2p item %u at +%#x: version %u features %#x pid %u->%u entries %u/%u (%llu ms)\n",
++		printf("BERGAMOTA MSS: smp2p item %u at +%#x: version %u features %#x pid %u->%u entries %u/%u (%llu ms)\n",
 +		    MPSS_SMP2P_IN_ITEM, it, w1 & 0xff, w1 >> 8, pids & 0xffff, pids >> 16, ents >> 16, ents & 0xffff,
 +		    ms_now_ms() - mw.t0);
 +		mw.seen = true;
@@ -72,19 +72,19 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			continue;
 +		}
 +		mw.last[k] = v;
-+		printf("SWEET MSS: smp2p in[%u] \"%s\" = %#x (%llu ms)\n", k, name, v, ms_now_ms() - mw.t0);
++		printf("BERGAMOTA MSS: smp2p in[%u] \"%s\" = %#x (%llu ms)\n", k, name, v, ms_now_ms() - mw.t0);
 +		if (strcmp(name, "slave-kernel") == 0) {
 +			if ((v & 2u) && !mw.ready) {
 +				mw.ready = true;
-+				printf("SWEET MSS: MPSS READY\n");
++				printf("BERGAMOTA MSS: MPSS READY\n");
 +			}
 +			if ((v & 1u) && !mw.fatal) {
 +				mw.fatal = true;        /* crashed: not running, whatever came before */
-+				printf("SWEET MSS: MPSS reported a fatal error\n");
++				printf("BERGAMOTA MSS: MPSS reported a fatal error\n");
 +				ms_crash_reason();
 +			}
 +		}
-+		sweet_log_sync();
++		bergamota_log_sync();
 +	}
 +}
 +
@@ -100,7 +100,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 -		if (it && sz >= 20 && smem_u32(it) == 0x504d5324u) {
 -			uint32_t w1 = smem_u32(it + 4), pids = smem_u32(it + 8), ents = smem_u32(it + 12);
 -			if (!seen) {
--				printf("SWEET MSS: smp2p item %u at +%#x: version %u features %#x pid %u->%u entries %u/%u (%llu ms)\n",
+-				printf("BERGAMOTA MSS: smp2p item %u at +%#x: version %u features %#x pid %u->%u entries %u/%u (%llu ms)\n",
 -				    MPSS_SMP2P_IN_ITEM, it, w1 & 0xff, w1 >> 8, pids & 0xffff, pids >> 16, ents >> 16, ents & 0xffff,
 -				    ms_now_ms() - t0);
 -				seen = true;
@@ -120,20 +120,20 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 -					continue;
 -				}
 -				last[k] = v;
--				printf("SWEET MSS: smp2p in[%u] \"%s\" = %#x (%llu ms)\n", k, name, v, ms_now_ms() - t0);
+-				printf("BERGAMOTA MSS: smp2p in[%u] \"%s\" = %#x (%llu ms)\n", k, name, v, ms_now_ms() - t0);
 -				if (strcmp(name, "slave-kernel") == 0) {
 -					if ((v & 2u) && !ready) {
 -						ready = true;
--						printf("SWEET MSS: MPSS READY\n");
+-						printf("BERGAMOTA MSS: MPSS READY\n");
 -					}
 -					if (v & 1u) {
--						printf("SWEET MSS: MPSS reported a fatal error\n");
+-						printf("BERGAMOTA MSS: MPSS reported a fatal error\n");
 -						ms_crash_reason();
--						sweet_log_sync();
+-						bergamota_log_sync();
 -						return false;   /* crashed: not running, whatever came before */
 -					}
 -				}
--				sweet_log_sync();
+-				bergamota_log_sync();
 -			}
 +		ms_mpss_poll();
 +		if (mw.fatal || (until_ready && mw.ready)) {
@@ -142,14 +142,14 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
  		wl_sleep(100);
 +	}
 +	if (!mw.seen) {
-+		printf("SWEET MSS: smp2p item %u never appeared in %u s\n", MPSS_SMP2P_IN_ITEM, hold_s);
++		printf("BERGAMOTA MSS: smp2p item %u never appeared in %u s\n", MPSS_SMP2P_IN_ITEM, hold_s);
 +		wl_dump_smem();
 +	}
 +	return mw.ready && !mw.fatal;
 +}
 +
 +/*
-+ * ---- W5 (sweetrmtfs=1): rmtfs for the running MPSS, docs/WIFI_IOS26.md 5.12. The modem reaches rmtfs as
++ * ---- W5 (bergamotarmtfs=1): rmtfs for the running MPSS, docs/WIFI_IOS26.md 5.12. The modem reaches rmtfs as
 + * QMI service 14 over QRTR, which runs on the GLINK channel "IPCRTR" over SMEM, so this is four layers:
 + * the rmtfs buffer (rmtfs_mem.c), the GLINK SMEM transport (qcom_glink_smem.c + qcom_glink_native.c),
 + * QRTR (af_qrtr.c + ns.c) and the rmtfs server (linux-msm/rmtfs). Everything is polled from the stage-4
@@ -243,7 +243,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		}
 +		ipc.rx = it;
 +		ipc.rx_len = sz;
-+		printf("SWEET IPC: modem's GLINK FIFO (item %u) at +%#x, %u bytes\n", GLINK_RX_ITEM, it, sz);
++		printf("BERGAMOTA IPC: modem's GLINK FIFO (item %u) at +%#x, %u bytes\n", GLINK_RX_ITEM, it, sz);
 +	}
 +	uint32_t head = smem_u32(ipc.desc + 12), tail = smem_u32(ipc.desc + 8);
 +	if (head >= ipc.rx_len || tail >= ipc.rx_len) {
@@ -300,7 +300,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	}
 +	for (unsigned i = 0; ipc_tx_avail() < tlen; i++) {
 +		if (i == 1000) {
-+			printf("SWEET IPC: GLINK TX FIFO full for 1 s (head %#x tail %#x)\n", smem_u32(ipc.desc + 4),
++			printf("BERGAMOTA IPC: GLINK TX FIFO full for 1 s (head %#x tail %#x)\n", smem_u32(ipc.desc + 4),
 +			    smem_u32(ipc.desc + 0));
 +			return false;
 +		}
@@ -407,7 +407,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			if (p1 == 1) {
 +				ipc.features &= p2;
 +			}
-+			printf("SWEET IPC: glink version %u features %#x from the modem -> ack with %#x\n", p1, p2,
++			printf("BERGAMOTA IPC: glink version %u features %#x from the modem -> ack with %#x\n", p1, p2,
 +			    ipc.features);
 +			if (p1 != 0) {
 +				(void)ipc_tx_cmd(G_VERSION_ACK, 1, ipc.features);
@@ -415,7 +415,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			break;
 +		case G_VERSION_ACK:
 +			ipc_rx_advance(8);
-+			printf("SWEET IPC: glink version-ack %u features %#x\n", p1, p2);
++			printf("BERGAMOTA IPC: glink version-ack %u features %#x\n", p1, p2);
 +			if (p1 == 1 && p2 != ipc.features) {
 +				ipc.features &= p2;
 +				(void)ipc_tx_cmd(G_VERSION, 1, ipc.features);
@@ -432,7 +432,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			memset(name, 0, sizeof(name));
 +			ipc_rx_peek(8, name, MIN(p2, 32u));
 +			ipc_rx_advance(8 + extra);
-+			printf("SWEET IPC: glink: modem opens \"%s\" (its id %u)\n", name, p1);
++			printf("BERGAMOTA IPC: glink: modem opens \"%s\" (its id %u)\n", name, p1);
 +			if (strcmp(name, "IPCRTR") == 0 && !ipc.rcid) {
 +				ipc.rcid = p1;
 +				ipc_send_open();
@@ -444,7 +444,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			if (p1 == GLINK_LCID && !ipc.open_acked) {
 +				ipc.open_acked = true;
 +				ipc.open_ms = ms_now_ms();
-+				printf("SWEET IPC: glink IPCRTR open both ways; advertising %u x %u-byte intents\n", IPC_INTENTS,
++				printf("BERGAMOTA IPC: glink IPCRTR open both ways; advertising %u x %u-byte intents\n", IPC_INTENTS,
 +				    IPC_INTENT_SIZE);
 +				for (unsigned k = 0; k < IPC_INTENTS; k++) {
 +					(void)ipc_add_intent(IPC_INTENT_SIZE, true);
@@ -454,7 +454,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			break;
 +		case G_CLOSE:
 +			ipc_rx_advance(8);
-+			printf("SWEET IPC: glink: modem closes its id %u\n", p1);
++			printf("BERGAMOTA IPC: glink: modem closes its id %u\n", p1);
 +			(void)ipc_tx_cmd(G_CLOSE_ACK, p1, 0);
 +			if (p1 == ipc.rcid) {
 +				ipc.closed = true;
@@ -476,7 +476,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +					}
 +				}
 +				if (j == IPC_MAX_RINTENTS) {
-+					printf("SWEET IPC: glink: modem intent %u (%u bytes) not kept: table full\n", pair[1], pair[0]);
++					printf("BERGAMOTA IPC: glink: modem intent %u (%u bytes) not kept: table full\n", pair[1], pair[0]);
 +				}
 +			}
 +			ipc_rx_advance((msglen + 7u) & ~7u);
@@ -497,7 +497,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		case G_RX_INTENT_REQ:
 +			/* qcom_glink_handle_intent_req(): a one-shot intent of the asked size, then the ack */
 +			ipc_rx_advance(8);
-+			printf("SWEET IPC: glink: modem asks for a %u-byte intent\n", p2);
++			printf("BERGAMOTA IPC: glink: modem asks for a %u-byte intent\n", p2);
 +			{
 +				bool ok = p2 <= 0x10000u && ipc_add_intent(MAX(p2, 1u), false);
 +				(void)ipc_tx_cmd(G_RX_INTENT_REQ_ACK, GLINK_LCID, ok);
@@ -531,7 +531,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			}
 +			if (p1 != ipc.rcid || !in || in->size - in->off < chunk) {
 +				/* "The packet header lied, drop payload": no delivery, no rx-done (Linux) */
-+				printf("SWEET IPC: glink data for id %u intent %u (%u bytes) dropped\n", p1, p2, chunk);
++				printf("BERGAMOTA IPC: glink data for id %u intent %u (%u bytes) dropped\n", p1, p2, chunk);
 +				if (in) {
 +					in->bad = true;
 +				}
@@ -562,13 +562,13 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			break;
 +		}
 +		default:
-+			printf("SWEET IPC: glink: unknown command %u (p1 %u p2 %#x): ring stopped\n", cmd, p1, p2);
++			printf("BERGAMOTA IPC: glink: unknown command %u (p1 %u p2 %#x): ring stopped\n", cmd, p1, p2);
 +			ipc.bad_rx = true;
 +			return;
 +		}
  	}
 -	if (!seen) {
--		printf("SWEET MSS: smp2p item %u never appeared in %u s\n", MPSS_SMP2P_IN_ITEM, hold_s);
+-		printf("BERGAMOTA MSS: smp2p item %u never appeared in %u s\n", MPSS_SMP2P_IN_ITEM, hold_s);
 -		wl_dump_smem();
 +}
 +
@@ -610,7 +610,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		return true;
 +	}
 +	if (ipc.txq_n == IPC_TXQ) {
-+		printf("SWEET IPC: glink TX queue full: %u-byte packet dropped\n", len);
++		printf("BERGAMOTA IPC: glink TX queue full: %u-byte packet dropped\n", len);
 +		return false;
 +	}
 +	ipc.txq[ipc.txq_n].len = len;
@@ -670,7 +670,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	bool a = ipc_qrtr_send(Q_HELLO, QRTR_PORT_CTRL, ipc.node, QRTR_PORT_CTRL, hello, sizeof(hello));
 +	bool b = ipc_qrtr_send(Q_NEW_SERVER, QRTR_PORT_CTRL, ipc.node, QRTR_PORT_CTRL, srv, sizeof(srv));
 +	ipc.announced = true;
-+	printf("SWEET IPC: qrtr: hello %s, rmtfs announced as service %u instance %u at %u:%#x %s\n", a ? "sent" : "FAILED",
++	printf("BERGAMOTA IPC: qrtr: hello %s, rmtfs announced as service %u instance %u at %u:%#x %s\n", a ? "sent" : "FAILED",
 +	    RMTFS_SERVICE, RMTFS_INSTANCE, QRTR_NODE_LOCAL, QRTR_RMTFS_PORT, b ? "" : "(FAILED)");
 +}
 +
@@ -743,7 +743,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	if (!ipc.part_bytes[caller]) {
 +		uint8_t lun;
 +		uint64_t bytes = 0;
-+		if (sweet_ufs_part_size(ipc_parts[caller].part, &lun, &bytes) || !bytes) {
++		if (bergamota_ufs_part_size(ipc_parts[caller].part, &lun, &bytes) || !bytes) {
 +			return false;
 +		}
 +		ipc.part_bytes[caller] = bytes;
@@ -766,15 +766,15 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			/* first write: a RAM copy of the whole partition takes it (rmtfs read-only mode) */
 +			uint64_t sz = ipc.part_bytes[caller];
 +			ipc.shadow[caller] = kalloc_data(sz, Z_WAITOK);
-+			if (!ipc.shadow[caller] || sweet_ufs_read_part(ipc_parts[caller].part, 0, ipc.shadow[caller], sz)) {
-+				printf("SWEET IPC: rmtfs: no RAM copy of %s\n", ipc_parts[caller].part);
++			if (!ipc.shadow[caller] || bergamota_ufs_read_part(ipc_parts[caller].part, 0, ipc.shadow[caller], sz)) {
++				printf("BERGAMOTA IPC: rmtfs: no RAM copy of %s\n", ipc_parts[caller].part);
 +				if (ipc.shadow[caller]) {
 +					kfree_data(ipc.shadow[caller], sz);
 +					ipc.shadow[caller] = NULL;
 +				}
 +				return false;
 +			}
-+			printf("SWEET IPC: rmtfs: %s copied to RAM (%llu bytes): its writes stay there\n",
++			printf("BERGAMOTA IPC: rmtfs: %s copied to RAM (%llu bytes): its writes stay there\n",
 +			    ipc_parts[caller].part, sz);
 +		}
 +		memcpy(ipc.shadow[caller] + off, win, len);
@@ -795,7 +795,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	}
 +	for (uint64_t o = 0; o < len; o += bsz) {
 +		uint64_t n = MIN((uint64_t)bsz, len - o);
-+		if (sweet_ufs_read_part(ipc_parts[caller].part, off + o, bounce, n)) {
++		if (bergamota_ufs_read_part(ipc_parts[caller].part, off + o, bounce, n)) {
 +			return false;
 +		}
 +		memcpy(win + o, bounce, n);
@@ -807,7 +807,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +rmtfs_rx(uint32_t node, uint32_t port, const uint8_t *p, uint32_t len)
 +{
 +	if (len < 7 || p[0] != 0) {
-+		printf("SWEET IPC: rmtfs: %u-byte message of type %u ignored\n", len, len ? p[0] : 0);
++		printf("BERGAMOTA IPC: rmtfs: %u-byte message of type %u ignored\n", len, len ? p[0] : 0);
 +		return;
 +	}
 +	uint16_t txn, msg, mlen;
@@ -833,13 +833,13 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			}
 +		}
 +		ok = caller < 4 && rmtfs_part(caller);
-+		printf("SWEET IPC: rmtfs open \"%s\" -> %s caller %u (%llu bytes)\n", path,
++		printf("BERGAMOTA IPC: rmtfs open \"%s\" -> %s caller %u (%llu bytes)\n", path,
 +		    ok ? ipc_parts[caller].part : "REJECTED", caller, ok ? ipc.part_bytes[caller] : 0);
 +		rmtfs_respond(node, port, txn, msg, ok, 0x10, &caller, 4);
 +		break;
 +	}
 +	case 2:                         /* CLOSE */
-+		printf("SWEET IPC: rmtfs close caller %u\n", qmi_u32(t, tl, 1, &ok));
++		printf("BERGAMOTA IPC: rmtfs close caller %u\n", qmi_u32(t, tl, 1, &ok));
 +		rmtfs_respond(node, port, txn, msg, ok, 0, NULL, 0);
 +		break;
 +	case 3: {                       /* RW_IOVEC: caller (1), direction (2), [u8 n] n x {sector, phys, nsec} (3) */
@@ -859,7 +859,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		}
 +		if (ipc.iovec_logged < 64 || !ok) {
 +			ipc.iovec_logged++;
-+			printf("SWEET IPC: rmtfs %s caller %u: %u entries, %u sectors from %u: %s\n",
++			printf("BERGAMOTA IPC: rmtfs %s caller %u: %u entries, %u sectors from %u: %s\n",
 +			    dir && dir[0] ? "write" : "read", caller, n, total, first, ok ? "ok" : "FAILED");
 +		}
 +		rmtfs_respond(node, port, txn, msg, ok, 0, NULL, 0);
@@ -869,21 +869,21 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		uint32_t caller = qmi_u32(t, tl, 1, &ok), size = qmi_u32(t, tl, 2, &ok);
 +		uint64_t addr = RMTFS_MEM_PA;
 +		ok = ok && size <= RMTFS_MEM_SIZE;
-+		printf("SWEET IPC: rmtfs alloc caller %u %u bytes -> %#llx%s\n", caller, size, addr, ok ? "" : " REFUSED");
++		printf("BERGAMOTA IPC: rmtfs alloc caller %u %u bytes -> %#llx%s\n", caller, size, addr, ok ? "" : " REFUSED");
 +		rmtfs_respond(node, port, txn, msg, ok, 0x10, &addr, 8);
 +		break;
 +	}
 +	case 5: {                       /* GET_DEV_ERROR -> status 0 */
 +		uint8_t status = 0;
-+		printf("SWEET IPC: rmtfs dev-error caller %u\n", qmi_u32(t, tl, 1, &ok));
++		printf("BERGAMOTA IPC: rmtfs dev-error caller %u\n", qmi_u32(t, tl, 1, &ok));
 +		rmtfs_respond(node, port, txn, msg, ok, 0x10, &status, 1);
 +		break;
 +	}
 +	default:
-+		printf("SWEET IPC: rmtfs: unknown request %u (%u bytes)\n", msg, len);
++		printf("BERGAMOTA IPC: rmtfs: unknown request %u (%u bytes)\n", msg, len);
 +		break;
 +	}
-+	sweet_log_sync();
++	bergamota_log_sync();
 +}
 +
 +static void
@@ -920,14 +920,14 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		hdrlen = 32;
 +	}
 +	if ((p[0] != 1 && p[0] != 3) || size > len || hdrlen + ((size + 3u) & ~3u) > len) {
-+		printf("SWEET IPC: qrtr: version %u packet of %u bytes (size %u) dropped\n", p[0], len, size);
++		printf("BERGAMOTA IPC: qrtr: version %u packet of %u bytes (size %u) dropped\n", p[0], len, size);
 +		return;
 +	}
 +	const uint8_t *pl = p + hdrlen;
 +	ipc.node = snode;
 +	switch (type) {
 +	case Q_HELLO:
-+		printf("SWEET IPC: qrtr: hello from node %u\n", snode);
++		printf("BERGAMOTA IPC: qrtr: hello from node %u\n", snode);
 +		ipc.hello_seen = true;
 +		ipc_qrtr_announce();            /* ns.c ctrl_cmd_hello(): hello back + our servers */
 +		break;
@@ -936,7 +936,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		if (size >= 20) {
 +			uint32_t s[5];
 +			memcpy(s, pl, 20);
-+			printf("SWEET IPC: qrtr: %s service %u (%#x) version %u instance %u at %u:%#x\n",
++			printf("BERGAMOTA IPC: qrtr: %s service %u (%#x) version %u instance %u at %u:%#x\n",
 +			    type == Q_NEW_SERVER ? "modem offers" : "modem removes", s[1], s[1], s[2] & 0xff, s[2] >> 8, s[3],
 +			    s[4]);
 +		}
@@ -945,7 +945,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		if (dport == QRTR_RMTFS_PORT) {
 +			rmtfs_rx(snode, sport, pl, size);
 +		} else {
-+			printf("SWEET IPC: qrtr: %u bytes from %u:%#x to port %#x (no server)\n", size, snode, sport, dport);
++			printf("BERGAMOTA IPC: qrtr: %u bytes from %u:%#x to port %#x (no server)\n", size, snode, sport, dport);
 +		}
 +		if (confirm) {
 +			/* qrtr_send_resume_tx(): from the receiving port back to the sender */
@@ -956,7 +956,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	case Q_RESUME_TX:
 +		break;
 +	default:
-+		printf("SWEET IPC: qrtr: control %u from %u:%#x (%u bytes)\n", type, snode, sport, size);
++		printf("BERGAMOTA IPC: qrtr: control %u from %u:%#x (%u bytes)\n", type, snode, sport, size);
 +		break;
 +	}
 +}
@@ -973,7 +973,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	ipc.win_len = round_page_64(RMTFS_MEM_PA + RMTFS_MEM_SIZE) - ipc.win_base;
 +	ipc.win = ml_io_map_unmappable(ipc.win_base, ipc.win_len, VM_WIMG_WCOMB);
 +	if (!ipc.win) {
-+		printf("SWEET IPC: rmtfs buffer mapping failed\n");
++		printf("BERGAMOTA IPC: rmtfs buffer mapping failed\n");
 +		return false;
 +	}
 +	uint32_t src = SCM_VMID_HLOS, dst[2] = { SCM_VMID_HLOS, SCM_VMID_MSS_MSA }, perm[2] = { SCM_PERM_RW, SCM_PERM_RW };
@@ -984,19 +984,19 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	uint32_t sz = 0;
 +	ipc.desc = ms_smem_alloc(GLINK_DESC_ITEM, 32);
 +	if (!ipc.desc || ms_smem_item(0, 1, GLINK_DESC_ITEM, &sz) != ipc.desc || sz != 32) {
-+		printf("SWEET IPC: glink descriptor not usable (size %u)\n", sz);
++		printf("BERGAMOTA IPC: glink descriptor not usable (size %u)\n", sz);
 +		return false;
 +	}
 +	ipc.tx = ms_smem_alloc(GLINK_TX_ITEM, GLINK_TX_SIZE);
 +	if (!ipc.tx || ms_smem_item(0, 1, GLINK_TX_ITEM, &sz) != ipc.tx || sz < 1024 || (sz & 7)) {
-+		printf("SWEET IPC: glink TX FIFO not usable (size %u)\n", sz);
++		printf("BERGAMOTA IPC: glink TX FIFO not usable (size %u)\n", sz);
 +		return false;
 +	}
 +	ipc.tx_len = sz;                        /* the item's own size, as qcom_smem_get() returns it */
 +	wl_wr(wl.smem, ipc.desc + 8, 0);        /* *rx_pipe->tail = 0 */
 +	wl_wr(wl.smem, ipc.desc + 4, 0);        /* *tx_pipe->head = 0 */
 +	bool v = ipc_tx_cmd(G_VERSION, 1, ipc.features);
-+	printf("SWEET IPC: glink up: descriptor +%#x, TX FIFO +%#x (%u bytes), version 1 features %#x %s\n", ipc.desc,
++	printf("BERGAMOTA IPC: glink up: descriptor +%#x, TX FIFO +%#x (%u bytes), version 1 features %#x %s\n", ipc.desc,
 +	    ipc.tx, ipc.tx_len, ipc.features, v ? "sent" : "NOT SENT");
 +	return v;
 +}
@@ -1011,7 +1011,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		ipc_rx_poll();
 +		ipc_flush();
 +		if (ipc.open_acked && !ipc.announced && ms_now_ms() > ipc.open_ms + 3000) {
-+			printf("SWEET IPC: qrtr: no hello from the modem 3 s after IPCRTR opened: sending ours\n");
++			printf("BERGAMOTA IPC: qrtr: no hello from the modem 3 s after IPCRTR opened: sending ours\n");
 +			ipc_qrtr_announce();
 +		}
 +		if (ms_now_ms() >= next) {
@@ -1024,11 +1024,11 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		}
 +		wl_sleep(1);
 +	}
-+	printf("SWEET IPC: %u s: glink %s, IPCRTR %s, qrtr hello %s; %u packets in, %u out; rmtfs %u reads (%llu bytes), "
++	printf("BERGAMOTA IPC: %u s: glink %s, IPCRTR %s, qrtr hello %s; %u packets in, %u out; rmtfs %u reads (%llu bytes), "
 +	    "%u writes kept in RAM (%llu bytes)\n", (unsigned)((ms_now_ms() - t0) / 1000), ipc.version_acked ? "versioned" : "no version-ack",
 +	    ipc.open_acked ? "open" : "not open", ipc.hello_seen ? "seen" : "not seen", ipc.rx_pkts, ipc.tx_pkts, ipc.reads,
 +	    ipc.read_bytes, ipc.writes, ipc.write_bytes);
-+	sweet_log_sync();
++	bergamota_log_sync();
 +	return alive;
 +}
 +
@@ -1087,16 +1087,16 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		ms.mpss_running = ready;
 +	}
  done:
- 	sweet_log_sync();
+ 	bergamota_log_sync();
  	return ready;
 @@ -2362,7 +3294,9 @@
  	if (alive && mpss == 1) {
  		unsigned hold = 15;
- 		(void)PE_parse_boot_argn("sweetmpsshold", &hold, sizeof(hold));
+ 		(void)PE_parse_boot_argn("bergamotampsshold", &hold, sizeof(hold));
 -		running = ms_mpss(MIN(MAX(hold, 1u), 600u));
 +		int rmtfs = 0;
-+		(void)PE_parse_boot_argn("sweetrmtfs", &rmtfs, sizeof(rmtfs));
++		(void)PE_parse_boot_argn("bergamotarmtfs", &rmtfs, sizeof(rmtfs));
 +		running = ms_mpss(MIN(MAX(hold, 1u), 600u), rmtfs == 1);
  	} else if (alive) {
- 		printf("SWEET MSS: MPSS not loaded (sweetmpss=1 loads and starts it)\n");
+ 		printf("BERGAMOTA MSS: MPSS not loaded (bergamotampss=1 loads and starts it)\n");
  	}

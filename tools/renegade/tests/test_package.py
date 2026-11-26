@@ -35,15 +35,15 @@ def macho(cputype=pk.CPU_ARM64, sub=2, libs=('/usr/lib/libSystem.B.dylib',)):
 class TestPackage(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
-        self.sn, self.gl = os.path.join(self.tmp, 'sweetnet'), os.path.join(self.tmp, 'a', 'b', 'bgl')
-        for base, items in ((self.sn, pk.SWEETNET), (self.gl, pk.BGL)):
+        self.sn, self.gl = os.path.join(self.tmp, 'bergamotanet'), os.path.join(self.tmp, 'a', 'b', 'bgl')
+        for base, items in ((self.sn, pk.BERGAMOTANET), (self.gl, pk.BGL)):
             for rel, kind in items:
                 p = os.path.join(base, *rel.split('/'))
                 os.makedirs(os.path.dirname(p), exist_ok=True)
                 with open(p, 'wb') as f:
                     f.write(macho() if kind == 'macho' else b'<plist/>\n')
                 os.chmod(p, 0o755 if kind == 'macho' else 0o644)
-        self.args = argparse.Namespace(version='3', out=os.path.join(self.tmp, 'out'), sweetnet=self.sn, bgl=self.gl, bgl_commit='b' * 40)
+        self.args = argparse.Namespace(version='3', out=os.path.join(self.tmp, 'out'), bergamotanet=self.sn, bgl=self.gl, bgl_commit='b' * 40)
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -64,12 +64,12 @@ class TestPackage(unittest.TestCase):
         self.assertEqual(open(z + '.sha256').read().split()[0], digest)
         with zipfile.ZipFile(z) as zf:
             names = sorted(zf.namelist())
-        self.assertEqual(names, sorted([bt.MANIFEST] + ['sweetnet/' + r for r, _ in pk.SWEETNET] +
+        self.assertEqual(names, sorted([bt.MANIFEST] + ['bergamotanet/' + r for r, _ in pk.BERGAMOTANET] +
                                        ['bergamota-gl/' + r for r, _ in pk.BGL] + ['LICENSES/' + l for l in pk.LICENSES]))
         cache = os.path.join(self.tmp, 'cache')
         d = bt.install_zip(z, cache, digest, log=lambda *_: None)
-        self.assertTrue(os.access(os.path.join(d, 'sweetnet', 'sweetreboot'), os.X_OK))
-        self.assertFalse(os.access(os.path.join(d, 'sweetnet', 'ios18', 'SweetRun.app', 'Info.plist'), os.X_OK))
+        self.assertTrue(os.access(os.path.join(d, 'bergamotanet', 'bergamotareboot'), os.X_OK))
+        self.assertFalse(os.access(os.path.join(d, 'bergamotanet', 'ios18', 'BergamotaRun.app', 'Info.plist'), os.X_OK))
 
     def test_manifest_has_a_sha256_per_file(self):
         a = pk.build(self.args)[2]
@@ -94,11 +94,11 @@ class TestPackage(unittest.TestCase):
             pk.build(self.args)
 
     def test_deny_names(self):
-        for bad in ('sweetnet/a630_zap.mbn', 'bergamota-gl/a630_gmu.bin', 'sweetnet/a630_sqe.fw', 'x/dyld_shared_cache_arm64e',
+        for bad in ('bergamotanet/a630_zap.mbn', 'bergamota-gl/a630_gmu.bin', 'bergamotanet/a630_sqe.fw', 'x/dyld_shared_cache_arm64e',
                     'x/root.dmg', 'x/ios18-root-full.simg', 'x/firmware/foo', 'x/persist.img', 'x/kernelcache.release', 'x/serial.txt'):
             with self.assertRaises(SystemExit, msg=bad):
                 pk.check_name(bad)
-        for ok in ('sweetnet/ios18/sweetprefs', 'bergamota-gl/libOSMesa.8.dylib', 'LICENSES/NOTICE.txt'):
+        for ok in ('bergamotanet/ios18/bergamotaprefs', 'bergamota-gl/libOSMesa.8.dylib', 'LICENSES/NOTICE.txt'):
             pk.check_name(ok)
 
     def test_stray_files_in_the_input_dirs_are_not_packaged(self):
@@ -115,7 +115,7 @@ class TestPackage(unittest.TestCase):
         bad = z + '.bad'
         with zipfile.ZipFile(z) as src, zipfile.ZipFile(bad, 'w') as dst:
             for i in src.infolist():
-                dst.writestr(i, src.read(i.filename) + (b'!' if i.filename == 'sweetnet/sweetreboot' else b''))
+                dst.writestr(i, src.read(i.filename) + (b'!' if i.filename == 'bergamotanet/bergamotareboot' else b''))
         with self.assertRaises(bt.ToolsError):
             pk.verify(bad, pk.collect(self.sn, self.gl))
 

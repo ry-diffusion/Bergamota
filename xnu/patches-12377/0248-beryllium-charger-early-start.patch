@@ -1,9 +1,9 @@
-diff --git a/bsd/dev/sweet_charger.c b/bsd/dev/sweet_charger.c
+diff --git a/bsd/dev/bergamota_charger.c b/bsd/dev/bergamota_charger.c
 index b88e29fd55a026dfbbe2875d7c27a097be401744..b3303d3f1abdda57ef34c9be0c3a7dae2ca13d97 100644
---- a/bsd/dev/sweet_charger.c
-+++ b/bsd/dev/sweet_charger.c
+--- a/bsd/dev/bergamota_charger.c
++++ b/bsd/dev/bergamota_charger.c
 @@ -84,7 +84,7 @@ extern kern_return_t thread_terminate(thread_t);
- void sweet_charger_start(void);
+ void bergamota_charger_start(void);
  
  #define SC_SID                  2u
 -#define SC_START_DELAY_S        20u

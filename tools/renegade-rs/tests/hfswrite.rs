@@ -266,11 +266,11 @@ fn root_build_with_tweaks_matches_root_tweaks18() {
     run(Command::new("python3").arg("-I").arg(&script).arg("run").arg(&py_root).arg(&tools));
     let simg = d.join("root.simg");
     run(Command::new(bin()).arg("root").arg(&src).arg(&simg).args(["--build", "22H352", "--version", "18.7.8", "--board", "N841", "--adt-target", "D22"])
-        .arg("--netcfg").arg(tools.join("sweetnetcfg")).arg("--sweetreboot").arg(tools.join("sweetreboot")));
+        .arg("--netcfg").arg(tools.join("bergamotanetcfg")).arg("--bergamotareboot").arg(tools.join("bergamotareboot")));
     let cat = |p: &str| Command::new("python3").arg("-I").arg(root().join("../renegade/hfsx.py")).arg(&simg).args(["cat", p]).output().unwrap().stdout;
     for p in [
         "System/Library/xpc/launchd.plist",
-        "System/Library/LaunchDaemons/org.sweet.netcfg.plist",
+        "System/Library/LaunchDaemons/org.bergamota.netcfg.plist",
         "private/var/preferences/SystemConfiguration/preferences.plist",
         "private/var/preferences/SystemConfiguration/NetworkInterfaces.plist",
         "private/var/mobile/Library/Preferences/com.apple.springboard.plist",
@@ -284,7 +284,7 @@ fn root_build_with_tweaks_matches_root_tweaks18() {
     assert!(stat("/private/var/mobile/Library/Preferences/com.apple.springboard.plist").contains("uid,gid (501, 501) mode 100600"));
     assert!(stat("/Applications/Zed.app/Contents/Info.plist").contains("uid,gid (0, 0)"));
     assert!(stat("/private/var/db/diagnostics/.migrated").contains("uid,gid (272, 272) mode 100644"));
-    assert!(stat("/usr/local/bin/sweetreboot").contains("uid,gid (0, 0) mode 100755"));
+    assert!(stat("/usr/local/bin/bergamotareboot").contains("uid,gid (0, 0) mode 100755"));
     if have("fsck_hfs") && have("hdiutil") {
         let raw = d.join("check.img");
         run(Command::new(bin()).arg("simg2img").arg(&simg).arg(&raw));

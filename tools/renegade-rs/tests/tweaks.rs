@@ -75,7 +75,7 @@ fn compare_with(quiet: bool, with_tools: bool) {
     assert!(p.status.success(), "python: {}", String::from_utf8_lossy(&p.stderr));
     let mut rs = Command::new(env!("CARGO_BIN_EXE_renegade-rs"));
     rs.arg("tweaks").arg(&rs_root).args(["--build", "22H352", "--version", "18.7.8", "--board", "N841", "--adt-target", "D22"]);
-    rs.arg("--netcfg").arg(tools.join("sweetnetcfg")).arg("--sweetreboot").arg(tools.join("sweetreboot"));
+    rs.arg("--netcfg").arg(tools.join("bergamotanetcfg")).arg("--bergamotareboot").arg(tools.join("bergamotareboot"));
     rs.arg("--display").arg(&py_root);
     if with_tools {
         rs.arg("--tools-dir").arg(&tools).args(["--ssh-key", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAItestkey test@bergamota", "--ssh-key-name", "test.pub"]);
@@ -106,7 +106,7 @@ fn tweaks_match_root_tweaks18() {
     compare(false);
 }
 
-/// ssh, the BlueTool stub, the first-boot job and its wallpaper tools, bglrender, sweetprefs and the console job.
+/// ssh, the BlueTool stub, the first-boot job and its wallpaper tools, bglrender, bergamotaprefs and the console job.
 #[test]
 fn tweaks_with_tools_match_root_tweaks18() {
     compare_with(false, true);
@@ -144,8 +144,8 @@ fn tweaks_on_the_tree_match_root_tweaks18() {
         board: "N841".into(),
         adt_target: "D22".into(),
         quiet: false,
-        netcfg: Some(fs::read(tools.join("sweetnetcfg")).unwrap()),
-        sweetreboot: Some(fs::read(tools.join("sweetreboot")).unwrap()),
+        netcfg: Some(fs::read(tools.join("bergamotanetcfg")).unwrap()),
+        bergamotareboot: Some(fs::read(tools.join("bergamotareboot")).unwrap()),
         root_display: py_root.display().to_string(),
         ..Default::default()
     };

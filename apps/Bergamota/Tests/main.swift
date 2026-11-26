@@ -1,4 +1,4 @@
-// Parsing tests for Core/Metrics.swift with recorded sweetmetrics output. Run: Tests/run-metrics-tests.sh
+// Parsing tests for Core/Metrics.swift with recorded bergamotametrics output. Run: Tests/run-metrics-tests.sh
 import Foundation
 
 var failures = 0
@@ -49,7 +49,7 @@ check(p.cpuLoad.count == 8 && p.clusters[0].loadPct == 69 && p.clusters[0].curKh
 check(p.renderer.mode == "fd630" && p.renderer.backboarddPid == 745, "phone-live: FD630 from the real GPU client") 
 check(p.battery.percent == 10 && p.battery.currentMa == -140 && p.battery.voltageMv == 3552, "phone-live: battery")
 
-// recorded on the phone with the governor kernel (v1 kern.sweet_cpufreq, kern.sweet_gpu in slumber)
+// recorded on the phone with the governor kernel (v1 kern.bergamota_cpufreq, kern.bergamota_gpu in slumber)
 let g = PhoneMetrics.parse(sample("phone-gov.json"))!
 check(g.freqKnown && g.clusters[0].curKhz == 902_400 && g.clusters[1].curKhz == 2_803_200, "phone-gov: cur kHz of both clusters")
 check(g.clusters[0].minKhz == 300_000 && g.clusters[0].maxKhz == 1_766_400 && g.clusters[0].capKhz == 902_400, "phone-gov: min/max/cap")

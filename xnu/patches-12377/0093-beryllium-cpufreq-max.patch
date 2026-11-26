@@ -2,19 +2,19 @@ diff --git a/bsd/conf/files b/bsd/conf/files
 index 23544992eb0111b91166433dabc6cb226fc139b7..d8900b13817bb9cb4a48e0216aace8656d1a0d23 100644
 --- a/bsd/conf/files
 +++ b/bsd/conf/files
-@@ -110,6 +110,7 @@ bsd/dev/sweet_touch.c			standard
- bsd/dev/sweet_rpmh.c			standard
- bsd/dev/sweet_spmi.c			standard
- bsd/dev/sweet_usb.c			standard
-+bsd/dev/sweet_cpufreq.c			standard
+@@ -110,6 +110,7 @@ bsd/dev/bergamota_touch.c			standard
+ bsd/dev/bergamota_rpmh.c			standard
+ bsd/dev/bergamota_spmi.c			standard
+ bsd/dev/bergamota_usb.c			standard
++bsd/dev/bergamota_cpufreq.c			standard
  bsd/dev/mem.c				standard
  bsd/dev/munge.c 			optional config_requires_u32_munging
  bsd/dev/unix_startup.c			standard
-diff --git a/bsd/dev/sweet_cpufreq.c b/bsd/dev/sweet_cpufreq.c
+diff --git a/bsd/dev/bergamota_cpufreq.c b/bsd/dev/bergamota_cpufreq.c
 new file mode 100644
 index 0000000000000000000000000000000000000000..f2f409f1617212a6e6c42ca8f96c6eadf18b46a9
 --- /dev/null
-+++ b/bsd/dev/sweet_cpufreq.c
++++ b/bsd/dev/bergamota_cpufreq.c
 @@ -0,0 +1,72 @@
 +/*
 + * Poco F1 (SDM845): run both CPU clusters at their top cpufreq-hw state.
@@ -25,17 +25,17 @@ index 0000000000000000000000000000000000000000..f2f409f1617212a6e6c42ca8f96c6ead
 + * freq-domain1 (A75) 0x17d45800; LUT at +0x110 (32-byte rows, bits 31:30
 + * clock source, 7:0 L-value x 19.2 MHz), PERF_STATE at +0x920.
 + * The firmware (OSM/LMh) still applies its voltage and thermal limits.
-+ * Boot-arg sweetcpufreq=0 leaves the frequencies alone.
++ * Boot-arg bergamotacpufreq=0 leaves the frequencies alone.
 + */
-+#if defined(ARM64_BOARD_CONFIG_SWEET)
++#if defined(ARM64_BOARD_CONFIG_BERGAMOTA)
 +#include <sys/param.h>
 +#include <sys/systm.h>
 +#include <machine/machine_routines.h>
 +#include <pexpert/pexpert.h>
-+#include "sweet_board.h"
++#include "bergamota_board.h"
 +
 +extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
-+void sweet_cpufreq_max(void);
++void bergamota_cpufreq_max(void);
 +
 +#define CPUFREQ_FREQ_LUT        0x110u
 +#define CPUFREQ_LUT_ROW         0x20u
@@ -47,7 +47,7 @@ index 0000000000000000000000000000000000000000..f2f409f1617212a6e6c42ca8f96c6ead
 +{
 +	vm_offset_t b = ml_io_map(pa, 0x1400);
 +	if (b == 0) {
-+		printf("SWEET CPUFREQ: %s: map failed\n", name);
++		printf("BERGAMOTA CPUFREQ: %s: map failed\n", name);
 +		return;
 +	}
 +	uint32_t best = 0, bestKHz = 0, prevKHz = 0, n = 0;
@@ -72,39 +72,39 @@ index 0000000000000000000000000000000000000000..f2f409f1617212a6e6c42ca8f96c6ead
 +	__asm__ volatile("dsb sy" ::: "memory");
 +	*(volatile uint32_t *)(b + CPUFREQ_PERF_STATE) = best;
 +	__asm__ volatile("dsb sy" ::: "memory");
-+	printf("SWEET CPUFREQ: %s: %u LUT states, perf state %u (%u MHz) -> %u (%u MHz)\n",
++	printf("BERGAMOTA CPUFREQ: %s: %u LUT states, perf state %u (%u MHz) -> %u (%u MHz)\n",
 +	    name, n, old, oldKHz / 1000, best, bestKHz / 1000);
 +}
 +
 +void
-+sweet_cpufreq_max(void)
++bergamota_cpufreq_max(void)
 +{
 +	int on = 1;
-+	PE_parse_boot_argn("sweetcpufreq", &on, sizeof(on));
-+	if (!on || !sweet_board_beryllium()) {
++	PE_parse_boot_argn("bergamotacpufreq", &on, sizeof(on));
++	if (!on || !bergamota_board_beryllium()) {
 +		return;
 +	}
 +	cpufreq_domain_max("silver (A55)", 0x17d43000u);
 +	cpufreq_domain_max("gold (A75)", 0x17d45800u);
 +}
-+#endif /* ARM64_BOARD_CONFIG_SWEET */
-diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
++#endif /* ARM64_BOARD_CONFIG_BERGAMOTA */
+diff --git a/bsd/dev/bergamota_ufs.c b/bsd/dev/bergamota_ufs.c
 index 9a78f8e8337692e9aa7c62d680248987ebe6949d..93d0db59b9b1916a03e0c924d08c68e4b7a4d0d4 100644
---- a/bsd/dev/sweet_ufs.c
-+++ b/bsd/dev/sweet_ufs.c
-@@ -54,6 +54,7 @@ extern void sweet_sample_start(void);
- extern void sweet_keys_init(void);
- extern void sweet_touch_init(void);
- extern void sweet_usb_probe(void);
-+extern void sweet_cpufreq_max(void);
+--- a/bsd/dev/bergamota_ufs.c
++++ b/bsd/dev/bergamota_ufs.c
+@@ -54,6 +54,7 @@ extern void bergamota_sample_start(void);
+ extern void bergamota_keys_init(void);
+ extern void bergamota_touch_init(void);
+ extern void bergamota_usb_probe(void);
++extern void bergamota_cpufreq_max(void);
  
  #define REG_CAP         0x00
  #define REG_IS          0x20
-@@ -665,6 +666,7 @@ sweet_ufs_init(void)
- 	sweet_log_start();
- 	sweet_sample_start();
- 	/* Input drivers (HID services in iokit/Kernel/arm/hid/SweetHID.cpp). */
-+	sweet_cpufreq_max();
- 	sweet_keys_init();
- 	sweet_touch_init();
- 	sweet_usb_probe();
+@@ -665,6 +666,7 @@ bergamota_ufs_init(void)
+ 	bergamota_log_start();
+ 	bergamota_sample_start();
+ 	/* Input drivers (HID services in iokit/Kernel/arm/hid/BergamotaHID.cpp). */
++	bergamota_cpufreq_max();
+ 	bergamota_keys_init();
+ 	bergamota_touch_init();
+ 	bergamota_usb_probe();

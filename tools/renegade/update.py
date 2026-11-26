@@ -7,15 +7,15 @@ without the IPSW dmgs (deleted, and the Mac has no room for them).
 
 Steps (every one checks `df` first and stops below 5 GiB free on the volume of the image):
   0 preflight   (simg only, read only, via hfsx.py) the files the tweaks touch exist; features whose prebuilt on-device
-                tools are missing (tools/sweetnet/build.sh needs a Mac; always the case on Linux) are skipped with a
+                tools are missing (tools/bergamotanet/build.sh needs a Mac; always the case on Linux) are skipped with a
                 message and listed in a summary at the end, not failed; the jailbreak payload is downloaded, verified and staged (it needs the network)
   1 simg2img    simg2img.py --consume: IMAGE.simg -> IMAGE.img (a sparse raw image; the simg is eaten while it is
                 written, so the disk use stays flat; the simg no longer exists afterwards)
   2 attach      macOS: hdiutil attach, read-write, no sudo. Linux (root): losetup + mount -t hfsplus -o rw,force. Mounted at --mnt
   3 tweaks      the idempotent original tweaks (root_tweaks18.base(): launchd.plist, containers, event timing profiles,
-                usbnet, netcfg, sweetreboot, ssh/dropbear job, audio, activation, prefs, logd dirs), then staged apps -> /Applications (+ the register list), bluetooth (bluetoothd env, BlueTool stub, hcitest),
-                PosterBoard + sweetfp.dylib, the first-boot job (sweetuicache registration, default wallpaper/icon style via
-                SweetRun, jailbreak post-install),
+                usbnet, netcfg, bergamotareboot, ssh/dropbear job, audio, activation, prefs, logd dirs), then staged apps -> /Applications (+ the register list), bluetooth (bluetoothd env, BlueTool stub, hcitest),
+                PosterBoard + bergamotafp.dylib, the first-boot job (bergamotauicache registration, default wallpaper/icon style via
+                BergamotaRun, jailbreak post-install),
                 /private/var/jb (Procursus, Sileo, TrollStore). All idempotent: a second run changes nothing.
                 The paths that are new (HFS creation date after the start) or that got an owner on purpose are collected
                 into an owner map; /System/Library/xpc/launchd.plist is put back to 0:0 (an old build left 501:20)
@@ -179,7 +179,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('image', help='root image: IMAGE.simg (full run) or IMAGE.img (resume after a failure)')
     for f_, what in (('appreg', 'first-boot LaunchServices registration of the staged apps'),
-                     ('posterboard', 'sweetfp.dylib + the LC_LOAD_DYLIB in PosterBoard'),
+                     ('posterboard', 'bergamotafp.dylib + the LC_LOAD_DYLIB in PosterBoard'),
                      ('bluetooth', 'bluetoothd env, BlueTool stub, hcitest'),
                      ('jb', 'jailbreak userland (Procursus rootless, Sileo, TrollStore)'),
                      ('wallpaper', 'default Gradient wallpaper and icon style at first boot'),
@@ -296,7 +296,7 @@ def main():
         jb_owners = os.path.join(tempfile.gettempdir(), f'renegade-update-jb-{os.getpid()}.tsv')
         rt.base(mnt)                # the idempotent part of the original tweaks stage (event timing profiles, ...)
         rt.staged_apps(mnt)
-        rt.sweetmetrics(mnt)
+        rt.bergamotametrics(mnt)
         if feats['bluetooth']:
             rt.bluetooth(mnt)
         if feats['posterboard']:

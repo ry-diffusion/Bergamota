@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""iOS 18 copy of tools/sweet-root-tweaks.py (main checkout), driven by tools/renegade/mkroot-full.py.
+"""iOS 18 copy of tools/bergamota-root-tweaks.py (main checkout), driven by tools/renegade/mkroot-full.py.
 
 Unchanged logic; mkroot-full.py sets BUILD/VERSION/SSH_OUT/NETCFG/REBOOT_TOOL/BLUETOOL_STUB and replaces os.chown
 by a recorder (no sudo: owners are applied to the HFS catalog afterwards by hfsroot_owners.py).
 
 Original docstring:
 
-Apply the SWEET bring-up changes to an iOS root made by tools/mkiosroot.sh.
+Apply the BERGAMOTA bring-up changes to an iOS root made by tools/mkiosroot.sh.
 
-  sudo sweet-root-tweaks.py MOUNTED_ROOT
+  sudo bergamota-root-tweaks.py MOUNTED_ROOT
 
 MOUNTED_ROOT is the HFS+ image mounted read-write (Linux: run
 `fsck.hfsplus -fy` on the image, then `mount -t hfsplus -o loop,force`).
@@ -34,12 +34,12 @@ screen (image versions v8-v14 in NOTES.md):
   activation      mobileactivationd data ark seeded; the actual Activated state
                   comes from its Hactivation branch, selected by the /chosen
                   security-status properties in tools/mkadt.py
-  sweetreboot     /usr/local/bin/sweetreboot fastboot|recovery|normal (docs/REBOOT_MODE.md)
-  bluetooth       sweetbt=1 transport (docs/BT_IOS_TRANSPORT.md): BT_HCI_TRANSPORT
-                  in bluetoothd's launchd job, and the BlueTool stub (tools/sweetnet/bluetool-stub.c)
+  bergamotareboot     /usr/local/bin/bergamotareboot fastboot|recovery|normal (docs/REBOOT_MODE.md)
+  bluetooth       bergamotabt=1 transport (docs/BT_IOS_TRANSPORT.md): BT_HCI_TRANSPORT
+                  in bluetoothd's launchd job, and the BlueTool stub (tools/bergamotanet/bluetool-stub.c)
                   as /usr/sbin/BlueTool with the original kept as BlueTool.orig; skipped if the stub
-                  is not built. `sweet-root-tweaks.py --bt-plist IN OUT` applies only the launchd part
-                  to a copied launchd.plist (tools/sweet-bt-install.sh uses it on the live phone)
+                  is not built. `bergamota-root-tweaks.py --bt-plist IN OUT` applies only the launchd part
+                  to a copied launchd.plist (tools/bergamota-bt-install.sh uses it on the live phone)
   ssh             key-only dropbear on 192.168.7.2:22 + dash (/bin/sh) + toybox
                   from tools/ssh/build.sh, authorized_keys from the Mac user's
                   public key, host keys, launchd job (docs/SSH_OVER_USB.md);
@@ -59,11 +59,11 @@ def note_skip(feature, reason):
     SKIPPED.append((feature, reason))
 
 
-def not_built(what='tools/sweetnet/build.sh'):
+def not_built(what='tools/bergamotanet/build.sh'):
     """Why a prebuilt on-device binary is missing. They are built with xcrun (a Mac with Xcode); nothing is compiled here."""
     if rplat.is_linux():
         return ('no prebuilt binary (they are built on a Mac with Xcode: %s; Linux installs prebuilt ones: run `renegade fetch-tools` to '
-                'download berga-tools.zip, or drop artifacts in research/sweetnet/ or $RENEGADE_SWEETNET)' % what)
+                'download berga-tools.zip, or drop artifacts in research/bergamotanet/ or $RENEGADE_BERGAMOTANET)' % what)
     return 'not built (%s; or `renegade fetch-tools` for the prebuilt berga-tools.zip)' % what
 
 
@@ -156,9 +156,9 @@ BT_LABEL = 'com.apple.bluetoothd'
 # the ADT /arm-io/bluetooth local-mac-address (tools/mkadt.py BT_MAC, IOServiceNameMatching "bluetooth").
 BT_ENV = {'BT_HCI_TRANSPORT': 'H4BC:POSIX:com.apple.uart.bluetooth,3000000'}
 BT_ENV_REMOVE = ('BT_DEVICE_ADDRESS',)
-BLUETOOL_STUB = None        # default: find_sweetnet('bluetool-stub') at call time (tools/sweetnet/build.sh)
+BLUETOOL_STUB = None        # default: find_bergamotanet('bluetool-stub') at call time (tools/bergamotanet/build.sh)
 HCITEST = None              # same for hcitest
-# WCN3990 rampatch + NVM for the kernel BT stage (sweetwlan=2, read from /usr/standalone/firmware/sweet/).
+# WCN3990 rampatch + NVM for the kernel BT stage (bergamotawlan=2, read from /usr/standalone/firmware/bergamota/).
 # Qualcomm firmware, never in git: RENEGADE_BT_FW=DIR with crbtfw21.tlv and crnv21.bin (linux-firmware qca/,
 # the pair that worked on iOS 16 and 18; the phone's own bluetooth partition has an older pair).
 BT_FW_FILES = ('crbtfw21.tlv', 'crnv21.bin')
@@ -187,9 +187,9 @@ def bluetooth(root):
         return
     save(path, plist, st.st_uid, st.st_gid, st.st_mode & 0o7777)
     print('bluetooth: BT_HCI_TRANSPORT set for', BT_LABEL)
-    stub_path = BLUETOOL_STUB or find_sweetnet('bluetool-stub')
+    stub_path = BLUETOOL_STUB or find_bergamotanet('bluetool-stub')
     if not stub_path or not os.path.exists(stub_path):
-        print('bluetooth: BlueTool stub not built (tools/sweetnet/build.sh): BlueTool left alone')
+        print('bluetooth: BlueTool stub not built (tools/bergamotanet/build.sh): BlueTool left alone')
         note_skip('bluetooth BlueTool stub + hcitest', not_built() + '; the bluetoothd launchd environment was still set')
         return
     dst = os.path.join(root, 'usr/sbin/BlueTool')
@@ -204,15 +204,15 @@ def bluetooth(root):
                 print('bluetooth: original BlueTool kept as BlueTool.orig')
     install_file(stub_path, dst)
     print('bluetooth: /usr/sbin/BlueTool is the stub')
-    hci = HCITEST or find_sweetnet('hcitest')
+    hci = HCITEST or find_bergamotanet('hcitest')
     if hci and os.path.exists(hci):
         install_file(hci, os.path.join(root, 'usr/local/bin/hcitest'))
         print('bluetooth: /usr/local/bin/hcitest installed')
     fw = os.environ.get('RENEGADE_BT_FW')
     if fw:
         for name in BT_FW_FILES:
-            install_file(os.path.join(fw, name), os.path.join(root, 'usr/standalone/firmware/sweet', name), 0o644)
-        print('bluetooth: WCN3990 firmware from', fw, 'in /usr/standalone/firmware/sweet')
+            install_file(os.path.join(fw, name), os.path.join(root, 'usr/standalone/firmware/bergamota', name), 0o644)
+        print('bluetooth: WCN3990 firmware from', fw, 'in /usr/standalone/firmware/bergamota')
     else:
         print('bluetooth: RENEGADE_BT_FW not set: no WCN3990 firmware in the root (the BT stage will not download)')
 
@@ -288,7 +288,7 @@ def usbnet(root):
 
 
 SSH_OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'research', 'ssh-build', 'out')
-DROPBEAR_LABEL = 'org.sweet.dropbear'
+DROPBEAR_LABEL = 'org.bergamota.dropbear'
 DROPBEAR_KEY = '/private/etc/dropbear/dropbear_ed25519_host_key'
 
 
@@ -475,25 +475,25 @@ def ssh(root):
     print('ssh: launchd job', DROPBEAR_LABEL, '(port 22 v4+v6, key-only)')
 
 
-NETCFG = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'research', 'sweetnet', 'sweetnetcfg')
-NETCFG_LABEL = 'org.sweet.netcfg'
+NETCFG = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'research', 'bergamotanet', 'bergamotanetcfg')
+NETCFG_LABEL = 'org.bergamota.netcfg'
 
 
 def netcfg(root):
-    """sweetnetcfg (tools/sweetnet) at boot: publishes ue0's IPv4 + DNS state
+    """bergamotanetcfg (tools/bergamotanet) at boot: publishes ue0's IPv4 + DNS state
     in configd's dynamic store, which IPConfiguration never does for ue0, so
     IPMonitor installs the default route via the Mac and the DNS servers.
     Relaunched until it succeeds (configd may not be up yet)."""
     if not os.path.exists(NETCFG):
-        print('netcfg: skipped, build it first (tools/sweetnet/build.sh)')
-        note_skip('netcfg (sweetnetcfg + launchd job)', not_built())
+        print('netcfg: skipped, build it first (tools/bergamotanet/build.sh)')
+        note_skip('netcfg (bergamotanetcfg + launchd job)', not_built())
         return
-    dst = os.path.join(root, 'usr/local/bin/sweetnetcfg')
+    dst = os.path.join(root, 'usr/local/bin/bergamotanetcfg')
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     shutil.copy2(NETCFG, dst)
     os.chown(dst, 0, 0)
     os.chmod(dst, 0o755)
-    job = {'Label': NETCFG_LABEL, 'ProgramArguments': ['/usr/local/bin/sweetnetcfg'],
+    job = {'Label': NETCFG_LABEL, 'ProgramArguments': ['/usr/local/bin/bergamotanetcfg'],
            'RunAtLoad': True, 'KeepAlive': {'SuccessfulExit': False}, 'ThrottleInterval': 5,
            'UserName': 'root', 'StandardErrorPath': '/dev/console'}
     jpath = '/System/Library/LaunchDaemons/%s.plist' % NETCFG_LABEL
@@ -504,42 +504,42 @@ def netcfg(root):
     plist = load(lpath)
     plist['LaunchDaemons'][jpath] = job
     save(lpath, plist, st.st_uid, st.st_gid, st.st_mode & 0o7777)
-    print('netcfg: /usr/local/bin/sweetnetcfg + launchd job', NETCFG_LABEL)
+    print('netcfg: /usr/local/bin/bergamotanetcfg + launchd job', NETCFG_LABEL)
 
 
-REBOOT_TOOL = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'research', 'sweetnet', 'sweetreboot')
+REBOOT_TOOL = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'research', 'bergamotanet', 'bergamotareboot')
 
 
-def sweetreboot(root):
-    """sweetreboot fastboot|recovery|normal (tools/sweetnet/sweetreboot.c, needs
-    kernel patch 0137): sets kern.sweet_reboot_mode and reboots. No launchd job."""
+def bergamotareboot(root):
+    """bergamotareboot fastboot|recovery|normal (tools/bergamotanet/bergamotareboot.c, needs
+    kernel patch 0137): sets kern.bergamota_reboot_mode and reboots. No launchd job."""
     if not os.path.exists(REBOOT_TOOL):
-        print('sweetreboot: skipped, build it first (tools/sweetnet/build.sh)')
-        note_skip('sweetreboot', not_built())
+        print('bergamotareboot: skipped, build it first (tools/bergamotanet/build.sh)')
+        note_skip('bergamotareboot', not_built())
         return
-    dst = os.path.join(root, 'usr/local/bin/sweetreboot')
+    dst = os.path.join(root, 'usr/local/bin/bergamotareboot')
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     shutil.copy2(REBOOT_TOOL, dst)
     os.chown(dst, 0, 0)
     os.chmod(dst, 0o755)
-    print('sweetreboot: /usr/local/bin/sweetreboot')
+    print('bergamotareboot: /usr/local/bin/bergamotareboot')
 
 
-def sweetmetrics(root):
-    """/usr/local/bin/sweetmetrics: the live-metrics JSON Bergamota polls over SSH (docs/BERGAMOTA_METRICS.md,
-    tools/sweetnet/sweetmetrics.c, arm64e + pacstrip --sign, tools/sweetnet/build.sh). Read-only tool, no job. Skipped
+def bergamotametrics(root):
+    """/usr/local/bin/bergamotametrics: the live-metrics JSON Bergamota polls over SSH (docs/BERGAMOTA_METRICS.md,
+    tools/bergamotanet/bergamotametrics.c, arm64e + pacstrip --sign, tools/bergamotanet/build.sh). Read-only tool, no job. Skipped
     with a message when it is not built; RENEGADE_NO_METRICS=1 skips it."""
     if os.environ.get('RENEGADE_NO_METRICS') == '1':
-        print('sweetmetrics: skipped (RENEGADE_NO_METRICS=1)')
-        note_skip('sweetmetrics', 'RENEGADE_NO_METRICS=1')
+        print('bergamotametrics: skipped (RENEGADE_NO_METRICS=1)')
+        note_skip('bergamotametrics', 'RENEGADE_NO_METRICS=1')
         return
-    src = find_sweetnet('ios18/sweetmetrics')
+    src = find_bergamotanet('ios18/bergamotametrics')
     if not src:
-        print('sweetmetrics: not built (tools/sweetnet/build.sh): skipped')
-        note_skip('sweetmetrics', not_built())
+        print('bergamotametrics: not built (tools/bergamotanet/build.sh): skipped')
+        note_skip('bergamotametrics', not_built())
         return
-    install_file(src, os.path.join(root, 'usr/local/bin/sweetmetrics'))
-    print('sweetmetrics: /usr/local/bin/sweetmetrics')
+    install_file(src, os.path.join(root, 'usr/local/bin/bergamotametrics'))
+    print('bergamotametrics: /usr/local/bin/bergamotametrics')
 
 
 def find_container(root, kind, identifier):
@@ -584,8 +584,8 @@ def audio(root):
 
 # Daemons that only crash-loop or quit at once on this bring-up while containermanagerd refuses every container lookup
 # (NOTES.md 2026-10-21): 18 respawns each in the 224536 boot log, every crash = ReportCrash
-# + corpse (448 `SWEET AKS: ReportCrash` lines, "Too many corpses being created"), 1022 xpcproxy spawns in total. Off by
-# default (SWEET_QUIET=1 or --quiet turns it on): the point is less CPU competing with dropbear/backboardd while debugging.
+# + corpse (448 `BERGAMOTA AKS: ReportCrash` lines, "Too many corpses being created"), 1022 xpcproxy spawns in total. Off by
+# default (BERGAMOTA_QUIET=1 or --quiet turns it on): the point is less CPU competing with dropbear/backboardd while debugging.
 QUIET_THROTTLE = {      # label -> ThrottleInterval seconds (default 10, replicatord 3, lsd 1)
     'com.apple.replicatord': 60, 'com.apple.appprotectiond': 60, 'com.apple.passd': 60,
     'com.apple.icloud.findmydeviced': 60, 'com.apple.mobileactivationd': 60,
@@ -669,8 +669,8 @@ def event_timing(root):
 # ---------------------------------------------------------------------------------------------------------------
 # Renegade auto-fixes (2026-10-23): what was done by hand on the live phone, baked into the root.
 #
-#   appreg       staged_apps() + firstboot(): first-boot job registering the apps with LaunchServices (sweetuicache)
-#   posterboard  posterboard(): sweetfp.dylib linked into PosterBoard (NSURLFileProtectionKey on HFS+)
+#   appreg       staged_apps() + firstboot(): first-boot job registering the apps with LaunchServices (bergamotauicache)
+#   posterboard  posterboard(): bergamotafp.dylib linked into PosterBoard (NSURLFileProtectionKey on HFS+)
 #   bluetooth    bluetooth(): BT_HCI_TRANSPORT in bluetoothd's job, BlueTool stub, hcitest
 #   jb           jailbreak_userland() + firstboot(): Procursus rootless, Sileo, TrollStore (jailbreak.py)
 #   wallpaper    firstboot(): the default lock poster (WALLPAPER_POSTER) + default (not tinted) icon style, once, as mobile
@@ -688,7 +688,7 @@ def event_timing(root):
 # Every function is idempotent: `renegade update` runs them again on a finished image.
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, '..', '..'))
-# The default lock poster, provider:descriptor, read back from the phone's PosterBoard (sweetposterset --descriptors/--list, 2026-10-23):
+# The default lock poster, provider:descriptor, read back from the phone's PosterBoard (bergamotaposterset --descriptors/--list, 2026-10-23):
 # the Collections provider (com.apple.WallpaperKit.CollectionsPoster) offers the descriptors 7365 (Stripe), 5010 (Bokeh, multicolored: also
 # PosterBoard's own hardwired default, `CollectionsPoster:5010`) and 400. The stock iOS 18 wallpaper is com.apple.MercuryPoster:fluidity.two,
 # which needs a Metal device the ES-only render path does not have (the extension crash-loops, black screen), so it is NOT the default here.
@@ -702,9 +702,9 @@ def wallpaper_poster(metal):
     return os.environ.get('RENEGADE_WALLPAPER_POSTER') or (WALLPAPER_MERCURY if metal else WALLPAPER_COLLECTIONS)
 WALLPAPER_POSTER = WALLPAPER_COLLECTIONS   # kept for readers of the old name: the poster used when there is no Metal device
 FEATURES = ('appreg', 'posterboard', 'bluetooth', 'jb', 'wallpaper', 'bglrender')
-SWEETNET_DIRS = [os.environ.get('RENEGADE_SWEETNET'),
-                 os.path.join(REPO, 'research/sweetnet'),
-                 os.path.join(REPO, '..', 'ios-beryllium', 'research/sweetnet'),
+BERGAMOTANET_DIRS = [os.environ.get('RENEGADE_BERGAMOTANET'),
+                 os.path.join(REPO, 'research/bergamotanet'),
+                 os.path.join(REPO, '..', 'ios-beryllium', 'research/bergamotanet'),
                  berga_tools.search_dirs()[0]]          # last: local builds win over the berga-tools cache (renegade fetch-tools)
 
 
@@ -714,19 +714,19 @@ def enabled(feature):
     return os.environ.get('RENEGADE_NO_' + feature.upper()) != '1'
 
 
-def find_sweetnet(rel):
-    """First existing research/sweetnet/REL (tools/sweetnet/build.sh output) of: $RENEGADE_SWEETNET, this
+def find_bergamotanet(rel):
+    """First existing research/bergamotanet/REL (tools/bergamotanet/build.sh output) of: $RENEGADE_BERGAMOTANET, this
     checkout, the main checkout."""
-    for d in SWEETNET_DIRS:
+    for d in BERGAMOTANET_DIRS:
         if d and os.path.exists(os.path.join(d, rel)):
             return os.path.abspath(os.path.join(d, rel))
     return None
 
 
-UICACHE = None              # default: find_sweetnet('ios18/sweetuicache') (arm64e, pacstrip --sign)
-SWEETFP = None              # default: find_sweetnet('ios18/sweetfp.dylib')
-ADDLC = os.path.join(HERE, '..', 'sweetnet', 'addlc.py')
-SWEETFP_PATH = '/usr/local/lib/sweetfp.dylib'
+UICACHE = None              # default: find_bergamotanet('ios18/bergamotauicache') (arm64e, pacstrip --sign)
+BERGAMOTAFP = None              # default: find_bergamotanet('ios18/bergamotafp.dylib')
+ADDLC = os.path.join(HERE, '..', 'bergamotanet', 'addlc.py')
+BERGAMOTAFP_PATH = '/usr/local/lib/bergamotafp.dylib'
 POSTER_BIN = 'Applications/PosterBoard.app/PosterBoard'
 
 
@@ -807,8 +807,8 @@ def entitlements_of(path):
 def posterboard(root):
     """PosterBoard fix (live 2026-10-23): the HFS+ root has no data-protection classes, so PosterBoard's check of
     NSURLFileProtectionKey on its data store fails ("Failed to migrate to Version 61 from 59", no wallpaper store).
-    sweetfp.dylib (tools/sweetnet/sweetfp.m: arm64e, pacstrip --sign) keeps the class in an xattr; it is linked into
-    /Applications/PosterBoard.app/PosterBoard as an extra LC_LOAD_DYLIB (tools/sweetnet/addlc.py: dyld ignores
+    bergamotafp.dylib (tools/bergamotanet/bergamotafp.m: arm64e, pacstrip --sign) keeps the class in an xattr; it is linked into
+    /Applications/PosterBoard.app/PosterBoard as an extra LC_LOAD_DYLIB (tools/bergamotanet/addlc.py: dyld ignores
     DYLD_INSERT_LIBRARIES for platform binaries) and the binary is re-signed ad hoc, keeping its identifier, flags
     and entitlements."""
     import subprocess, tempfile
@@ -818,15 +818,15 @@ def posterboard(root):
     if not os.path.exists(binp):
         print('posterboard: no', POSTER_BIN, 'in the image: skipped')
         return
-    dylib = SWEETFP or find_sweetnet('ios18/sweetfp.dylib')
+    dylib = BERGAMOTAFP or find_bergamotanet('ios18/bergamotafp.dylib')
     if not dylib:
-        print('posterboard: sweetfp.dylib not built (tools/sweetnet/build.sh): skipped, PosterBoard left alone')
-        note_skip('posterboard sweetfp', not_built() + '; PosterBoard left alone')
+        print('posterboard: bergamotafp.dylib not built (tools/bergamotanet/build.sh): skipped, PosterBoard left alone')
+        note_skip('posterboard bergamotafp', not_built() + '; PosterBoard left alone')
         return
-    install_file(dylib, os.path.join(root, SWEETFP_PATH.lstrip('/')), 0o755)    # first: the binary must never name a missing dylib
-    print('posterboard:', SWEETFP_PATH, 'installed')
-    if macho_has_dylib(binp, SWEETFP_PATH):
-        print('posterboard: PosterBoard already links', SWEETFP_PATH)
+    install_file(dylib, os.path.join(root, BERGAMOTAFP_PATH.lstrip('/')), 0o755)    # first: the binary must never name a missing dylib
+    print('posterboard:', BERGAMOTAFP_PATH, 'installed')
+    if macho_has_dylib(binp, BERGAMOTAFP_PATH):
+        print('posterboard: PosterBoard already links', BERGAMOTAFP_PATH)
         return
     mode = os.stat(binp).st_mode & 0o7777
     tmpd = tempfile.mkdtemp(prefix='renegade-posterboard-')
@@ -835,23 +835,23 @@ def posterboard(root):
         shutil.copyfile(binp, tmp)
         os.chmod(tmp, 0o755)
         ents, ident = entitlements_of(tmp), pacstrip.cs_identity(tmp)
-        subprocess.run([sys.executable, '-I', ADDLC, tmp, SWEETFP_PATH], check=True)
+        subprocess.run([sys.executable, '-I', ADDLC, tmp, BERGAMOTAFP_PATH], check=True)
         pacstrip.sign(tmp)
         if entitlements_of(tmp) != ents or pacstrip.cs_identity(tmp)[:2] != ident[:2]:
             sys.exit('posterboard: entitlements or identifier changed by the re-sign: PosterBoard left alone')
-        if not macho_has_dylib(tmp, SWEETFP_PATH):
+        if not macho_has_dylib(tmp, BERGAMOTAFP_PATH):
             sys.exit('posterboard: LC_LOAD_DYLIB missing after addlc.py')
         install_file(tmp, binp, mode)
     finally:
         shutil.rmtree(tmpd, ignore_errors=True)
-    print('posterboard: PosterBoard links', SWEETFP_PATH, '(re-signed ad hoc as %s, %d entitlements kept)' % (
+    print('posterboard: PosterBoard links', BERGAMOTAFP_PATH, '(re-signed ad hoc as %s, %d entitlements kept)' % (
         ident[0], len(ents or {})))
 
 
 # ---------------------------------------------------------------------------------------------------------------
 # bgmtl (ON by default for this build, see the feature list above): the Bergamota Metal device for the stock iOS 18 wallpaper poster ONLY.
 # gpu/metal/inject (branch metal): bgmtl-inject.dylib + libbgair.dylib + libdrm.2.dylib (arm64e, pacstrip --sign) go to /usr/local/lib/bgmtl and
-# the dylib is linked into MercuryPosterExtension.appex's executable as an extra LC_LOAD_DYLIB (like sweetfp.dylib into PosterBoard), the binary
+# the dylib is linked into MercuryPosterExtension.appex's executable as an extra LC_LOAD_DYLIB (like bergamotafp.dylib into PosterBoard), the binary
 # re-signed ad hoc keeping identifier and entitlements. The dylib is INERT until /private/var/tmp/bgmtl.arm exists, honours the kill switch
 # /private/var/tmp/bgmtl.off and carries its own dead-man (see gpu/metal/inject/bgmtl_inject.m); no other process is touched.
 # Build output directory: RENEGADE_BGMTL_DIR (default research/bgmtl). Undo: delete the three files and restore the extension binary.
@@ -927,14 +927,14 @@ FIRSTBOOT_DONE = 'private/var/db/.renegade-firstboot-done'
 FIRSTBOOT_SCRIPT = r'''#!/bin/sh
 # Renegade first boot (root_tweaks18.firstboot), run by the launchd job org.bergamota.renegade-firstboot.
 #  1. APPREG: register /Applications apps listed in /usr/local/share/renegade/register-apps with LaunchServices:
-#       /usr/local/bin/sweetuicache /Applications/NAME.app      (one call per app, as root, like the live fix)
+#       /usr/local/bin/bergamotauicache /Applications/NAME.app      (one call per app, as root, like the live fix)
 #     LaunchServices answers only once lsd is up, so the first app is retried (5 s apart, 10 min at most).
 #  2. the jailbreak post-install (/var/jb/usr/share/renegade-jb/postinstall.sh) if the root has one
 #  3. WALL: the default wallpaper (a Core Animation poster, no Metal: WALLPAPER_POSTER) and icon style (default, not tinted), once, as mobile:
-#     /private/var/tmp/sweetrun.sh is written, `sweetopen com.sweet.run` starts SweetRun.app through FrontBoard (an app
+#     /private/var/tmp/bergamotarun.sh is written, `bergamotaopen com.bergamota.run` starts BergamotaRun.app through FrontBoard (an app
 #     lives in the mobile user's launchd domain, where PosterBoard's XPC service is reachable) and the script runs
-#     sweetposterset (retried: -2203 while PosterBoard's store has no lock role yet, or the service is not up) and
-#     sweeticonstyle. Marker /private/var/db/.renegade-poster-done
+#     bergamotaposterset (retried: -2203 while PosterBoard's store has no lock role yet, or the service is not up) and
+#     bergamotaiconstyle. Marker /private/var/db/.renegade-poster-done
 #  4. disables itself: marker /private/var/db/.renegade-firstboot-done (after 3 incomplete runs too)
 DONE=/private/var/db/.renegade-firstboot-done
 TRIES=/private/var/db/.renegade-firstboot-tries
@@ -949,7 +949,7 @@ echo $n >$TRIES
 echo "== renegade first boot, run $n: $(date)"
 rc=0
 APPREG=@APPREG@
-UIC=/usr/local/bin/sweetuicache
+UIC=/usr/local/bin/bergamotauicache
 LIST=/usr/local/share/renegade/register-apps
 reg() {
 	out=$($UIC "/Applications/$1" 2>&1)
@@ -981,47 +981,47 @@ if [ $APPREG = 1 ] && [ -x $UIC ] && [ -s $LIST ]; then
 fi
 WALL=@WALL@
 PDONE=/private/var/db/.renegade-poster-done
-if [ $WALL = 1 ] && [ ! -e $PDONE ] && [ -d /Applications/SweetRun.app ]; then
-	echo "-- default wallpaper and icon style, as mobile via SweetRun"
+if [ $WALL = 1 ] && [ ! -e $PDONE ] && [ -d /Applications/BergamotaRun.app ]; then
+	echo "-- default wallpaper and icon style, as mobile via BergamotaRun"
 	T=/private/var/tmp
 	t=0
-	until reg SweetRun.app; do      # idempotent; lsd may not be up yet when appreg is off
+	until reg BergamotaRun.app; do      # idempotent; lsd may not be up yet when appreg is off
 		t=$((t+1))
 		[ $t -ge 24 ] && break
 		sleep 5
 	done
-	rm -f $T/sweetrun.log $T/renegade-poster.rc
-	cat >$T/sweetrun.sh <<'EOS'
+	rm -f $T/bergamotarun.log $T/renegade-poster.rc
+	cat >$T/bergamotarun.sh <<'EOS'
 export PATH=/usr/local/bin:/usr/bin:/bin
 n=0
 ok=1
 while [ $n -lt 20 ]; do
 	n=$((n+1))
-	echo "sweetposterset try $n"
-	/usr/local/bin/sweetposterset @WPROV@ @WDESC@ && { ok=0; break; }
+	echo "bergamotaposterset try $n"
+	/usr/local/bin/bergamotaposterset @WPROV@ @WDESC@ && { ok=0; break; }
 	sleep 10
 done
-echo "sweetposterset rc=$ok"
+echo "bergamotaposterset rc=$ok"
 # the Metal poster could not be selected (Mercury is black without the Metal device): fall back to the Collections poster, which ES renders
 if [ $ok != 0 ] && [ "@WPROV@:@WDESC@" != "@WPROV2@:@WDESC2@" ]; then
 	n=0
 	while [ $n -lt 10 ]; do
 		n=$((n+1))
-		echo "fallback sweetposterset try $n"
-		/usr/local/bin/sweetposterset @WPROV2@ @WDESC2@ && { ok=0; break; }
+		echo "fallback bergamotaposterset try $n"
+		/usr/local/bin/bergamotaposterset @WPROV2@ @WDESC2@ && { ok=0; break; }
 		sleep 10
 	done
-	[ $ok = 0 ] && { /usr/local/bin/sweetposterset --cleanup @WPROV2@ @WDESC2@; ok=0; }
+	[ $ok = 0 ] && { /usr/local/bin/bergamotaposterset --cleanup @WPROV2@ @WDESC2@; ok=0; }
 else
 # "already selected" counts as done (rc 0); drop duplicate Gradient configurations an older tool left behind
-[ $ok = 0 ] && /usr/local/bin/sweetposterset --cleanup @WPROV@ @WDESC@
+[ $ok = 0 ] && /usr/local/bin/bergamotaposterset --cleanup @WPROV@ @WDESC@
 fi
-/usr/local/bin/sweeticonstyle default || ok=1
+/usr/local/bin/bergamotaiconstyle default || ok=1
 echo $ok >/private/var/tmp/renegade-poster.rc
 EOS
-	chmod 644 $T/sweetrun.sh
+	chmod 644 $T/bergamotarun.sh
 	t=0
-	until /usr/local/bin/sweetopen com.sweet.run; do      # works once SpringBoard is up
+	until /usr/local/bin/bergamotaopen com.bergamota.run; do      # works once SpringBoard is up
 		t=$((t+1))
 		[ $t -ge 120 ] && break
 		sleep 5
@@ -1031,7 +1031,7 @@ EOS
 		t=$((t+1))
 		sleep 5
 	done
-	cat $T/sweetrun.log
+	cat $T/bergamotarun.log
 	if [ -e $T/renegade-poster.rc ] && [ "$(cat $T/renegade-poster.rc)" = 0 ]; then
 		touch $PDONE
 		echo "wallpaper and icon style set"
@@ -1055,10 +1055,10 @@ exit 0
 
 
 def firstboot(root, appreg=True, jb=True, wallpaper=True, metal=False):
-    """First-boot job: app registration with sweetuicache and, when the root has /var/jb, the jailbreak post-install
+    """First-boot job: app registration with bergamotauicache and, when the root has /var/jb, the jailbreak post-install
     (Sileo and TrollStore registration). Runs from the launchd.plist cache, needs /bin/sh (dash, ssh tweak). Disables
-    itself with /private/var/db/.renegade-firstboot-done. Also installs /usr/local/bin/sweetuicache (arm64e,
-    pacstrip --sign, tools/sweetnet/build.sh)."""
+    itself with /private/var/db/.renegade-firstboot-done. Also installs /usr/local/bin/bergamotauicache (arm64e,
+    pacstrip --sign, tools/bergamotanet/build.sh)."""
     if not appreg and not jb and not wallpaper:
         print('firstboot: appreg, jb and wallpaper are all off: no job')
         return
@@ -1067,34 +1067,34 @@ def firstboot(root, appreg=True, jb=True, wallpaper=True, metal=False):
         note_skip('first-boot job (app registration, wallpaper, jailbreak post-install)',
                   '/bin/sh missing in the root: dash comes from the ssh tweak, which needs prebuilt dropbear/dash/toybox')
         return
-    uic = UICACHE or find_sweetnet('ios18/sweetuicache')
+    uic = UICACHE or find_bergamotanet('ios18/bergamotauicache')
     if uic:
-        install_file(uic, os.path.join(root, 'usr/local/bin/sweetuicache'))
+        install_file(uic, os.path.join(root, 'usr/local/bin/bergamotauicache'))
     else:
-        # No sweetuicache (xcrun-built): the job still runs, for the jailbreak post-install. The apps were moved into
+        # No bergamotauicache (xcrun-built): the job still runs, for the jailbreak post-install. The apps were moved into
         # /Applications offline by staged_apps(); lsd registers system apps itself when it seeds a fresh LaunchServices
-        # database (fresh userdata), but an already-seeded database does not learn about them without sweetuicache.
-        print('firstboot: sweetuicache not built (tools/sweetnet/build.sh): app registration skipped')
+        # database (fresh userdata), but an already-seeded database does not learn about them without bergamotauicache.
+        print('firstboot: bergamotauicache not built (tools/bergamotanet/build.sh): app registration skipped')
         if appreg:
-            note_skip('appreg (sweetuicache)', not_built() + '; the apps are still moved to /Applications and lsd registers them '
+            note_skip('appreg (bergamotauicache)', not_built() + '; the apps are still moved to /Applications and lsd registers them '
                       'itself when it seeds a fresh LaunchServices database (fresh userdata); an already-seeded database does not')
         if wallpaper:
-            note_skip('wallpaper + icon style', 'needs sweetuicache to register SweetRun at first boot: ' + not_built())
+            note_skip('wallpaper + icon style', 'needs bergamotauicache to register BergamotaRun at first boot: ' + not_built())
         appreg = wallpaper = False
         if not jb:
             print('firstboot: nothing left for the job to do: no job')
             return
     if wallpaper:
-        wall = [find_sweetnet('ios18/' + n) for n in ('sweetposterset', 'sweeticonstyle', 'sweetopen', 'SweetRun.app')]
+        wall = [find_bergamotanet('ios18/' + n) for n in ('bergamotaposterset', 'bergamotaiconstyle', 'bergamotaopen', 'BergamotaRun.app')]
         if not all(wall):
-            print('firstboot: sweetposterset/sweeticonstyle/sweetopen/SweetRun.app not built (tools/sweetnet/build.sh): '
+            print('firstboot: bergamotaposterset/bergamotaiconstyle/bergamotaopen/BergamotaRun.app not built (tools/bergamotanet/build.sh): '
                   'default wallpaper and icon style skipped')
-            note_skip('wallpaper tools (sweetposterset, sweeticonstyle, sweetopen, SweetRun.app)', not_built())
+            note_skip('wallpaper tools (bergamotaposterset, bergamotaiconstyle, bergamotaopen, BergamotaRun.app)', not_built())
             wallpaper = False
         else:
-            for n, src in zip(('sweetposterset', 'sweeticonstyle', 'sweetopen'), wall):
+            for n, src in zip(('bergamotaposterset', 'bergamotaiconstyle', 'bergamotaopen'), wall):
                 install_file(src, os.path.join(root, 'usr/local/bin', n))
-            app = os.path.join(root, 'Applications/SweetRun.app')
+            app = os.path.join(root, 'Applications/BergamotaRun.app')
             if os.path.exists(app):
                 shutil.rmtree(app)
             shutil.copytree(wall[3], app, symlinks=True)
@@ -1102,7 +1102,7 @@ def firstboot(root, appreg=True, jb=True, wallpaper=True, metal=False):
                 for n in dirs + files:
                     os.lchown(os.path.join(d, n), 0, 0)
             os.lchown(app, 0, 0)
-            print('firstboot: sweetposterset, sweeticonstyle, sweetopen, /Applications/SweetRun.app installed')
+            print('firstboot: bergamotaposterset, bergamotaiconstyle, bergamotaopen, /Applications/BergamotaRun.app installed')
     write_file(os.path.join(root, FIRSTBOOT_SH), FIRSTBOOT_SCRIPT.replace('@APPREG@', '1' if appreg else '0')
                .replace('@WALL@', '1' if wallpaper else '0')
                .replace('@WPROV@', wallpaper_poster(metal).split(':', 1)[0]).replace('@WDESC@', wallpaper_poster(metal).split(':', 1)[1])
@@ -1226,17 +1226,17 @@ def tool_gaps(feats):
     (always the case on Linux without CI artifacts). Returns {feature: reason} and records each in the skip summary;
     callers switch those features off instead of failing."""
     gaps = {}
-    if not (UICACHE or find_sweetnet('ios18/sweetuicache')):
+    if not (UICACHE or find_bergamotanet('ios18/bergamotauicache')):
         if feats.get('appreg'):
-            gaps['appreg'] = ('sweetuicache ' + not_built() + '; the apps are still moved to /Applications and lsd registers them '
+            gaps['appreg'] = ('bergamotauicache ' + not_built() + '; the apps are still moved to /Applications and lsd registers them '
                               'itself when it seeds a fresh LaunchServices database (fresh userdata); an already-seeded one does not')
         if feats.get('wallpaper'):
-            gaps['wallpaper'] = 'needs sweetuicache (registers SweetRun at first boot): ' + not_built()
+            gaps['wallpaper'] = 'needs bergamotauicache (registers BergamotaRun at first boot): ' + not_built()
     if feats.get('wallpaper') and 'wallpaper' not in gaps and not all(
-            find_sweetnet('ios18/' + n) for n in ('sweetposterset', 'sweeticonstyle', 'sweetopen', 'SweetRun.app')):
-        gaps['wallpaper'] = 'sweetposterset/sweeticonstyle/sweetopen/SweetRun.app ' + not_built()
-    if feats.get('posterboard') and not (SWEETFP or find_sweetnet('ios18/sweetfp.dylib')):
-        gaps['posterboard'] = 'sweetfp.dylib ' + not_built() + '; PosterBoard is left alone'
+            find_bergamotanet('ios18/' + n) for n in ('bergamotaposterset', 'bergamotaiconstyle', 'bergamotaopen', 'BergamotaRun.app')):
+        gaps['wallpaper'] = 'bergamotaposterset/bergamotaiconstyle/bergamotaopen/BergamotaRun.app ' + not_built()
+    if feats.get('posterboard') and not (BERGAMOTAFP or find_bergamotanet('ios18/bergamotafp.dylib')):
+        gaps['posterboard'] = 'bergamotafp.dylib ' + not_built() + '; PosterBoard is left alone'
     if feats.get('bglrender') and not find_bgl():
         gaps['bglrender'] = ('payload: no prebuilt bergamota-gl (gpu/eagl/make-payload.sh needs a Mac; or a CI artifact in '
                              'research/bergamota-gl/ or $RENEGADE_BGL, or `renegade fetch-tools`)')
@@ -1259,8 +1259,8 @@ def configure_paths():
     """Tool locations for the build and for `renegade update`: this checkout first, then the main checkout."""
     global SSH_OUT, NETCFG, REBOOT_TOOL
     SSH_OUT = ssh_out()
-    NETCFG = find_sweetnet('sweetnetcfg') or NETCFG
-    REBOOT_TOOL = find_sweetnet('sweetreboot') or REBOOT_TOOL
+    NETCFG = find_bergamotanet('bergamotanetcfg') or NETCFG
+    REBOOT_TOOL = find_bergamotanet('bergamotareboot') or REBOOT_TOOL
 
 
 def iosroot_dirs(root):
@@ -1291,7 +1291,7 @@ def prefs(root):
     merge_pref(root, 'com.apple.springboard', {
         'BKNoWatchdogs': True, 'FBLaunchWatchdogExceptions': {'com.apple.purplebuddy': 100.0},
         'MCForceShowCloudConfigurationUI': False,
-        'SBShowBatteryPercentage': True})        # status-bar battery percentage (live: sweetprefs mobile com.apple.springboard SBShowBatteryPercentage bool 1)
+        'SBShowBatteryPercentage': True})        # status-bar battery percentage (live: bergamotaprefs mobile com.apple.springboard SBShowBatteryPercentage bool 1)
     merge_pref(root, 'com.apple.purplebuddy', {
         'SetupDone': True, 'SetupFinishedAllSteps': True, 'SetupVersion': 11, 'daemonizeNeedsToRun': False})
     merge_pref(root, 'com.apple.purplebuddy.notbackedup', {
@@ -1302,18 +1302,18 @@ def prefs(root):
                {'LockdownActivationIndicatesCloudConfigurationAvailable': False})
 
 
-def sweetprefs_tool(root):
-    """/usr/local/bin/sweetprefs (tools/sweetnet/sweetprefs.c, arm64e + pacstrip): set/read a user default through cfprefsd."""
-    src = find_sweetnet('ios18/sweetprefs')
+def bergamotaprefs_tool(root):
+    """/usr/local/bin/bergamotaprefs (tools/bergamotanet/bergamotaprefs.c, arm64e + pacstrip): set/read a user default through cfprefsd."""
+    src = find_bergamotanet('ios18/bergamotaprefs')
     if not src:
-        print('sweetprefs: not built (tools/sweetnet/build.sh): skipped')
-        note_skip('sweetprefs tool', not_built() + '; the preferences themselves (battery %, ...) are written as plists')
+        print('bergamotaprefs: not built (tools/bergamotanet/build.sh): skipped')
+        note_skip('bergamotaprefs tool', not_built() + '; the preferences themselves (battery %, ...) are written as plists')
         return
-    install_file(src, os.path.join(root, 'usr/local/bin/sweetprefs'))
-    print('sweetprefs: /usr/local/bin/sweetprefs installed')
-    # remote testing over SSH (tools/sweetnet/sweetshot.m, sweettouch.c): screenshot of the scanned frame, synthetic touch/buttons
-    for n in ('sweetshot', 'sweettouch'):
-        t = find_sweetnet('ios18/' + n)
+    install_file(src, os.path.join(root, 'usr/local/bin/bergamotaprefs'))
+    print('bergamotaprefs: /usr/local/bin/bergamotaprefs installed')
+    # remote testing over SSH (tools/bergamotanet/bergamotashot.m, bergamotatouch.c): screenshot of the scanned frame, synthetic touch/buttons
+    for n in ('bergamotashot', 'bergamotatouch'):
+        t = find_bergamotanet('ios18/' + n)
         if t:
             install_file(t, os.path.join(root, 'usr/local/bin', n))
             print('%s: /usr/local/bin/%s installed' % (n, n))
@@ -1325,22 +1325,22 @@ def base(root):
     """Everything of the original tweaks stage that is idempotent and not an auto-fix, in build order: what `renegade
     update` runs before auto(), so an image built before a tweak existed (event_timing was only in main()) gets it.
     Skipped on purpose: patch_mount_phase2 (opt-in), the console bring-up job (informational), the quiet() set
-    (opt-in: SWEET_QUIET=1 is honoured here too)."""
+    (opt-in: BERGAMOTA_QUIET=1 is honoured here too)."""
     configure_paths()
     launchd(root)
-    if os.environ.get('SWEET_QUIET') == '1':
+    if os.environ.get('BERGAMOTA_QUIET') == '1':
         quiet(root)
     containers(root)
     launchservices(root)
     event_timing(root)
     usbnet(root)
     netcfg(root)
-    sweetreboot(root)
+    bergamotareboot(root)
     ssh(root)
     audio(root)
     activation(root)
     prefs(root)
-    sweetprefs_tool(root)
+    bergamotaprefs_tool(root)
     iosroot_dirs(root)
 
 
@@ -1377,15 +1377,15 @@ def main():
         sys.exit(__doc__)
     root = sys.argv[1]
     launchd(root)
-    if os.environ.get('SWEET_QUIET') == '1':
+    if os.environ.get('BERGAMOTA_QUIET') == '1':
         quiet(root)
     containers(root)
     launchservices(root)
     event_timing(root)
     usbnet(root)
     netcfg(root)
-    sweetreboot(root)
-    sweetmetrics(root)
+    bergamotareboot(root)
+    bergamotametrics(root)
     ssh(root)
     auto(root)        # staged apps, bluetooth, PosterBoard, first-boot job (opt-outs: RENEGADE_NO_*)
     activation(root)

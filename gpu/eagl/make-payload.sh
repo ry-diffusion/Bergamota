@@ -4,7 +4,7 @@
 #   bgl-launch                     launchd job target of backboardd (execs the real one, injects the shim only with bglrender=1|soft)
 #   OpenGLES.framework/OpenGLES    injection build of the shim (patches the real EAGLContext/EAGLSharegroup at load)
 #   libOSMesa.8.dylib              Mesa 25.0.7: freedreno (a6xx) + softpipe, GLES 1/2/3 (rpath @loader_path)
-#   libdrm.2.dylib                 the libdrm stand-in over SweetAdreno630
+#   libdrm.2.dylib                 the libdrm stand-in over BergamotaAdreno630
 # All arm64e, PAC-stripped and ad-hoc signed (renegade strip --sign). Output: research/bergamota-gl/ (git-ignored) + MANIFEST.
 #   GPU_EAGL_WORK=<scratch with mesa/ and build-hw/> gpu/eagl/make-payload.sh [OUTDIR]
 set -euo pipefail

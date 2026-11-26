@@ -1,7 +1,7 @@
 # Migration from xnu-8796 to xnu-11215 (branch `xnu11215`)
 
 Status (phase 1): `xnu-11215.81.4` (macOS 15.3, `apple-oss-distributions/xnu`) builds in CI as
-`kernel.development.sweet` (arm64, plain non-PAC, DEVELOPMENT, MACHINE_CONFIG=SWEET) with the series in
+`kernel.development.bergamota` (arm64, plain non-PAC, DEVELOPMENT, MACHINE_CONFIG=BERGAMOTA) with the series in
 `xnu/patches-11215/`. Nothing here has been booted yet.
 
 ## 1. Source tag, toolchain, CI
@@ -13,7 +13,7 @@ Status (phase 1): `xnu-11215.81.4` (macOS 15.3, `apple-oss-distributions/xnu`) b
 * **CI** (`.github/workflows/xnu.yml`): `macos_version` input, default `15.3` on this branch (`13.5` stays on `main`). 15.x runs on
   `macos-15` with **Xcode 16.2** (`xcode_version` input overrides), KDK 15.3 (24D60) is downloaded by dxb, `RC_DARWIN_KERNEL_VERSION=24.3.0`.
   dxb applies `patches/15.0/*.sh` then `*.patch` in name order: its own fixes (disable_bti, entitlements, iokit, link_kdk, skywalk;
-  `remove_tightbeam` and `link_kdk146` do not apply to .81.4 and are skipped) come first, ours are copied with a `sweet-` prefix.
+  `remove_tightbeam` and `link_kdk146` do not apply to .81.4 and are skipped) come first, ours are copied with a `bergamota-` prefix.
   A patch of ours that does not apply now **fails the build** (dxb only warned). ccache/host-tool caches work unchanged.
 * **Series layout.** `xnu/patches/` = xnu-8796 series (untouched, still used for `macos_version=13.5`). `xnu/patches-11215/` = the 11215
   series. Same numbers and names as the old patches where a patch maps 1:1 (so history can be followed); `0005`, `0082b`, `0102b`, `0170`
@@ -26,14 +26,14 @@ Status (phase 1): `xnu-11215.81.4` (macOS 15.3, `apple-oss-distributions/xnu`) b
 
 ## 2. PAC-less kernel on 11215
 
-* 11215 builds fine as **arm64 (non-e)** for SWEET: `makedefs` keeps `ARCH_STRING_FOR_CURRENT_MACHINE_CONFIG=arm64` for SWEET (patch 0004),
+* 11215 builds fine as **arm64 (non-e)** for BERGAMOTA: `makedefs` keeps `ARCH_STRING_FOR_CURRENT_MACHINE_CONFIG=arm64` for BERGAMOTA (patch 0004),
   no `__has_feature(ptrauth_calls)`; `libfirehose_kernel` is built arm64 too (workflow sed). The KDK closed libs are arm64e only and not
-  linked (SWEET does not use `lib<SOC>.os.a`); `nos_arm_asm`/`nos_arm_pmap` come from `MASTER.arm64.sweet` (0006).
-* New in 11215 that needed SWEET handling: `apple_arm64_cpu.h` needs `MPIDR_CORETYPE_*` (in SWEET.h), `ARM64_PROLOG` (BTI landing pad) in
+  linked (BERGAMOTA does not use `lib<SOC>.os.a`); `nos_arm_asm`/`nos_arm_pmap` come from `MASTER.arm64.bergamota` (0006).
+* New in 11215 that needed BERGAMOTA handling: `apple_arm64_cpu.h` needs `MPIDR_CORETYPE_*` (in BERGAMOTA.h), `ARM64_PROLOG` (BTI landing pad) in
   our asm stubs, two more amcc stubs (`ppl_amcc`, `ppl_ctrr3`), UBSan source verifier skipped (0005), mockfs `kfree_type` typing, Tightbeam
   exports emptied (no exclaves), `CONFIG_CPU_COUNTERS` off instead of the kpc stub, headers split into `*_xnu.h` (vm_kern, vm_shared_region).
 * **arm64e userland** (iOS 18): unchanged strategy: binaries are rewritten offline to contain no PAC instruction (`tools/renegade/pacstrip.py`),
-  the kernel accepts arm64e only with boot-arg `sweetarm64e=1` (0131: `grade_binary`, `ptrauth_disabled=1`, AMFI dyld policy op 0x5a),
+  the kernel accepts arm64e only with boot-arg `bergamotaarm64e=1` (0131: `grade_binary`, `ptrauth_disabled=1`, AMFI dyld policy op 0x5a),
   the dyld pager leaves auth pointers unsigned (0135, now also covers 11215's new `DYLD_CHAINED_PTR_ARM64E_SHARED_CACHE` fixup), shared-region
   slide v5 is native and leaves auth pointers unsigned without PAC, FJCVTZS is emulated (0141, Kryo 385 has no JSCVT).
   Whether 11215 + this scheme is enough for iOS 18.7 dyld is untested (see risks).
@@ -48,10 +48,10 @@ diagnostics kept in the same pass, **B** device drivers (display, touch, keys, b
 |---|---|---|---|
 | 0001 | drop removed `-enable-trivial-auto-var-init...` flag (new clang) | C | flag gone upstream |
 | 0002 | backport `UIO_STACKBUF` | C | in 11215 |
-| 0003 | framebuffer "serial" console (`sweet-fbcon` ADT node) | A | ported, pe_serial rewritten around it |
-| 0004 | SWEET machine config, GIC group-1 IRQs, SWEET.h | A | ported (SUPPORTED list, MPIDR defs) |
+| 0003 | framebuffer "serial" console (`bergamota-fbcon` ADT node) | A | ported, pe_serial rewritten around it |
+| 0004 | BERGAMOTA machine config, GIC group-1 IRQs, BERGAMOTA.h | A | ported (SUPPORTED list, MPIDR defs) |
 | 0005 | pmap `reserved10` clash | C | fixed upstream; slot reused for UBSan verifier skip |
-| 0006-0008 | MASTER.arm64.sweet, Apple-internal header stubs, closed-lib gap fillers (amcc stubs, caches_asm, pmap, ml_enable_monitor) | A | ported; MASTER regenerated from 11215's MacOSX config (0021/0026/0037/0057 option changes folded in); kpc stub dropped |
+| 0006-0008 | MASTER.arm64.bergamota, Apple-internal header stubs, closed-lib gap fillers (amcc stubs, caches_asm, pmap, ml_enable_monitor) | A | ported; MASTER regenerated from 11215's MacOSX config (0021/0026/0037/0057 option changes folded in); kpc stub dropped |
 | 0009 | drop Apple-SoC-only exports (+ empty Tightbeam exports) | A | ported |
 | 0010-0012 | early framebuffer debug marks, physmap padding, keep console after TTBR0 switch | A | ported |
 | 0013, 0014 | kmem RNG / kernel HMAC-DRBG without corecrypto kext | A | ported (11215 `entropy.c` needs no change: SHA512 goes through 0033) |
@@ -77,7 +77,7 @@ diagnostics kept in the same pass, **B** device drivers (display, touch, keys, b
 | 0058, 0060-0063, 0071, 0082b, 0085-0088, 0101, 0111-0114, 0161 | HID event services, keys/touch (Goodix/NT36672A) drivers | B | ported |
 | 0062, 0092, 0095, 0130 | RPMh/SPMI, battery | B | ported |
 | 0072-0077, 0081, 0084, 0087, 0089, 0094, 0098, 0107-0110, 0158 | USB device, ECM, live log, SMMU, configd interface, BPF tap | B | ported |
-| 0046, 0056, 0067, 0068, 0079, 0090, 0091, 0096, 0097, 0100, 0119-0123, 0126, 0127, 0129, 0157, 0159, 0160 | SweetFramebuffer / IOSurface / IOMFB stand-in, MDP page flip, scaler, accelerator stub, IOKit quiesce | B | ported |
+| 0046, 0056, 0067, 0068, 0079, 0090, 0091, 0096, 0097, 0100, 0119-0123, 0126, 0127, 0129, 0157, 0159, 0160 | BergamotaFramebuffer / IOSurface / IOMFB stand-in, MDP page flip, scaler, accelerator stub, IOKit quiesce | B | ported |
 | 0093 | cpufreq max | B | ported |
 | 0103 | Adreno A630 bring-up | B | ported |
 | 0104, 0117, 0118, 0124, 0125, 0128, 0132, 0133 | WLAN/BT | B | ported |
@@ -88,11 +88,11 @@ diagnostics kept in the same pass, **B** device drivers (display, touch, keys, b
 | 0142 | `hw.optional.arm.caps`, FEAT_SME... sysctls | C | native |
 | 0143 | `kern.exclaves_status/boot_stage`, osenvironment | C | native (non-exclaves path returns NOT_SUPPORTED) |
 | 0154 | watchport count 128 | C | native (`TASK_MAX_WATCHPORT_COUNT 128`) |
-| 0137, 0140 | from main: `kern.sweet_reboot_mode` / boot-arg `sweetreboot` (PS_HOLD reset, PON reason, IMEM restart_reason -> fastboot/recovery), Bergamota variant | B | ported (not in the full2/full3 images) |
+| 0137, 0140 | from main: `kern.bergamota_reboot_mode` / boot-arg `bergamotareboot` (PS_HOLD reset, PON reason, IMEM restart_reason -> fastboot/recovery), Bergamota variant | B | ported (not in the full2/full3 images) |
 | 0136b | `beryllium-bt-hci-kctl` (main): Bluetooth HCI control socket for bluetoothd | B | ported (`0136-beryllium-bt-hci-kctl`) |
 | 0173 | new: UFS DMA cache maintenance (clean+invalidate by VA around every command) is now the default (`ufsdmasync=0` disables). Suspect for the full3 corruption (foreign data in freshly written files, EIO on writes): the SDM845 UFS host has no `dma-coherent` in the live DT, and until now the driver relied on a bare `dsb` (`__ARM_COHERENT_IO__` turns flush/clean_dcache64 into `dsb sy`), i.e. on stale bounce-buffer lines. Also adds boot-arg `ufsselftest=N` (MiB, needs `ufsrw=1`): write/read-back/compare in the reserved area just before the log ring, refuses unless it is clear of the HFS volume header's end; 3 passes incl. dirtied-cache reads | A | new |
 | 0172 | new: xnu-11215 `console_write()`/`console_write_unbuffered()` return early when `disableConsoleOutput` (8796 checked only in `_cnputs`), so once the graphics console took over printf/IOLog never reached our persistent-log ring (0047) or the UDP live log (0077); both now tee before the early return, and `kprintf()` (`serial_putc_crlf`) is teed too | A-diag | new |
-| 0171 | new: SweetCPU for 11215: `processor_start` from a kext is a no-op returning KERN_FAILURE (hardware boot 1 panicked `processor_start failed: 5`); `ml_processor_register()` now calls `processor_boot()` itself, so secondaries are registered only after the boot CPU, startAll just waits, boot-CPU `initCPU` waits for its self-IPI and calls `ml_cpu_up()` like AppleARMSMP | A | new |
+| 0171 | new: BergamotaCPU for 11215: `processor_start` from a kext is a no-op returning KERN_FAILURE (hardware boot 1 panicked `processor_start failed: 5`); `ml_processor_register()` now calls `processor_boot()` itself, so secondaries are registered only after the boot CPU, startAll just waits, boot-CPU `initCPU` waits for its self-IPI and calls `ml_cpu_up()` like AppleARMSMP | A | new |
 | 0170 | new: `vm_kern_xnu.h` / `vm_map_internal.h` includes for driver files | - | new |
 
 ## 4. Boot image
@@ -108,5 +108,5 @@ was made from the first green run (series without the drivers); rebuild with `to
 * First-boot: `kern.osenvironment` blocks until `sysctl_unblock_osenvironment()` runs (platform-expert path of 11215; check on a hang),
   new `/chosen` expectations in `arm_init`/`pe_init`, `SERIAL_*` enum renumbering, `entropy`/`bootseed` HKDF path now via `cchkdf` from the
   corecrypto kext library (link succeeded, runtime unverified), BTI landing pads `bti c` on a core without BTI (hint NOPs, fine), the
-  arm64e `sweetarm64e` path was only verified to compile.
+  arm64e `bergamotaarm64e` path was only verified to compile.
 * Driver patches were compile-checked locally and in one CI run; behavior on 11215 (IOKit/IOUserClient/kmem API changes) is untested.

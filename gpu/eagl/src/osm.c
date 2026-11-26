@@ -45,26 +45,26 @@ int osm_make_current(osm_ctx c, void *buf, int w, int h) {
 }
 void *osm_getproc(const char *name) { return (void *)OSMesaGetProcAddress(name); }
 
-extern int OSMesaSweetActive(void);
-extern int OSMesaSweetBlit(unsigned name, int is_texture, unsigned surface_id, int flip, int opaque);
-extern void OSMesaSweetForgetSurface(unsigned surface_id);
-int osm_sweet_active(void) { return OSMesaSweetActive(); }
-int osm_sweet_blit(unsigned name, int is_texture, unsigned surface_id, int flip, int opaque) { return OSMesaSweetBlit(name, is_texture, surface_id, flip, opaque); }
-void osm_sweet_forget(unsigned surface_id) { OSMesaSweetForgetSurface(surface_id); }
+extern int OSMesaBergamotaActive(void);
+extern int OSMesaBergamotaBlit(unsigned name, int is_texture, unsigned surface_id, int flip, int opaque);
+extern void OSMesaBergamotaForgetSurface(unsigned surface_id);
+int osm_bergamota_active(void) { return OSMesaBergamotaActive(); }
+int osm_bergamota_blit(unsigned name, int is_texture, unsigned surface_id, int flip, int opaque) { return OSMesaBergamotaBlit(name, is_texture, surface_id, flip, opaque); }
+void osm_bergamota_forget(unsigned surface_id) { OSMesaBergamotaForgetSurface(surface_id); }
 
-extern void OSMesaSweetStats(double *out, int n);
-void osm_sweet_stats(double *out, int n) { OSMesaSweetStats(out, n); }
-extern int OSMesaSweetAttachDirect(unsigned name, unsigned surface_id);
-extern void OSMesaSweetDirectSync(unsigned surface_id);
-int osm_sweet_attach_direct(unsigned name, unsigned surface_id) { return OSMesaSweetAttachDirect(name, surface_id); }
-void osm_sweet_direct_sync(unsigned surface_id) { OSMesaSweetDirectSync(surface_id); }
-extern int OSMesaSweetSurfaceAlias(unsigned surface_id, void **base, unsigned *bpr, unsigned *w, unsigned *h);
-extern void OSMesaSweetAliasSync(unsigned surface_id);
-int osm_sweet_surface_alias(unsigned surface_id, void **base, unsigned *bpr, unsigned *w, unsigned *h) { return OSMesaSweetSurfaceAlias(surface_id, base, bpr, w, h); }
-void osm_sweet_alias_sync(unsigned surface_id) { OSMesaSweetAliasSync(surface_id); }
-extern void OSMesaSweetZeroTexture(void);
-void osm_sweet_zero_texture(void) { OSMesaSweetZeroTexture(); }
-extern int OSMesaSweetWrapTexture(unsigned name, unsigned surface_id, int kind, unsigned w, unsigned h);
-extern void OSMesaSweetWrapSync(unsigned surface_id);
-int osm_sweet_wrap_texture(unsigned name, unsigned surface_id, int kind, unsigned w, unsigned h) { return OSMesaSweetWrapTexture(name, surface_id, kind, w, h); }
-void osm_sweet_wrap_sync(unsigned surface_id) { OSMesaSweetWrapSync(surface_id); }
+extern void OSMesaBergamotaStats(double *out, int n);
+void osm_bergamota_stats(double *out, int n) { OSMesaBergamotaStats(out, n); }
+extern int OSMesaBergamotaAttachDirect(unsigned name, unsigned surface_id);
+extern void OSMesaBergamotaDirectSync(unsigned surface_id);
+int osm_bergamota_attach_direct(unsigned name, unsigned surface_id) { return OSMesaBergamotaAttachDirect(name, surface_id); }
+void osm_bergamota_direct_sync(unsigned surface_id) { OSMesaBergamotaDirectSync(surface_id); }
+extern int OSMesaBergamotaSurfaceAlias(unsigned surface_id, void **base, unsigned *bpr, unsigned *w, unsigned *h);
+extern void OSMesaBergamotaAliasSync(unsigned surface_id);
+int osm_bergamota_surface_alias(unsigned surface_id, void **base, unsigned *bpr, unsigned *w, unsigned *h) { return OSMesaBergamotaSurfaceAlias(surface_id, base, bpr, w, h); }
+void osm_bergamota_alias_sync(unsigned surface_id) { OSMesaBergamotaAliasSync(surface_id); }
+extern void OSMesaBergamotaZeroTexture(void);
+void osm_bergamota_zero_texture(void) { OSMesaBergamotaZeroTexture(); }
+extern int OSMesaBergamotaWrapTexture(unsigned name, unsigned surface_id, int kind, unsigned w, unsigned h);
+extern void OSMesaBergamotaWrapSync(unsigned surface_id);
+int osm_bergamota_wrap_texture(unsigned name, unsigned surface_id, int kind, unsigned w, unsigned h) { return OSMesaBergamotaWrapTexture(name, surface_id, kind, w, h); }
+void osm_bergamota_wrap_sync(unsigned surface_id) { OSMesaBergamotaWrapSync(surface_id); }

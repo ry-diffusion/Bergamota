@@ -1,7 +1,7 @@
-diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
+diff --git a/iokit/Kernel/arm/BergamotaFramebuffer.cpp b/iokit/Kernel/arm/BergamotaFramebuffer.cpp
 index 99a3869..f495b7e 100644
---- a/iokit/Kernel/arm/SweetFramebuffer.cpp
-+++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+--- a/iokit/Kernel/arm/BergamotaFramebuffer.cpp
++++ b/iokit/Kernel/arm/BergamotaFramebuffer.cpp
 @@ -269,6 +269,7 @@ public:
  		uint64_t zcAbs, zcMaxAbs;       /* zero-copy: cache clean + register programming */
  		uint64_t cleanAbs, cleans, cleanSkips;
@@ -9,7 +9,7 @@ index 99a3869..f495b7e 100644
 +		uint64_t replaceWaits, replaceTimeouts;                 /* 0220: frames that waited for the previous one's latch / gave up */
  	} fSt, fStPrev;
  	/*
- 	 * Direct scanout (sweetfb_direct=1, patch 0211): hw scaler + page flipping + zero-copy
+ 	 * Direct scanout (bergamotafb_direct=1, patch 0211): hw scaler + page flipping + zero-copy
 @@ -327,7 +328,20 @@ public:
  	void          hudBlit(uintptr_t base, uint32_t stride);
  	bool          zcDecline(uint32_t why, const char *text, uint32_t id);
@@ -17,10 +17,10 @@ index 99a3869..f495b7e 100644
 -	void          zcPoll(void);
 +	void          zcPoll(bool force = false);
 +	/*
-+	 * Direct-mode safety margins (patch 0220). fLatchConfirm (sweetfb_latchconfirm, default 1): a latch counts only when the
-+	 * CTL flush bits read clear twice, 20 us apart. fGuardAbs (sweetfb_latchguard in us, default 1000, 0 = off): the older
++	 * Direct-mode safety margins (patch 0220). fLatchConfirm (bergamotafb_latchconfirm, default 1): a latch counts only when the
++	 * CTL flush bits read clear twice, 20 us apart. fGuardAbs (bergamotafb_latchguard in us, default 1000, 0 = off): the older
 +	 * surfaces are handed back to CoreAnimation this long after the latch was first seen, not at once. fNoReplace
-+	 * (sweetfb_noreplace, default 1): a new frame is not written into the MDP while the previous one is still waiting for
++	 * (bergamotafb_noreplace, default 1): a new frame is not written into the MDP while the previous one is still waiting for
 +	 * its vsync (it waits up to 20 ms, sleeping, for the latch) so a queued frame is never overwritten (scan_replaced) and
 +	 * the address/flush registers are never rewritten around the latch itself. fLastStamp keeps vsync timestamps monotonic.
 +	 */
@@ -30,16 +30,16 @@ index 99a3869..f495b7e 100644
 +	bool          waitReplace(void);
 +	void          notePhase(uint64_t obs);
  	void          zcReleaseAll(void);
- 	/* WLED backlight fade (sweetfb_blfade) */
+ 	/* WLED backlight fade (bergamotafb_blfade) */
  	bool          fBlOK, fBlackDone;
 @@ -585,6 +599,20 @@ AppleCLCD::start(IOService *provider)
  				fSwapDepth = depth <= 1 ? 1 : 2;
- 				PE_parse_boot_argn("sweetfb_swapsync", &ss, sizeof(ss));
- 				PE_parse_boot_argn("sweetfb_vsyncalign", &va, sizeof(va));
+ 				PE_parse_boot_argn("bergamotafb_swapsync", &ss, sizeof(ss));
+ 				PE_parse_boot_argn("bergamotafb_vsyncalign", &va, sizeof(va));
 +				int lc = 1, nr = 1, lg = 1000;
-+				PE_parse_boot_argn("sweetfb_latchconfirm", &lc, sizeof(lc));
-+				PE_parse_boot_argn("sweetfb_noreplace", &nr, sizeof(nr));
-+				PE_parse_boot_argn("sweetfb_latchguard", &lg, sizeof(lg));
++				PE_parse_boot_argn("bergamotafb_latchconfirm", &lc, sizeof(lc));
++				PE_parse_boot_argn("bergamotafb_noreplace", &nr, sizeof(nr));
++				PE_parse_boot_argn("bergamotafb_latchguard", &lg, sizeof(lg));
 +				fLatchConfirm = fEarly && lc != 0;
 +				fNoReplace = fEarly && nr != 0;
 +				nanoseconds_to_absolutetime((uint64_t)(lg < 0 ? 0 : (lg > 20000 ? 20000 : lg)) * 1000, &fGuardAbs);
@@ -47,7 +47,7 @@ index 99a3869..f495b7e 100644
 +					fGuardAbs = 0;
 +				}
 +				if (fEarly) {
-+					IOLog("SWEET FB: direct safety: latch confirm %d, release guard %d us, no frame replacement %d (sweetfb_latchconfirm / sweetfb_latchguard / sweetfb_noreplace)\n",
++					IOLog("BERGAMOTA FB: direct safety: latch confirm %d, release guard %d us, no frame replacement %d (bergamotafb_latchconfirm / bergamotafb_latchguard / bergamotafb_noreplace)\n",
 +					    fLatchConfirm ? 1 : 0, lg < 0 ? 0 : lg, fNoReplace ? 1 : 0);
 +				}
  				fSwapSync = fEarly && ss != 0;
@@ -57,8 +57,8 @@ index 99a3869..f495b7e 100644
  			if (left < per / 4) {
  				left += per;    /* too close to the boundary we just served: aim for the next one */
  			}
--			nextUS = (uint32_t)sweet_abs_us(left);
-+			nextUS = (uint32_t)sweet_abs_us(left) + 500;    /* 0220: fire just AFTER the boundary, never before it */
+-			nextUS = (uint32_t)bergamota_abs_us(left);
++			nextUS = (uint32_t)bergamota_abs_us(left) + 500;    /* 0220: fire just AFTER the boundary, never before it */
  			if (nextUS < 1000) {
  				nextUS = 1000;
  			}
@@ -77,17 +77,17 @@ index 99a3869..f495b7e 100644
 -	    "swapsync=%d swap_waits=%llu swap_wait_us=%u.%02u swap_wait_timeouts=%llu\n",
 +	    "swapsync=%d swap_waits=%llu swap_wait_us=%u.%02u swap_wait_timeouts=%llu replace_waits=%llu replace_timeouts=%llu\n",
  	    mode, hz, fFlushTicks, fHw ? 1 : 0, fFlip ? 1 : 0, smmu, fZcCleanMode == 0 ? "never" : (fZcCleanMode == 1 ? "always" : (fZcCleanMode == 2 ? "auto" : "tracked")),
- 	    sweet_abs_us(now) / 1000000, winUS / 1000,
+ 	    bergamota_abs_us(now) / 1000000, winUS / 1000,
  	    swaps, SW_F2(PER_S(dSwaps)), coalesced, SW_F2(PER_S(dCoal)),
 @@ -858,7 +890,7 @@ AppleCLCD::statsTick(uint64_t now)
- 	    SW_F2(copyAvg), sweet_abs_us(c.copyMaxAbs), SW_F2(zcAvg), sweet_abs_us(c.zcMaxAbs), SW_F2(clAvg), c.cleans, c.cleanSkips,
+ 	    SW_F2(copyAvg), bergamota_abs_us(c.copyMaxAbs), SW_F2(zcAvg), bergamota_abs_us(c.zcMaxAbs), SW_F2(clAvg), c.cleans, c.cleanSkips,
  	    c.latchWaits, SW_F2(lwAvg), c.latchTimeouts, SW_F2(PER_S(dTicks)),
  	    used, total, pallocs, pfails,
 -	    fSwapSync ? 1 : 0, c.swapWaits, SW_F2(swAvg), c.swapWaitTimeouts);
 +	    fSwapSync ? 1 : 0, c.swapWaits, SW_F2(swAvg), c.swapWaitTimeouts, c.replaceWaits, c.replaceTimeouts);
  	#undef PER_S
- 	sweet_fb_stats_publish(line);
- 	if (fStLogSecs != 0 && (fStLogT == 0 || sweet_abs_us(now - fStLogT) >= (uint64_t)fStLogSecs * 1000000)) {
+ 	bergamota_fb_stats_publish(line);
+ 	if (fStLogSecs != 0 && (fStLogT == 0 || bergamota_abs_us(now - fStLogT) >= (uint64_t)fStLogSecs * 1000000)) {
 @@ -1442,6 +1474,7 @@ AppleCLCD::scanAddr(uint32_t pa, uint32_t stride, bool hwFrame)
  	if (fCurSwapID != fSwapScanID) {
  		__atomic_store_n(&fSwapPrevScan, fSwapScanID, __ATOMIC_RELEASE);        /* the frame before this one (it is, or was, on the panel) */
@@ -96,7 +96,7 @@ index 99a3869..f495b7e 100644
  	__atomic_store_n(&fSwapScanID, fCurSwapID, __ATOMIC_RELEASE);   /* before the flush: a poller that sees it clear sees this id */
  	__asm__ volatile ("dsb sy" ::: "memory");      /* WC writes of the frame land first */
  	p[SSPP_SRC0_ADDR / 4] = pa;
-@@ -1519,16 +1552,93 @@ sweet_dcache_clean_va(const void *va, size_t len)
+@@ -1519,16 +1552,93 @@ bergamota_dcache_clean_va(const void *va, size_t len)
   * the last one is the newest. A held surface cannot be freed, so its pool block
   * cannot be reused under the scan (the pool also cools freed blocks).
   */
@@ -106,7 +106,7 @@ index 99a3869..f495b7e 100644
 +bool
 +AppleCLCD::latchedNow(void)
 +{
-+	volatile uint32_t *flush = (volatile uint32_t *)(fMdp + SWEET_MDP_CTL0 + SWEET_MDP_CTL_FLUSH);
++	volatile uint32_t *flush = (volatile uint32_t *)(fMdp + BERGAMOTA_MDP_CTL0 + BERGAMOTA_MDP_CTL_FLUSH);
 +	if (*flush & fLastFlush) {
 +		return false;
 +	}
@@ -123,7 +123,7 @@ index 99a3869..f495b7e 100644
 +bool
 +AppleCLCD::waitReplace(void)
  {
- 	volatile uint32_t *flush = (volatile uint32_t *)(fMdp + SWEET_MDP_CTL0 + SWEET_MDP_CTL_FLUSH);
+ 	volatile uint32_t *flush = (volatile uint32_t *)(fMdp + BERGAMOTA_MDP_CTL0 + BERGAMOTA_MDP_CTL_FLUSH);
 +	uint64_t t0 = mach_absolute_time(), limit;
 +	nanoseconds_to_absolutetime(20 * NSEC_PER_MSEC, &limit);
 +	fSt.replaceWaits++;
@@ -138,7 +138,7 @@ index 99a3869..f495b7e 100644
 +		return waitReplace();   /* a glitch: the bits came back */
 +	}
 +	if (fGuardAbs != 0) {
-+		uint64_t us = sweet_abs_us(fGuardAbs);
++		uint64_t us = bergamota_abs_us(fGuardAbs);
 +		delay_for_interval((uint32_t)us, NSEC_PER_USEC);
 +	}
 +	return true;
@@ -216,7 +216,7 @@ index 99a3869..f495b7e 100644
  	}
  	zcPoll();
 +	if (fNoReplace && fLastFlush != 0 &&
-+	    (*(volatile uint32_t *)(fMdp + SWEET_MDP_CTL0 + SWEET_MDP_CTL_FLUSH) & fLastFlush) != 0) {
++	    (*(volatile uint32_t *)(fMdp + BERGAMOTA_MDP_CTL0 + BERGAMOTA_MDP_CTL_FLUSH) & fLastFlush) != 0) {
 +		/* the previous frame still waits for its vsync: let it latch instead of overwriting it (0220) */
 +		waitReplace();
 +		zcPoll(true);

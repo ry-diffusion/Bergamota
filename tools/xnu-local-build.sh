@@ -33,7 +33,7 @@ if [ "$REMAKE" = 1 ]; then
     export KERNEL_BUILD_OBJROOT="$(git describe --tags --always)"
     exec make install $JOBS -k VERBOSE=YES CTFCONVERT=$D/fakeroot/usr/local/bin/ctfconvert \
         CTFMERGE=$D/fakeroot/usr/local/bin/ctfmerge CTFDUMP=$D/fakeroot/usr/local/bin/ctfdump SDKROOT=macosx \
-        TARGET_CONFIGS="${KERNEL_CONFIG:-DEVELOPMENT} ARM64 SWEET" CONCISE=0 LOGCOLORS=n BUILD_WERROR=0 BUILD_LTO=0 \
+        TARGET_CONFIGS="${KERNEL_CONFIG:-DEVELOPMENT} ARM64 BERGAMOTA" CONCISE=0 LOGCOLORS=n BUILD_WERROR=0 BUILD_LTO=0 \
         SRCROOT="$D/xnu" OBJROOT="$D/build/xnu.obj" SYMROOT="$D/build/xnu.sym" DSTROOT="$D/fakeroot" \
         FAKEROOT_DIR="$D/fakeroot" KDKROOT="$KDK" TIGHTBEAMC=tightbeamc-not-supported RC_DARWIN_KERNEL_VERSION=$RCV \
         MEMORY_SIZE="$(sysctl -n hw.memsize)" SYSCTL_HW_PHYSICALCPU="$(sysctl -n hw.physicalcpu)" \
@@ -55,16 +55,16 @@ if [ ! -d "$W/dxb/.git" ]; then
     git -C "$W/dxb" checkout -q FETCH_HEAD
 fi
 cd "$W/dxb"
-# fresh copy of dxb's own files each run, then ours with the sweet- prefix (same order as CI)
-git checkout -q -- . && rm -f patches/$PSUB/sweet-*
+# fresh copy of dxb's own files each run, then ours with the bergamota- prefix (same order as CI)
+git checkout -q -- . && rm -f patches/$PSUB/bergamota-*
 rm -rf xnu        # dxb clones a pristine xnu and patches it
-for f in "$SERIES"/*.patch "$SERIES"/*.sh; do cp "$f" "patches/$PSUB/sweet-$(basename "$f")"; done
+for f in "$SERIES"/*.patch "$SERIES"/*.sh; do cp "$f" "patches/$PSUB/bergamota-$(basename "$f")"; done
 sed -i '' 's/ARCHS="x86_64 arm64e" VALID_ARCHS="x86_64 arm64e"/ARCHS="x86_64 arm64e arm64" VALID_ARCHS="x86_64 arm64e arm64"/' build.sh
 python3 - <<'PY'
 s = open('build.sh').read()
 needle = '                warning "Skipping patch ${PATCH} (already upstream, previously applied, or malformed): ${APPLY_CHECK}"\n'
 assert needle in s, 'build.sh patches() layout changed'
-s = s.replace(needle, needle + '                case "$(basename "${PATCH}")" in [0-9]*|sweet-*) error "our patch does not apply: ${PATCH}"; exit 1 ;; esac\n')
+s = s.replace(needle, needle + '                case "$(basename "${PATCH}")" in [0-9]*|bergamota-*) error "our patch does not apply: ${PATCH}"; exit 1 ;; esac\n')
 open('build.sh', 'w').write(s)
 PY
 if [ "${USE_KDK:-0}" != 1 ] && [ "$PSUB" = 26.0 ]; then
@@ -72,7 +72,7 @@ if [ "${USE_KDK:-0}" != 1 ] && [ "$PSUB" = 26.0 ]; then
     mkdir -p "$W/no-kdk"
     export KDKROOT="$W/no-kdk"
 fi
-export MACOS_VERSION KERNEL_CONFIG=${KERNEL_CONFIG:-DEVELOPMENT} MACHINE_CONFIG=SWEET
+export MACOS_VERSION KERNEL_CONFIG=${KERNEL_CONFIG:-DEVELOPMENT} MACHINE_CONFIG=BERGAMOTA
 export CCACHE=sccache BOUND_CHECKS=0 MAKEFLAGS=${MAKEFLAGS:--k}
 /opt/homebrew/bin/bash build.sh
 ls -la fakeroot/System/Library/Kernels/

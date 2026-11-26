@@ -14,7 +14,7 @@ on:
         default: DEVELOPMENT
       machine_config:
         description: xnu MACHINE_CONFIG
-        default: SWEET
+        default: BERGAMOTA
       use_kdk:
         description: 26.x only - download the KDK (true) or build without it (false; CoreEntitlements V2 stubs, but TrustCache/API.h is KDK-only)
         default: "true"
@@ -38,7 +38,7 @@ env:
   DXB_SHA: 663906528d1cd5ea8fde7de6f16de73db9511549
   MACOS_VERSION: ${{ inputs.macos_version || (github.ref_name == 'main' && '13.5' || (github.ref_name == 'ios26' && '26.5' || '15.3')) }}
   KERNEL_CONFIG: ${{ inputs.kernel_config || 'DEVELOPMENT' }}
-  MACHINE_CONFIG: ${{ inputs.machine_config || 'SWEET' }}
+  MACHINE_CONFIG: ${{ inputs.machine_config || 'BERGAMOTA' }}
   # Bump to throw away every cache (host tools + ccache) at once. See docs/CI_CACHE.md.
   CACHE_VERSION: v2
   # ccache: xnu's makedefs honour `CCACHE ?=` (KCC/KC++ = $(CCACHE) $(CC)), so the env var is
@@ -75,11 +75,11 @@ jobs:
             # (its 00_setup_coreentitlements.sh and fixes) first, ours after them.
             for f in xnu/patches-12377/*.patch xnu/patches-12377/*.sh; do
               [ -e "$f" ] || continue
-              cp "$f" "dxb/patches/26.0/sweet-$(basename "$f")"
+              cp "$f" "dxb/patches/26.0/bergamota-$(basename "$f")"
             done
             PDIR=dxb/patches/26.0
             if [ "${{ inputs.use_kdk || 'true' }}" != "true" ]; then
-              # SWEET needs nothing from the KDK (link_kdk only force-loads closed libs for Apple SoCs,
+              # BERGAMOTA needs nothing from the KDK (link_kdk only force-loads closed libs for Apple SoCs,
               # kernel collections are not built): drop dxb's KDK header copy (our
               # 0027-stage-coreentitlements-v2-stub.sh stands in) and point KDKROOT at an empty dir so
               # build.sh does not download one.
@@ -90,10 +90,10 @@ jobs:
           elif [[ "$MACOS_VERSION" == 15.* ]]; then
             # xnu-11215 series (docs/XNU11215_MIGRATION.md). dxb applies patches/15.0/*.sh, then
             # patches/15.0/*.patch in name order: its own fixes (disable_bti, entitlements, iokit,
-            # link_kdk, skywalk, ...) come first and ours ("sweet-" prefix) after them.
+            # link_kdk, skywalk, ...) come first and ours ("bergamota-" prefix) after them.
             for f in xnu/patches-11215/*.patch xnu/patches-11215/*.sh; do
               [ -e "$f" ] || continue
-              cp "$f" "dxb/patches/15.0/sweet-$(basename "$f")"
+              cp "$f" "dxb/patches/15.0/bergamota-$(basename "$f")"
             done
             PDIR=dxb/patches/15.0
           else
@@ -101,7 +101,7 @@ jobs:
             cp xnu/patches/*.patch xnu/patches/*.sh dxb/patches/
             PDIR=dxb/patches
           fi
-          # libfirehose_kernel is built arm64e-only; the SWEET kernel is plain arm64
+          # libfirehose_kernel is built arm64e-only; the BERGAMOTA kernel is plain arm64
           sed -i '' 's/ARCHS="x86_64 arm64e" VALID_ARCHS="x86_64 arm64e"/ARCHS="x86_64 arm64e arm64" VALID_ARCHS="x86_64 arm64e arm64"/' dxb/build.sh
           grep -c 'VALID_ARCHS="x86_64 arm64e arm64"' dxb/build.sh
           # dxb only warns and carries on when a patch does not apply; for ours that would silently
@@ -111,7 +111,7 @@ jobs:
           s = open(p).read()
           needle = '                warning "Skipping patch ${PATCH} (already upstream, previously applied, or malformed): ${APPLY_CHECK}"\n'
           assert needle in s, 'build.sh patches() layout changed; update the fatal-patch hook'
-          s = s.replace(needle, needle + '                case "$(basename "${PATCH}")" in [0-9]*|sweet-*) error "our patch does not apply: ${PATCH}"; exit 1 ;; esac\n')
+          s = s.replace(needle, needle + '                case "$(basename "${PATCH}")" in [0-9]*|bergamota-*) error "our patch does not apply: ${PATCH}"; exit 1 ;; esac\n')
           open(p, 'w').write(s)
           PY
           ls "$PDIR"

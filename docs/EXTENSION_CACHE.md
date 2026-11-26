@@ -99,15 +99,15 @@ layout is not involved.
 
 ## Q4. Proposed fix
 
-Preferred (kernel, 1 small patch; mirrors `xnu/patches/0050-sweet-sandbox-policy.patch`): add a built-in MAC policy with `mpc_name = "AMFI"`
-(the existing one is "SWEET AMFI", which `__mac_syscall("AMFI", ...)` does not match) whose `mpo_policy_syscall` handles call `0x60` by
+Preferred (kernel, 1 small patch; mirrors `xnu/patches/0050-bergamota-sandbox-policy.patch`): add a built-in MAC policy with `mpc_name = "AMFI"`
+(the existing one is "BERGAMOTA AMFI", which `__mac_syscall("AMFI", ...)` does not match) whose `mpo_policy_syscall` handles call `0x60` by
 `copyout`-ing a 64-bit state with bits in mask 0x86 set (e.g. `0x86`) to `arg` and returning 0; all other calls ENOENT (log first use like 0050).
 Effects: `_EXDefaults enforceXPCCacheCodeSigning` -> NO, so lsd reads `extensions.plist` with plain `dictionaryWithContentsOfURL:`; lsd/installd
 `codeSigningEnforcementIsDisabled` also becomes true (MI skips signature checks, which is desirable here). [V for the ExtensionFoundation effect;
 U for other consumers of op 0x60, and which bit names 0x86 map to].
 No rootfs change needed. The AMFI IOKit service (`AppleMobileFileIntegrity` user client sel 6) is NOT required on this path.
 
-Rootfs-only alternative (no kernel change), in `tools/sweet-root-tweaks.py` after the launchd.plist edit:
+Rootfs-only alternative (no kernel change), in `tools/bergamota-root-tweaks.py` after the launchd.plist edit:
 
 ```python
 for n in ('extensions.plist', 'extensions.plist.sig'):

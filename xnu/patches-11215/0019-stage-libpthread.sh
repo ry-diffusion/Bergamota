@@ -2,9 +2,9 @@
 # dxb runs patches/*.sh from the XNU source root before applying *.patch.
 set -euo pipefail
 
-[[ "${MACHINE_CONFIG:-}" == SWEET ]] || exit 0
+[[ "${MACHINE_CONFIG:-}" == BERGAMOTA ]] || exit 0
 [[ "${MACOS_VERSION:-}" == 15.* ]] || {
-    echo 'SWEET libpthread integration requires xnu-11215 (macOS 15.x)' >&2
+    echo 'BERGAMOTA libpthread integration requires xnu-11215 (macOS 15.x)' >&2
     exit 1
 }
 [[ -f bsd/pthread/pthread_shims.c ]] || exit 1
@@ -26,7 +26,7 @@ import shutil
 import sys
 
 source = Path(sys.argv[1])
-target = Path('bsd/pthread/sweet_libpthread')
+target = Path('bsd/pthread/bergamota_libpthread')
 if target.exists():
     raise SystemExit(f'refusing to overwrite existing provider: {target}')
 # Preserve upstream copyright/license headers; no downloaded sources in git.
@@ -61,5 +61,5 @@ PY
 # Kernel builds use -nostdinc. Carry the real SDK target definitions beside
 # the provider so local compiles from the uploaded build tree work as well.
 pthread_sdk=$(xcrun --sdk macosx --show-sdk-path)
-cp "$pthread_sdk/usr/include/TargetConditionals.h" bsd/pthread/sweet_libpthread/
-echo "Staged libpthread-535 ($pthread_sha) for SWEET"
+cp "$pthread_sdk/usr/include/TargetConditionals.h" bsd/pthread/bergamota_libpthread/
+echo "Staged libpthread-535 ($pthread_sha) for BERGAMOTA"

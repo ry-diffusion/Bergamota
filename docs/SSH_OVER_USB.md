@@ -4,7 +4,7 @@ Key-only SSH into the phone at `192.168.7.2` over the USB CDC-ECM link, using st
 software built for iOS 16 (arm64): **dropbear** (SSH server, `dropbearkey`, `scp`), **dash**
 (`/bin/sh`; stock iOS has no shell) and **toybox** (coreutils-style commands). Nothing here is
 custom network code. The binaries are built on the Mac (`tools/ssh/build.sh`) and copied into the
-root image by `tools/sweet-root-tweaks.py`.
+root image by `tools/bergamota-root-tweaks.py`.
 
 ## Versions and checksums
 
@@ -82,7 +82,7 @@ untested on hardware.
 
 ## Install into the root image
 
-`tools/sweet-root-tweaks.py` has an `ssh(root)` step (idempotent, skipped with a message if the binaries are not
+`tools/bergamota-root-tweaks.py` has an `ssh(root)` step (idempotent, skipped with a message if the binaries are not
 built or the Mac has no public key). It:
 
 - copies `dropbear` and `toybox` to `<root>/usr/local/bin`, symlinks `dropbearkey`, `scp` -> `dropbear` and each
@@ -92,7 +92,7 @@ built or the Mac has no public key). It:
   `~/.ssh/id_ed25519.pub` (else the first other `*.pub`, never a private key; uses `SUDO_USER`'s home)
 - generates host keys (ed25519 and ecdsa) with the macOS build of the same dropbear into
   `<root>/private/etc/dropbear/` (0600; existing keys are kept so the fingerprint stays stable)
-- installs the launchd job `org.sweet.dropbear` as `<root>/System/Library/LaunchDaemons/org.sweet.dropbear.plist`
+- installs the launchd job `org.bergamota.dropbear` as `<root>/System/Library/LaunchDaemons/org.bergamota.dropbear.plist`
   and in `launchd.plist` `LaunchDaemons` under the same path key: `/usr/local/bin/dropbear -F -E -s -p
   192.168.7.2:22 -r /private/etc/dropbear/dropbear_ed25519_host_key`, `RunAtLoad`, `KeepAlive`, user root, stderr
   to `/dev/console`. (The ecdsa key is generated but only used if you add a second `-r`.)
@@ -104,8 +104,8 @@ Rebuild the root image with it (mounted root, as in `tools/mkiosroot-macos.sh`; 
 
 ```sh
 brew install gnu-sed && tools/ssh/build.sh
-sudo tools/mkiosroot-macos.sh OS.dmg SystemOS.dmg AppOS.dmg ios16-root.img 20g   # it runs sweet-root-tweaks.py
-# or on an existing mounted root:  sudo tools/sweet-root-tweaks.py /Volumes/<mounted root>
+sudo tools/mkiosroot-macos.sh OS.dmg SystemOS.dmg AppOS.dmg ios16-root.img 20g   # it runs bergamota-root-tweaks.py
+# or on an existing mounted root:  sudo tools/bergamota-root-tweaks.py /Volumes/<mounted root>
 python3 tools/img2simg.py ios16-root.img ios16-root.simg && fastboot -S 512M flash userdata ios16-root.simg
 ```
 
@@ -114,7 +114,7 @@ ownership (sshd-style checks on `.ssh` need root-owned, non-group-writable files
 
 ## Usage
 
-The Mac side of the link is `tools/sweet-usbnet.sh` (192.168.7.1/24):
+The Mac side of the link is `tools/bergamota-usbnet.sh` (192.168.7.1/24):
 
 ```sh
 ssh root@192.168.7.2            # first connection asks to trust the host key

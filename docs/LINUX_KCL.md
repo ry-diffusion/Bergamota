@@ -142,7 +142,7 @@ preemption is maintained inside the hw_lock layer [V]; preemption-disable timeou
 | Linux primitive | XNU mapping | Difficulty / mismatch |
 |---|---|---|
 | `kmalloc/kzalloc/kfree/kvmalloc` | `kalloc_data(size, Z_WAITOK\|Z_ZERO)`, `kfree_data`; `GFP_ATOMIC/NOWAIT` -> `Z_NOWAIT`; big buffers `kmem_alloc` | easy. Linux code often relies on `ksize`/`krealloc`: need a size header [U]. `kalloc_type` is irrelevant |
-| `dma_alloc_coherent`, `dma_map_*`, `sg_table` | `kmem_alloc_contig` + `pmap_set_cache_attributes` (both used in `sweet_a630.c`) or `ml_io_map` for device-owned memory; DMA address = `pmap_find_phys` when the SMMU context is bypass | easy for the identity case; **real IOMMU domains** (`iommu_map`, io-pgtable) need our own SMMU driver (we have `sweet_smmu.c`, 239 lines: context banks only) |
+| `dma_alloc_coherent`, `dma_map_*`, `sg_table` | `kmem_alloc_contig` + `pmap_set_cache_attributes` (both used in `bergamota_a630.c`) or `ml_io_map` for device-owned memory; DMA address = `pmap_find_phys` when the SMMU context is bypass | easy for the identity case; **real IOMMU domains** (`iommu_map`, io-pgtable) need our own SMMU driver (we have `bergamota_smmu.c`, 239 lines: context banks only) |
 | `spin_lock`, `_irqsave`, `_bh` | **Follow LinuxKPI: make them all `lck_mtx`** and run IRQ bottom halves, timers, tasklets in kernel threads. `lck_spin_lock` is not IRQ-masking, so a true IRQ-safe spinlock would need `ml_set_interrupts_enabled(false)` + `lck_spin` and debug-mode preemption-timeout panics [V/U] | the central design decision. Threaded-everything costs latency (GMU/HFI and CE interrupts are fine; DPU vblank would suffer) but removes the "sleep in atomic" class of panics |
 | `mutex`, `rwsem`, `completion` | `lck_mtx` / `lck_rw` / mutex+`assert_wait`+`thread_wakeup` | easy. `mutex_lock_interruptible` and signal semantics: ignore signals |
 | `wait_event*`, `wake_up` | `assert_wait_deadline` + `thread_block` with re-check loop under a lock, `thread_wakeup_prim` | easy; `wait_event_timeout` jiffies -> `mach_absolute_time` deadlines |
@@ -155,7 +155,7 @@ preemption is maintained inside the hw_lock layer [V]; preemption-disable timeou
 | `kref`, `refcount_t`, `kobject` | `os_ref` or `OSIncrementAtomic` | trivial. `kobject`/sysfs: stub to nothing |
 | `idr`, `xarray`, `radix_tree`, `rbtree`, `list`, `hashtable` | **copy FreeBSD's BSD-2 versions** (`linux_idr.c`, `linux_radix.c`, xarray) or write ~1.5k lines | easy; pure C |
 | `ktime_get`, `jiffies`, `HZ` | `mach_absolute_time` + `absolutetime_to_nanoseconds`; make `jiffies` a function | easy |
-| `request_firmware` | read from our partition readers (FAT `bluetooth`, `modem:image/`) or `/usr/standalone/firmware/sweet/` over the rootfs; already exists in ad-hoc form | easy |
+| `request_firmware` | read from our partition readers (FAT `bluetooth`, `modem:image/`) or `/usr/standalone/firmware/bergamota/` over the rootfs; already exists in ad-hoc form | easy |
 | `platform_device`/`of_*` | **no counterpart**: XNU has the Apple Device Tree (ADT) only (`DTLookupEntry`/`DTGetProperty`), synthesized by `tools/mkadt.py`. Options: embed the stock Linux FDT and implement `of_*` over libfdt (dual GPL/BSD), or generate ADT nodes with Linux property names (ADT property names are limited to 32 bytes [U]) | medium: `of_*` subset for one driver is ~1.5k lines; "all of OF" (graph, phandle args, reserved-mem, overlays, `of_platform_populate`, ranges translation) is what drivers/of is (~15k lines [U]) |
 | `pm_runtime_*`, genpd | counting stubs that call our existing GDSC/clock votes | easy to stub, but the semantics (autosuspend, parent/child domain, `pm_domain_attach`) are what the GPU/GMU actually depend on for power sequencing |
 | `struct device` + driver model + devres | do **not** map to IOKit. Provide a small C `device`/`driver`/`bus` with devres (FreeBSD's `linux_devres.c` is the template). Bridge to IOKit only at the top via a thin C++ `IOService` per exposed interface that never includes Linux headers (this is Genode's rule, section 6) | the central mismatch. IOKit matching is by `IONameMatch`/personalities and class instantiation; Linux is `of_match_table` + `probe()` + `-EPROBE_DEFER` re-ordering. Needing `EPROBE_DEFER` re-probe means a deferred-probe worklist, ~200 lines |
@@ -178,13 +178,13 @@ Line counts from the Linux tree above (`wc -l`, so they include comments):
 |---|---|---|---|
 | OF/DT (`drivers/of`) | ~15k [U, not checked out] | ADT nodes made by `mkadt.py`; `shim` reads the FDT | must be shimmed |
 | Common clk framework | `drivers/clk/clk.c` 5,682 | none | shim with a flat provider table |
-| Qualcomm clk drivers for SDM845 | gcc-sdm845 + gpucc + rcg2 + branch + gdsc + alpha-pll + rpmh + common ... 12,745 | `sweet_*` GCC votes, RCG programming, GDSC poke (in `sweet_a630.c`, `sweet_usb.c`, `beryllium_wlan.c`) | the whole 12.7k is mostly tables; a data-driven re-implementation is ~2-3k |
-| Regulator core + rpmh-regulator | core 6,909 + qcom-rpmh-regulator + of_regulator (10,054 together) | `sweet_rpmh.c` 464: ACTIVE-TCS votes of enable/voltage/mode by cmd-db name | shim: `regulator_get/enable/set_voltage` -> `sweet_rpmh` |
-| RPMh + cmd-db + SMEM + SCM + mdt_loader + llcc + QMI + smp2p | 15,435 (incl. `qcom_scm.c`, `qmi_interface.c` 854) | rpmh/cmd-db in `sweet_rpmh.c`; SCM PAS for the zap in `sweet_a630_pas.c` 342; SMEM/SMP2P/GLINK/QRTR/QMI in `beryllium_wlan.c` draft (2,323 lines, never run) | hand versions exist; QMI and QRTR are the ones ath10k needs |
+| Qualcomm clk drivers for SDM845 | gcc-sdm845 + gpucc + rcg2 + branch + gdsc + alpha-pll + rpmh + common ... 12,745 | `bergamota_*` GCC votes, RCG programming, GDSC poke (in `bergamota_a630.c`, `bergamota_usb.c`, `beryllium_wlan.c`) | the whole 12.7k is mostly tables; a data-driven re-implementation is ~2-3k |
+| Regulator core + rpmh-regulator | core 6,909 + qcom-rpmh-regulator + of_regulator (10,054 together) | `bergamota_rpmh.c` 464: ACTIVE-TCS votes of enable/voltage/mode by cmd-db name | shim: `regulator_get/enable/set_voltage` -> `bergamota_rpmh` |
+| RPMh + cmd-db + SMEM + SCM + mdt_loader + llcc + QMI + smp2p | 15,435 (incl. `qcom_scm.c`, `qmi_interface.c` 854) | rpmh/cmd-db in `bergamota_rpmh.c`; SCM PAS for the zap in `bergamota_a630_pas.c` 342; SMEM/SMP2P/GLINK/QRTR/QMI in `beryllium_wlan.c` draft (2,323 lines, never run) | hand versions exist; QMI and QRTR are the ones ath10k needs |
 | pinctrl core + msm pinctrl + sdm845 tables | core ~3.9k, msm 3,042 | TLMM pinmux pokes | shim over a table |
 | genpd + rpmhpd | core 4,160, rpmhpd [U, not counted] | GDSC/RPMh votes by hand | shim |
-| interconnect core + rpmh + BCM voter + sdm845 | 3,856 + core 1,273 | `bcm votes` in `sweet_rpmh.c`/`sweet_a630.c` (cmd-db BCMs MC0/ACV/SH0/SH2/CN0 found) | shim |
-| IOMMU: iommu core + arm-smmu(+qcom) + io-pgtable-arm | 9,322 + core 4,265 | `sweet_smmu.c` 239 (context banks, identity) | io-pgtable-arm (1,301, GPL-2.0-only) is the one self-contained piece worth lifting/rewriting if per-process GPU page tables are needed |
+| interconnect core + rpmh + BCM voter + sdm845 | 3,856 + core 1,273 | `bcm votes` in `bergamota_rpmh.c`/`bergamota_a630.c` (cmd-db BCMs MC0/ACV/SH0/SH2/CN0 found) | shim |
+| IOMMU: iommu core + arm-smmu(+qcom) + io-pgtable-arm | 9,322 + core 4,265 | `bergamota_smmu.c` 239 (context banks, identity) | io-pgtable-arm (1,301, GPL-2.0-only) is the one self-contained piece worth lifting/rewriting if per-process GPU page tables are needed |
 | rpmsg/glink + remoteproc (q6v5 MSS) + QRTR | 12,130 | MBA/MSS boot designed in `WIFI_BT_PLAN.md` §1.2, not yet run | needed by Wi-Fi regardless of approach |
 | devfreq, pm_opp, nvmem, devcoredump | n/a | n/a | stub |
 
@@ -214,7 +214,7 @@ Driver-side dependency footprints (distinct `#include <linux/...>` headers):
 ## 4. Where Linux code is actually most valuable to us
 
 The hand port reached **GMU boot, HFI, GX power** on 2026-10-20 in about one day of hardware cycles (NOTES.md
-"boot 0118g4/g5"), with `sweet_a630.c` at 2,350 lines. What remains is mostly `a6xx_hw_init` register programming
+"boot 0118g4/g5"), with `bergamota_a630.c` at 2,350 lines. What remains is mostly `a6xx_hw_init` register programming
 (`a6xx_gpu.c` has 136 `gpu_write/rmw` calls, `a6xx_gmu.c` 93), CP/SQE firmware load, ring buffer submission, and a
 userspace-visible interface. Those are tables and sequences: copy them as **facts** (register offsets, order) into
 our own code. For register definitions use the generator: `drivers/gpu/drm/msm/registers/gen_header.py` is
@@ -258,7 +258,7 @@ What follows from it:
   at the same time. Consequence for us: **a single XNU kernel binary containing GPL-2.0-only driver code
   (statically linked, as we do: no kexts) is a combined work we cannot distribute under either license cleanly.**
   Publishing source on GitHub with a GPL driver file next to APSL files is aggregation and is a different question
-  from shipping the linked kernel Mach-O (we ship `kernel.development.sweet` in CI artifacts [V-doc]).
+  from shipping the linked kernel Mach-O (we ship `kernel.development.bergamota` in CI artifacts [V-doc]).
 * FreeBSD's model (drm-kmod): the BSD kernel is permissive and GPL-compatible, GPL-only drivers are separate kmods
   that users build and load. XNU is not GPL-compatible, so that trick does not transfer cleanly even if we built
   the Linux code as a separate kernel collection / kext: the kext still links against APSL kernel symbols and
@@ -332,9 +332,9 @@ Qualcomm peripherals (audio DSP, camera, modem data) where the framework count e
 
 Concrete actions:
 
-1. Add a small in-tree "providers" file set (not named KCL, no Linux headers): `sweet_clk` (rate/enable by SoC clock
-   id), `sweet_vreg` (names to RPMh VRM votes, wrapping `sweet_rpmh.c`), `sweet_icc` (BCM votes), `sweet_pd`
-   (GDSC/RPMhPD), `sweet_fw` (firmware read from partitions/rootfs), `sweet_qmi`/`sweet_qrtr`/`sweet_glink`/`sweet_smem`
+1. Add a small in-tree "providers" file set (not named KCL, no Linux headers): `bergamota_clk` (rate/enable by SoC clock
+   id), `bergamota_vreg` (names to RPMh VRM votes, wrapping `bergamota_rpmh.c`), `bergamota_icc` (BCM votes), `bergamota_pd`
+   (GDSC/RPMhPD), `bergamota_fw` (firmware read from partitions/rootfs), `bergamota_qmi`/`bergamota_qrtr`/`bergamota_glink`/`bergamota_smem`
    (needed by Wi-Fi no matter what). These are the Qualcomm gaps from section 3, written once, used by BT, GPU and
    Wi-Fi.
 2. Generate register headers from Linux's MIT XML (`gen_header.py`) for a6xx and GMU.

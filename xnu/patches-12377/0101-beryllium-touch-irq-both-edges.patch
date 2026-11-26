@@ -1,7 +1,7 @@
-diff --git a/bsd/dev/sweet_touch.c b/bsd/dev/sweet_touch.c
+diff --git a/bsd/dev/bergamota_touch.c b/bsd/dev/bergamota_touch.c
 index 297a304ea2af91c2d49808a2f964e71ac474d37d..e7af62f6964faa6ae5135d30d50fd9e5ba4edb55 100644
---- a/bsd/dev/sweet_touch.c
-+++ b/bsd/dev/sweet_touch.c
+--- a/bsd/dev/bergamota_touch.c
++++ b/bsd/dev/bergamota_touch.c
 @@ -731,14 +731,16 @@ touch_beryllium_start(void)
  	    tb->rst, touch_rd(st.gpio, TOUCH_GPIO_CFG(tb->rst)), touch_rd(st.gpio, TOUCH_GPIO_IO(tb->rst)),
  	    tb->irq, touch_rd(st.gpio, TOUCH_GPIO_CFG(tb->irq)), touch_rd(st.gpio, TOUCH_GPIO_IO(tb->irq)),

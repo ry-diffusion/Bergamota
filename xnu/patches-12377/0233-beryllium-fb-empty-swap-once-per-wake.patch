@@ -1,7 +1,7 @@
-diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
+diff --git a/iokit/Kernel/arm/BergamotaFramebuffer.cpp b/iokit/Kernel/arm/BergamotaFramebuffer.cpp
 index 03f0356be70c8ca7b82dad0a9d1ea5735ef5ea51..7c5371778c2b63292de715a4ac96448835319540 100644
---- a/iokit/Kernel/arm/SweetFramebuffer.cpp
-+++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+--- a/iokit/Kernel/arm/BergamotaFramebuffer.cpp
++++ b/iokit/Kernel/arm/BergamotaFramebuffer.cpp
 @@ -337,6 +337,7 @@ public:
  		uint64_t swapWaits, swapWaitAbs, swapWaitTimeouts;      /* SwapWait calls that had to wait, their time, those that gave up */
  		uint64_t gpuHolds, gpuHoldTimeouts;                     /* 0229: pending swaps held for the GPU, held past 50 ms */
@@ -9,7 +9,7 @@ index 03f0356be70c8ca7b82dad0a9d1ea5735ef5ea51..7c5371778c2b63292de715a4ac964488
 +		uint64_t emptySwaps, emptyKept;                         /* 0233: swaps with no layer / of those, the ones that kept the frame */
  	} fSt, fStPrev;
  	/*
- 	 * Direct scanout (sweetfb_direct=1, patch 0211): hw scaler + page flipping + zero-copy
+ 	 * Direct scanout (bergamotafb_direct=1, patch 0211): hw scaler + page flipping + zero-copy
 @@ -429,6 +430,7 @@ public:
  	uint32_t      fFlushTicks;    /* vsync ticks between panel copies */
  	uint32_t      fVsyncUS;       /* vsync period */
@@ -26,26 +26,26 @@ index 03f0356be70c8ca7b82dad0a9d1ea5735ef5ea51..7c5371778c2b63292de715a4ac964488
 +	    "swapsync=%d swap_waits=%llu swap_wait_us=%u.%02u swap_wait_timeouts=%llu replace_waits=%llu replace_timeouts=%llu "
 +	    "gpu_holds=%llu gpu_hold_timeouts=%llu empty_swaps=%llu empty_kept=%llu\n",
  	    mode, hz, fFlushTicks, fHw ? 1 : 0, fFlip ? 1 : 0, smmu, fZcCleanMode == 0 ? "never" : (fZcCleanMode == 1 ? "always" : (fZcCleanMode == 2 ? "auto" : "tracked")),
- 	    sweet_abs_us(now) / 1000000, winUS / 1000,
+ 	    bergamota_abs_us(now) / 1000000, winUS / 1000,
  	    swaps, SW_F2(PER_S(dSwaps)), coalesced, SW_F2(PER_S(dCoal)),
 @@ -1060,7 +1063,8 @@ AppleCLCD::statsTick(uint64_t now)
- 	    SW_F2(copyAvg), sweet_abs_us(c.copyMaxAbs), SW_F2(zcAvg), sweet_abs_us(c.zcMaxAbs), SW_F2(clAvg), c.cleans, c.cleanSkips,
+ 	    SW_F2(copyAvg), bergamota_abs_us(c.copyMaxAbs), SW_F2(zcAvg), bergamota_abs_us(c.zcMaxAbs), SW_F2(clAvg), c.cleans, c.cleanSkips,
  	    c.latchWaits, SW_F2(lwAvg), c.latchTimeouts, SW_F2(PER_S(dTicks)),
  	    used, total, pallocs, pfails,
 -	    fSwapSync ? 1 : 0, c.swapWaits, SW_F2(swAvg), c.swapWaitTimeouts, c.replaceWaits, c.replaceTimeouts);
 +	    fSwapSync ? 1 : 0, c.swapWaits, SW_F2(swAvg), c.swapWaitTimeouts, c.replaceWaits, c.replaceTimeouts,
 +	    c.gpuHolds, c.gpuHoldTimeouts, c.emptySwaps, c.emptyKept);
  	#undef PER_S
- 	sweet_fb_stats_publish(line);
- 	if (fStLogSecs != 0 && (fStLogT == 0 || sweet_abs_us(now - fStLogT) >= (uint64_t)fStLogSecs * 1000000)) {
+ 	bergamota_fb_stats_publish(line);
+ 	if (fStLogSecs != 0 && (fStLogT == 0 || bergamota_abs_us(now - fStLogT) >= (uint64_t)fStLogSecs * 1000000)) {
 @@ -1585,6 +1589,7 @@ AppleCLCD::flipSetup(void)
- 	sweet_fb_panic_hook = sweet_fb_restore_boot_scanout;
- 	fLastFlush = sweet_mdp_pipes[fPipe].flush | SWEET_MDP_CTL_BIT;
+ 	bergamota_fb_panic_hook = bergamota_fb_restore_boot_scanout;
+ 	fLastFlush = bergamota_mdp_pipes[fPipe].flush | BERGAMOTA_MDP_CTL_BIT;
  	fFront = 0;
 +	fEmptyBlackArmed = true;      /* 0233: the first swap after boot may blank */
  	fFlip = true;
- 	IOLog("SWEET FB: page flipping on %s: frames 0x%llx 0x%llx 0x%llx (%llu bytes each back buffer, %u restore regs)%s\n",
- 	    sweet_mdp_pipes[fPipe].name, fBufPA[0], fBufPA[1], fBufPA[2], bytes, sweet_mdp_restore.n,
+ 	IOLog("BERGAMOTA FB: page flipping on %s: frames 0x%llx 0x%llx 0x%llx (%llu bytes each back buffer, %u restore regs)%s\n",
+ 	    bergamota_mdp_pipes[fPipe].name, fBufPA[0], fBufPA[1], fBufPA[2], bytes, bergamota_mdp_restore.n,
 @@ -2810,8 +2815,28 @@ AppleCLCD::present(const uint8_t *rec)
  	quietConsole();
  
@@ -59,7 +59,7 @@ index 03f0356be70c8ca7b82dad0a9d1ea5735ef5ea51..7c5371778c2b63292de715a4ac964488
 +	 * the first swap after boot or a power on may blank now; any other layerless swap keeps the frame that is shown.
 +	 */
 +	bool hasLayer = false;
-+	for (uint32_t layer = 0; layer < SWEET_FB_LAYERS; layer++) {
++	for (uint32_t layer = 0; layer < BERGAMOTA_FB_LAYERS; layer++) {
 +		if ((mask & (1u << layer)) && get32(rec, 0x54 + 4 * layer) != 0) {
 +			hasLayer = true;
 +		}

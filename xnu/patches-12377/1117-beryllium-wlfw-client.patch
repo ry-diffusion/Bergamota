@@ -2,7 +2,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 --- a/bsd/dev/beryllium_wlan.c
 +++ b/bsd/dev/beryllium_wlan.c
 @@ -1144,7 +1144,7 @@
- 		printf("SWEET MSS: no SCM buffer\n");
+ 		printf("BERGAMOTA MSS: no SCM buffer\n");
  		return false;
  	}
 -	if (nsrc == 0 || nsrc > 2 || ndst == 0 || ndst > 2) {
@@ -11,7 +11,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
  	}
  	bzero(buf, PAGE_SIZE);
 @@ -1169,16 +1169,13 @@
- 		printf("SWEET MSS: hyp-assign %s %#llx+%#llx vmid %u -> %u perm %u\n", what, pa, size, src[0],
+ 		printf("BERGAMOTA MSS: hyp-assign %s %#llx+%#llx vmid %u -> %u perm %u\n", what, pa, size, src[0],
  		    dst[0], perm[0]);
  	} else {
 -		char from[16], to[32];
@@ -31,7 +31,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		for (unsigned k = 0; k < ndst; k++) {
 +			tl += (uint32_t)snprintf(to + tl, sizeof(to) - tl, "%s%u perm %u", k ? " + " : "", dst[k], perm[k]);
  		}
- 		printf("SWEET MSS: hyp-assign %s %#llx+%#llx vmid %s -> %s\n", what, pa, size, from, to);
+ 		printf("BERGAMOTA MSS: hyp-assign %s %#llx+%#llx vmid %s -> %s\n", what, pa, size, from, to);
  	}
 @@ -2209,9 +2206,9 @@
  	bool intent_asked;
@@ -47,11 +47,11 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
  	vm_offset_t win;                /* kernel window over the rmtfs buffer */
 @@ -3591,8 +3588,471 @@
  	(void)ipc_qrtr_send(Q_DATA, QRTR_PDM_PORT, node, port, r, n);
- 	sweet_log_sync();
+ 	bergamota_log_sync();
  }
 +
 +/*
-+ * ---- WLFW client (sweetwlfw=1): the host side of QMI service 0x45 that the modem's WLAN PD offers, in the
++ * ---- WLFW client (bergamotawlfw=1): the host side of QMI service 0x45 that the modem's WLAN PD offers, in the
 + * order of Linux drivers/net/wireless/ath/ath10k/qmi.c (mainline, beryllium sets qcom,snoc-host-cap-skip-quirk):
 + * IND_REGISTER -> MSA_INFO -> hyp-assign of the MSA regions -> MSA_READY -> CAP; on the MSA_READY indication
 + * the board data (bdwlan.* from the modem partition, read-only) -> CAL_REPORT; then the FW_READY indication.
@@ -119,7 +119,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	wf.sent_ms = ms_now_ms();
 +	wf.state = next;
 +	if (!ipc_qrtr_send(Q_DATA, WLFW_PORT_LOCAL, wf.node, wf.port, b, n)) {
-+		printf("SWEET IPC: wlfw: request %#x not sent\n", msg);
++		printf("BERGAMOTA IPC: wlfw: request %#x not sent\n", msg);
 +		wf.state = WS_FAILED;
 +	}
 +}
@@ -127,7 +127,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +static void
 +wf_fail(const char *why, uint16_t err)
 +{
-+	printf("SWEET IPC: wlfw: %s (error %u): client stops in state %s\n", why, err, wf_state_name[wf.state]);
++	printf("BERGAMOTA IPC: wlfw: %s (error %u): client stops in state %s\n", why, err, wf_state_name[wf.state]);
 +	ipc_note(" wlfw FAIL %s/%u in %s;", why, err, wf_state_name[wf.state]);
 +	wf.state = WS_FAILED;
 +	wf.pending = 0;
@@ -144,13 +144,13 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	uint32_t lp = 0;
 +	bool ok = true;
 +	for (unsigned k = 0; ok && k < sizeof(r) / sizeof(r[0]); k++) {
-+		int err = sweet_rpmh_vreg_set(r[k].res, r[k].mv, true);
++		int err = bergamota_rpmh_vreg_set(r[k].res, r[k].mv, true);
 +		lp += (uint32_t)snprintf(log + lp, sizeof(log) - lp, " %s=%d", r[k].res, err);
 +		lp = MIN(lp, (uint32_t)sizeof(log) - 1);
 +		ok = err == 0;
 +		wl_sleep(2);
 +	}
-+	printf("SWEET IPC: wlfw: WCN3990 rails voted on:%s%s\n", log, ok ? "" : ": FAILED, no WLFW client (ath10k probe fails)");
++	printf("BERGAMOTA IPC: wlfw: WCN3990 rails voted on:%s%s\n", log, ok ? "" : ": FAILED, no WLFW client (ath10k probe fails)");
 +	return ok;
 +}
 +
@@ -180,7 +180,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	}
 +	snprintf(path, sizeof(path), "image/%s", wf.bdf_name);
 +	if (fat_open(&ms_fat, path, &cl, &size)) {
-+		printf("SWEET IPC: wlfw: %s not in the modem partition, using bdwlan.bin\n", wf.bdf_name);
++		printf("BERGAMOTA IPC: wlfw: %s not in the modem partition, using bdwlan.bin\n", wf.bdf_name);
 +		strlcpy(wf.bdf_name, "bdwlan.bin", sizeof(wf.bdf_name));
 +		if (fat_open(&ms_fat, "image/bdwlan.bin", &cl, &size)) {
 +			return false;
@@ -228,7 +228,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		wf_fail("no board data file", 0);
 +		return;
 +	}
-+	printf("SWEET IPC: wlfw: board id %#x -> %s (%u bytes) from the modem partition\n", wf.board_id, wf.bdf_name,
++	printf("BERGAMOTA IPC: wlfw: board id %#x -> %s (%u bytes) from the modem partition\n", wf.board_id, wf.bdf_name,
 +	    wf.bdf_len);
 +	ipc_note(" wlfw bdf %s %u;", wf.bdf_name, wf.bdf_len);
 +	wf.bdf_seg = 0;
@@ -253,7 +253,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +wf_rx(uint32_t node, uint32_t port, const uint8_t *p, uint32_t len)
 +{
 +	if (len < 7 || (p[0] != 2 && p[0] != 4) || node != wf.node || port != wf.port || wf.state == WS_OFF) {
-+		printf("SWEET IPC: wlfw: %u-byte message of type %u from %u:%#x ignored\n", len, len ? p[0] : 0, node, port);
++		printf("BERGAMOTA IPC: wlfw: %u-byte message of type %u from %u:%#x ignored\n", len, len ? p[0] : 0, node, port);
 +		return;
 +	}
 +	uint16_t txn, msg, mlen;
@@ -264,14 +264,14 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	uint32_t tl = MIN((uint32_t)mlen, len - 7);
 +	if (p[0] == 4) {                        /* indications */
 +		if (msg == WF_MSA_READY_IND) {
-+			printf("SWEET IPC: wlfw: MSA ready indication\n");
++			printf("BERGAMOTA IPC: wlfw: MSA ready indication\n");
 +			ipc_note(" wlfw msa-ready-ind;");
 +			wf.msa_ind = true;
 +			if (wf.state == WS_WAIT_MSA_IND) {
 +				wf_bdf_start();
 +			}
 +		} else if (msg == WF_FW_READY_IND) {
-+			printf("SWEET IPC: wlfw: FW READY indication: the WLAN firmware runs (state was %s)\n",
++			printf("BERGAMOTA IPC: wlfw: FW READY indication: the WLAN firmware runs (state was %s)\n",
 +			    wf_state_name[wf.state]);
 +			ipc_note(" wlfw FW-READY;");
 +			wf.fw_ready = true;
@@ -279,13 +279,13 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +				wf.state = WS_READY;
 +			}
 +		} else {
-+			printf("SWEET IPC: wlfw: indication %#x (%u bytes)\n", msg, len);
++			printf("BERGAMOTA IPC: wlfw: indication %#x (%u bytes)\n", msg, len);
 +			ipc_note(" wlfw ind %#x;", msg);
 +		}
 +		return;
 +	}
 +	if (msg != wf.pending || txn != wf.txn) {
-+		printf("SWEET IPC: wlfw: unexpected response %#x txn %u (waiting for %#x txn %u)\n", msg, txn, wf.pending,
++		printf("BERGAMOTA IPC: wlfw: unexpected response %#x txn %u (waiting for %#x txn %u)\n", msg, txn, wf.pending,
 +		    wf.txn);
 +		return;
 +	}
@@ -303,7 +303,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		if (s && l >= 8) {
 +			memcpy(&st, s, 8);
 +		}
-+		printf("SWEET IPC: wlfw: ind-register result %u error %u, fw_status %#llx\n", res, err, st);
++		printf("BERGAMOTA IPC: wlfw: ind-register result %u error %u, fw_status %#llx\n", res, err, st);
 +		ipc_note(" wlfw ind-reg %u/%u st %#llx;", res, err, st);
 +		if (res) {
 +			wf_fail("ind-register rejected", err);
@@ -330,7 +330,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			memcpy(&wf.reg[k].addr, r + 1 + 13 * k, 8);
 +			memcpy(&wf.reg[k].size, r + 9 + 13 * k, 4);
 +			wf.reg[k].secure = r[13 + 13 * k];
-+			printf("SWEET IPC: wlfw: msa region %u: %#llx + %#x secure %u\n", k, wf.reg[k].addr, wf.reg[k].size,
++			printf("BERGAMOTA IPC: wlfw: msa region %u: %#llx + %#x secure %u\n", k, wf.reg[k].addr, wf.reg[k].size,
 +			    wf.reg[k].secure);
 +			ipc_note(" wlfw msa %#llx+%#x/%u;", wf.reg[k].addr, wf.reg[k].size, wf.reg[k].secure);
 +			if (wf.reg[k].size == 0 || wf.reg[k].size > WLFW_MSA_SIZE || wf.reg[k].addr < WLFW_MSA_PA ||
@@ -352,7 +352,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		break;
 +	}
 +	case WF_MSA_READY:
-+		printf("SWEET IPC: wlfw: msa-ready result %u error %u\n", res, err);
++		printf("BERGAMOTA IPC: wlfw: msa-ready result %u error %u\n", res, err);
 +		if (res) {
 +			wf_fail("msa-ready rejected", err);
 +		} else {
@@ -384,7 +384,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		if ((c = qmi_tlv(t, tl, 0x14, &l))) {
 +			memcpy(wf.build_id, c, MIN((uint32_t)l, 128u));
 +		}
-+		printf("SWEET IPC: wlfw: chip_id %#x chip_family %#x board_id %#x soc_id %#x fw_version %#x \"%s\" \"%s\"\n",
++		printf("BERGAMOTA IPC: wlfw: chip_id %#x chip_family %#x board_id %#x soc_id %#x fw_version %#x \"%s\" \"%s\"\n",
 +		    wf.chip_id, wf.chip_family, wf.board_id, wf.soc_id, wf.fw_version, wf.timestamp, wf.build_id);
 +		ipc_note(" wlfw cap chip %#x fam %#x board %#x soc %#x fw %#x;", wf.chip_id, wf.chip_family, wf.board_id,
 +		    wf.soc_id, wf.fw_version);
@@ -404,7 +404,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			break;
 +		}
 +		if (res) {
-+			printf("SWEET IPC: wlfw: bdf end segment: result %u error %u (CRC check; ath10k carries on)\n", res, err);
++			printf("BERGAMOTA IPC: wlfw: bdf end segment: result %u error %u (CRC check; ath10k carries on)\n", res, err);
 +		}
 +		wf.bdf_off += seg_len;
 +		wf.bdf_seg++;
@@ -412,7 +412,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			wf_bdf_next();
 +			break;
 +		}
-+		printf("SWEET IPC: wlfw: board data sent in %u segments\n", wf.bdf_seg);
++		printf("BERGAMOTA IPC: wlfw: board data sent in %u segments\n", wf.bdf_seg);
 +		ipc_note(" wlfw bdf sent %u seg %u/%u;", wf.bdf_seg, res, err);
 +		uint8_t zero = 0;
 +		uint32_t n = 7;
@@ -421,7 +421,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		break;
 +	}
 +	case WF_CAL_REPORT:
-+		printf("SWEET IPC: wlfw: cal-report result %u error %u; waiting for FW READY\n", res, err);
++		printf("BERGAMOTA IPC: wlfw: cal-report result %u error %u; waiting for FW READY\n", res, err);
 +		ipc_note(" wlfw cal %u/%u;", res, err);
 +		if (res) {
 +			wf_fail("cal-report rejected", err);
@@ -458,7 +458,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	}
 +	if (still) {
 +		/* never assign a region twice: a failed hand-back leaves the client off for this boot */
-+		printf("SWEET IPC: wlfw: an MSA region did not come back to HLOS: client disabled\n");
++		printf("BERGAMOTA IPC: wlfw: an MSA region did not come back to HLOS: client disabled\n");
 +		ipc.wlfw = false;
 +	}
 +	memset(&wf, 0, sizeof(wf));
@@ -474,7 +474,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	}
 +	if (!arrive) {
 +		/* ath10k_qmi_event_server_exit(): MSA back to HLOS, board data freed, start over on the next arrival */
-+		printf("SWEET IPC: wlfw: server left in state %s\n", wf_state_name[wf.state]);
++		printf("BERGAMOTA IPC: wlfw: server left in state %s\n", wf_state_name[wf.state]);
 +		ipc_note(" wlfw server left in %s;", wf_state_name[wf.state]);
 +		wf_reset(false);
 +		return;
@@ -519,7 +519,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
  	uint32_t h[8], type, snode, sport, confirm, size, dnode, dport, hdrlen;
 @@ -3650,6 +4110,9 @@
  				ipc.wlfw_seen = true;
- 				printf("SWEET IPC: WLFW is up at %u:%#x: the WLAN PD runs\n", s[3], s[4]);
+ 				printf("BERGAMOTA IPC: WLFW is up at %u:%#x: the WLAN PD runs\n", s[3], s[4]);
  			}
 +			if (s[1] == WLFW_SERVICE) {
 +				wf_server(s[3], s[4], type == Q_NEW_SERVER);
@@ -538,10 +538,10 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
  		} else {
 @@ -3698,6 +4163,13 @@
  	int pdm = 0;
- 	(void)PE_parse_boot_argn("sweetpdm", &pdm, sizeof(pdm));
+ 	(void)PE_parse_boot_argn("bergamotapdm", &pdm, sizeof(pdm));
  	ipc.pdm = pdm == 1;
 +	int wlfw = 0;
-+	(void)PE_parse_boot_argn("sweetwlfw", &wlfw, sizeof(wlfw));
++	(void)PE_parse_boot_argn("bergamotawlfw", &wlfw, sizeof(wlfw));
 +	ipc.wlfw = wlfw == 1;
 +	memset(&wf, 0, sizeof(wf));
 +	if (ipc.wlfw && !wf_rails()) {
@@ -556,20 +556,20 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
  		tftp_pump();
 +		wf_poll();
  		if (ipc.open_acked && !ipc.announced && ms_now_ms() > ipc.open_ms + 3000) {
- 			printf("SWEET IPC: qrtr: no hello from the modem 3 s after IPCRTR opened: sending ours\n");
+ 			printf("BERGAMOTA IPC: qrtr: no hello from the modem 3 s after IPCRTR opened: sending ours\n");
  			ipc_qrtr_announce();
 @@ -3762,6 +4235,11 @@
  	    ipc.version_acked ? "versioned" : "no version-ack", ipc.open_acked ? "open" : "not open",
  	    ipc.hello_seen ? "seen" : "not seen", ipc.rx_pkts, ipc.tx_pkts, ipc.reads, ipc.read_bytes, ipc.writes,
  	    ipc.write_bytes, ipc.pdm_reqs, ipc.wlfw_seen ? "up" : "not seen");
 +	if (ipc.wlfw) {
-+		printf("SWEET IPC: wlfw client: %s; chip %#x board %#x soc %#x fw %#x, %s %u bytes in %u segments\n",
++		printf("BERGAMOTA IPC: wlfw client: %s; chip %#x board %#x soc %#x fw %#x, %s %u bytes in %u segments\n",
 +		    wf_state_name[wf.state], wf.chip_id, wf.board_id, wf.soc_id, wf.fw_version, wf.bdf_name[0] ? wf.bdf_name : "no bdf",
 +		    wf.bdf_off, wf.bdf_seg);
 +	}
  	/* the events again, in console-sized lines */
  	for (uint32_t o = 0, k = 0; o < ipc.notes_len; o += 160, k++) {
- 		printf("SWEET IPC: events %u:%.*s\n", k, (int)MIN(160u, ipc.notes_len - o), ipc.notes + o);
+ 		printf("BERGAMOTA IPC: events %u:%.*s\n", k, (int)MIN(160u, ipc.notes_len - o), ipc.notes + o);
 @@ -3777,6 +4255,7 @@
  ms_ipc_teardown(void)
  {

@@ -9,7 +9,7 @@ index ddb09b4ad134e943a76dffa29c128b42a9442afa..1f3ab7d90e13f74ab749c2923bf318ce
 +	bool ibs_asleep, ibs_ack_pending;       /* hci_qca in-band sleep: controller asleep / WAKE_ACK owed */
 +	unsigned ibs_logged, rx_st, rx_left;    /* IBS log budget; H4 event parser state at the RX side */
  	unsigned ev_cc, ev_other;       /* events seen while downloading firmware */
- 	unsigned bt_fw, bt_baud, bt_fast, bt_ibs, bt_poweroff;   /* sweetbt* boot-args */
+ 	unsigned bt_fw, bt_baud, bt_fast, bt_ibs, bt_poweroff;   /* bergamotabt* boot-args */
  	unsigned stage, delay_s;
 @@ -1329,6 +1331,7 @@ wl_uart_open(void)
  static void
@@ -48,7 +48,7 @@ index ddb09b4ad134e943a76dffa29c128b42a9442afa..1f3ab7d90e13f74ab749c2923bf318ce
 +		}
 +		if (wl.ibs_logged < 16) {
 +			wl.ibs_logged++;
-+			printf("SWEET WLAN: BT IBS: RX %s (%#04x)\n", n, b);
++			printf("BERGAMOTA WLAN: BT IBS: RX %s (%#04x)\n", n, b);
 +		}
 +		return;
 +	}
@@ -102,7 +102,7 @@ index ddb09b4ad134e943a76dffa29c128b42a9442afa..1f3ab7d90e13f74ab749c2923bf318ce
 +		(void)wl_tx(&b, 1, wl.baud ? wl.baud : 115200);
 +		if (wl.ibs_logged < 16) {
 +			wl.ibs_logged++;
-+			printf("SWEET WLAN: BT IBS: TX WAKE_ACK (0xfc)\n");
++			printf("BERGAMOTA WLAN: BT IBS: TX WAKE_ACK (0xfc)\n");
 +		}
 +	}
 +}
@@ -124,7 +124,7 @@ index ddb09b4ad134e943a76dffa29c128b42a9442afa..1f3ab7d90e13f74ab749c2923bf318ce
 +	}
 +	if (wl.ibs_logged < 16) {
 +		wl.ibs_logged++;
-+		printf("SWEET WLAN: BT IBS: TX WAKE_IND (0xfd), %s\n", wl.ibs_asleep ? "no WAKE_ACK within 500 ms, sending anyway" :
++		printf("BERGAMOTA WLAN: BT IBS: TX WAKE_IND (0xfd), %s\n", wl.ibs_asleep ? "no WAKE_ACK within 500 ms, sending anyway" :
 +		    "WAKE_ACK (or WAKE_IND) received");
 +	}
 +	wl.ibs_asleep = false;
@@ -178,5 +178,5 @@ index ddb09b4ad134e943a76dffa29c128b42a9442afa..1f3ab7d90e13f74ab749c2923bf318ce
 +	}
 +	err = wl_hci_cmd(0x0c03, NULL, 0, rsp, &rlen, 10000);      /* qca_send_reset */
  	if (err) {
- 		printf("SWEET WLAN: BT fw: HCI Reset after download: no event (%d)\n", err);
+ 		printf("BERGAMOTA WLAN: BT fw: HCI Reset after download: no event (%d)\n", err);
  		goto out;

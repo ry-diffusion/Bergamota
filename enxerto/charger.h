@@ -3,8 +3,8 @@
 
 /*
  * Early fast charging while Enxerto / Bergamota fastboot run (ABL leaves the PMI8998 SMB2 charger at its
- * slow power-on defaults). A port of the kernel's sweetcharger=2 control (xnu/patches-11215/0201,
- * bsd/dev/sweet_charger.c), same registers, same limits, same safety gates:
+ * slow power-on defaults). A port of the kernel's bergamotacharger=2 control (xnu/patches-11215/0201,
+ * bsd/dev/bergamota_charger.c), same registers, same limits, same safety gates:
  *
  *   ICL by APSD result  DCP 2000 mA, CDP 1500 mA, QC2/QC3 1500 mA (no 9 V negotiation),
  *                       AICL off -> at most 1500 mA; SDP / float / OCP / unknown: hardware limit stays

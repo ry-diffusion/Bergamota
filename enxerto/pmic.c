@@ -21,7 +21,7 @@
 
 /* PMI8998 SMB2 charger / FG gen3 registers (SID 2) */
 #define CHGR_STATUS_1	0x1006	/* BATTERY_CHARGER_STATUS_1: [2:0] state */
-#define USBIN_APSD	0x1308	/* APSD_RESULT_STATUS: bit0 SDP, 1 OCP, 2 CDP, 3 DCP, 4 float, 5 QC2, 6 QC3 (smb-reg.h; sweet_charger.c) */
+#define USBIN_APSD	0x1308	/* APSD_RESULT_STATUS: bit0 SDP, 1 OCP, 2 CDP, 3 DCP, 4 float, 5 QC2, 6 QC3 (smb-reg.h; bergamota_charger.c) */
 #define USBIN_RT	0x1310	/* USBIN INT_RT_STS: bit4 plug-in */
 #define FG_MSOC		0x4009	/* BATT_SOC monotonic SOC, 0..255 */
 #define FG_VOLT		0x41a0	/* BATT_INFO voltage, 16 bit */
@@ -232,7 +232,7 @@ static int write_allowed(unsigned sid, unsigned addr, unsigned len)
 {
 	if (sid == SID_PMI8998) {
 		/*
-		 * SMB2 charger, single bytes: the seven registers xnu's sp_write_allowed lets sweetcharger=2
+		 * SMB2 charger, single bytes: the seven registers xnu's sp_write_allowed lets bergamotacharger=2
 		 * through (patches-11215/0200), nothing else (no HVDCP/QC, type-C, JEITA, termination, AICL).
 		 */
 		if (len != 1)

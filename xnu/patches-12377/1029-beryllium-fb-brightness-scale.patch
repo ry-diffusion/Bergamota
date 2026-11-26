@@ -1,5 +1,5 @@
---- a/iokit/Kernel/arm/SweetFramebuffer.cpp	2026-11-25 02:18:01
-+++ b/iokit/Kernel/arm/SweetFramebuffer.cpp	2026-11-25 02:18:01
+--- a/iokit/Kernel/arm/BergamotaFramebuffer.cpp	2026-11-25 02:18:01
++++ b/iokit/Kernel/arm/BergamotaFramebuffer.cpp	2026-11-25 02:18:01
 @@ -889,6 +889,12 @@
  	setProperty(kIOUserClientClassKey, "IOMobileFramebufferUserClient");
  	setProperty("external", false);
@@ -11,5 +11,5 @@
 +	 */
 +	setProperty("Brightness_Scale", 65536ULL, 32);
  	registerService();
- 	__atomic_store_n(&sweet_fb_shot_fb, this, __ATOMIC_RELEASE);     /* kern.sweet_fb_shot (patch 0224) */
- 	IOLog("SWEET FB: AppleCLCD %ux%u stride %u at 0x%llx, default surface %u, presented as %ux%u, vsync %u us, copy every %u, scale %u (pad %d,%d), direct %d early %d\n",
+ 	__atomic_store_n(&bergamota_fb_shot_fb, this, __ATOMIC_RELEASE);     /* kern.bergamota_fb_shot (patch 0224) */
+ 	IOLog("BERGAMOTA FB: AppleCLCD %ux%u stride %u at 0x%llx, default surface %u, presented as %ux%u, vsync %u us, copy every %u, scale %u (pad %d,%d), direct %d early %d\n",

@@ -1,18 +1,18 @@
-diff --git a/bsd/dev/sweet_charger.c b/bsd/dev/sweet_charger.c
---- a/bsd/dev/sweet_charger.c
-+++ b/bsd/dev/sweet_charger.c
+diff --git a/bsd/dev/bergamota_charger.c b/bsd/dev/bergamota_charger.c
+--- a/bsd/dev/bergamota_charger.c
++++ b/bsd/dev/bergamota_charger.c
 @@ -24,6 +24,12 @@
   *                    No QC / HVDCP 9 V negotiation, no JEITA or termination
-  *                    changes, no watchdog, no type-C role: SWEET SPMI only lets the
-  *                    seven registers of sweet_spmi.c sp_write_allowed through.
+  *                    changes, no watchdog, no type-C role: BERGAMOTA SPMI only lets the
+  *                    seven registers of bergamota_spmi.c sp_write_allowed through.
 + *                    Type-C Rp (patch 0219, after downstream smb-lib.c / mainline qcom_smbx.c): OCP is
 + *                    handled like DCP (a USB-C charger often classifies as OCP, downstream maps OCP to
 + *                    USB_DCP): Rp 3.0 A -> the ICL ceiling, otherwise 1800 mA (downstream DCP_CURRENT_UA;
 + *                    1500 mA with AICL off); FLOAT 1000 mA (downstream FLOAT_CHARGER_UA); SDP untouched.
-+ *                    A Rp change (CC re-vote) is treated like a new APSD result. kern.sweet_charger
++ *                    A Rp change (CC re-vote) is treated like a new APSD result. kern.bergamota_charger
 + *                    shows typec_rp= (0 none/invalid, 1 default, 2 1.5 A, 3 3.0 A) and icl_sel_ma=.
-  *   sweetcharger_icl=<mA>  lowers the ICL ceiling (100..2000), e.g. 1500 = mainline
-  *   sweetcharger_fcc=<mA>  lowers the FCC (500..2000), e.g. 1000 = mainline
+  *   bergamotacharger_icl=<mA>  lowers the ICL ceiling (100..2000), e.g. 1500 = mainline
+  *   bergamotacharger_fcc=<mA>  lowers the FCC (500..2000), e.g. 1000 = mainline
   *
 @@ -43,7 +49,9 @@
   *          0x1090 JEITA_EN_CFG (log only)
@@ -25,7 +25,7 @@ diff --git a/bsd/dev/sweet_charger.c b/bsd/dev/sweet_charger.c
   *          0x1310 INT_RT_STS [4] USBIN plugged in
   *          0x1340 USBIN_CMD_IL [0] suspend   0x1362 USBIN_OPTIONS_1 [2] HVDCP_EN (log only)
   *          0x1365 USBIN_LOAD_CFG [4] ICL_OVERRIDE_AFTER_APSD
-@@ -85,6 +93,8 @@ void sweet_charger_start(void);
+@@ -85,6 +93,8 @@ void bergamota_charger_start(void);
  #define SC_ICL_DCP_MA           2000u
  #define SC_ICL_CDP_MA           1500u
  #define SC_ICL_HVDCP_MA         1500u

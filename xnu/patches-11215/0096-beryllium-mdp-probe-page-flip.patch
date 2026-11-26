@@ -1,16 +1,16 @@
-diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
+diff --git a/iokit/Kernel/arm/BergamotaFramebuffer.cpp b/iokit/Kernel/arm/BergamotaFramebuffer.cpp
 index 2afbc2135542d6bdf6984a88df74c2613027ebf1..2f8f29984b2900f298f3142ceb1e850f3ba573af 100644
---- a/iokit/Kernel/arm/SweetFramebuffer.cpp
-+++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+--- a/iokit/Kernel/arm/BergamotaFramebuffer.cpp
++++ b/iokit/Kernel/arm/BergamotaFramebuffer.cpp
 @@ -37,6 +37,9 @@
- #include "SweetSurface.h"
+ #include "BergamotaSurface.h"
  
- extern "C" int sweet_console_muted;     /* osfmk/console/serial_console.c */
-+extern "C" void (*sweet_fb_panic_hook)(void);   /* osfmk/console/serial_console.c */
+ extern "C" int bergamota_console_muted;     /* osfmk/console/serial_console.c */
++extern "C" void (*bergamota_fb_panic_hook)(void);   /* osfmk/console/serial_console.c */
 +extern "C" vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
-+#include "../../../bsd/dev/sweet_board.h"
++#include "../../../bsd/dev/bergamota_board.h"
  
- #if defined(SWEET)
+ #if defined(BERGAMOTA)
  #include <IOKit/IOService.h>
 @@ -114,6 +117,27 @@ public:
  	int32_t       fPadX, fPadY;
@@ -27,7 +27,7 @@ index 2afbc2135542d6bdf6984a88df74c2613027ebf1..2f8f29984b2900f298f3142ceb1e850f
 +	uint32_t      fDrawIdx;
 +	uint8_t       fBarsMask;        /* frames whose scaling bars are black */
 +	vm_offset_t   fMdp;
-+	int           fPipe;            /* index into sweet_mdp_pipes, -1 = unknown */
++	int           fPipe;            /* index into bergamota_mdp_pipes, -1 = unknown */
 +	uint32_t      fBootSrc, fBootStride;
 +	bool          fFlip;
 +	uint32_t      fFront;
@@ -39,7 +39,7 @@ index 2afbc2135542d6bdf6984a88df74c2613027ebf1..2f8f29984b2900f298f3142ceb1e850f
 +	void          scanTo(uint32_t idx);
  	uintptr_t     fPixels;          /* kernel mapping of the panel memory */
  	IOMemoryMap  *fMap;
- 	SweetSurface *fSurface;         /* the panel memory as an IOSurface */
+ 	BergamotaSurface *fSurface;         /* the panel memory as an IOSurface */
 @@ -228,6 +252,17 @@ AppleCLCD::start(IOService *provider)
  		OSSafeReleaseNULL(fWorkLoop);
  		return false;
@@ -47,17 +47,17 @@ index 2afbc2135542d6bdf6984a88df74c2613027ebf1..2f8f29984b2900f298f3142ceb1e850f
 +	fDraw = fPixels;
 +	fDrawIdx = 0;
 +	fPipe = -1;
-+	if (sweet_board_beryllium()) {
++	if (bergamota_board_beryllium()) {
 +		mdpProbe();
 +		int flip = 0;
-+		PE_parse_boot_argn("sweetfb_flip", &flip, sizeof(flip));
++		PE_parse_boot_argn("bergamotafb_flip", &flip, sizeof(flip));
 +		if (flip && fPipe >= 0 && !flipSetup()) {
-+			IOLog("SWEET FB: flip setup failed; drawing into the boot framebuffer\n");
++			IOLog("BERGAMOTA FB: flip setup failed; drawing into the boot framebuffer\n");
 +		}
 +	}
  	fVsync = IOTimerEventSource::timerEventSource(this, &AppleCLCD::vsyncFired);
  	if (fVsync == NULL || fWorkLoop->addEventSource(fVsync) != kIOReturnSuccess) {
- 		IOLog("SWEET FB: no vsync timer\n");
+ 		IOLog("BERGAMOTA FB: no vsync timer\n");
 @@ -284,6 +319,11 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
  		if (step <= 6) {
  			fb->fFadeStep = step + 1;
@@ -82,7 +82,7 @@ index 2afbc2135542d6bdf6984a88df74c2613027ebf1..2f8f29984b2900f298f3142ceb1e850f
 +	const char *name;
 +	uint32_t off, flush;
 +	bool vig;
-+} sweet_mdp_pipes[] = {
++} bergamota_mdp_pipes[] = {
 +	{ "VIG0", 0x05000, 1u << 0, true },
 +	{ "VIG1", 0x07000, 1u << 1, true },
 +	{ "VIG2", 0x09000, 1u << 2, true },
@@ -92,13 +92,13 @@ index 2afbc2135542d6bdf6984a88df74c2613027ebf1..2f8f29984b2900f298f3142ceb1e850f
 +	{ "DMA2", 0x29000, 1u << 24, false },
 +	{ "DMA3", 0x2b000, 1u << 25, false },
 +};
-+#define SWEET_MDP_PA            0x0ae00000u
-+#define SWEET_MDP_SIZE          0x82000u
-+#define SWEET_MDP_CTL0          0x02000u
-+#define SWEET_MDP_CTL_FLUSH     0x18u
-+#define SWEET_MDP_CTL_BIT       (1u << 17)
-+#define SWEET_MDP_LM0           0x45000u
-+#define SWEET_MDP_INTF1         0x6b800u
++#define BERGAMOTA_MDP_PA            0x0ae00000u
++#define BERGAMOTA_MDP_SIZE          0x82000u
++#define BERGAMOTA_MDP_CTL0          0x02000u
++#define BERGAMOTA_MDP_CTL_FLUSH     0x18u
++#define BERGAMOTA_MDP_CTL_BIT       (1u << 17)
++#define BERGAMOTA_MDP_LM0           0x45000u
++#define BERGAMOTA_MDP_INTF1         0x6b800u
 +#define SSPP_SRC_SIZE           0x00u
 +#define SSPP_OUT_SIZE           0x0cu
 +#define SSPP_SRC0_ADDR          0x14u
@@ -107,20 +107,20 @@ index 2afbc2135542d6bdf6984a88df74c2613027ebf1..2f8f29984b2900f298f3142ceb1e850f
 +#define SSPP_OP_MODE            0x38u
 +
 +/* panic: show ABL's framebuffer again, where the console draws */
-+static vm_offset_t sweet_mdp_panic_base;
-+static uint32_t sweet_mdp_panic_off, sweet_mdp_panic_flush, sweet_mdp_panic_src, sweet_mdp_panic_stride;
++static vm_offset_t bergamota_mdp_panic_base;
++static uint32_t bergamota_mdp_panic_off, bergamota_mdp_panic_flush, bergamota_mdp_panic_src, bergamota_mdp_panic_stride;
 +static void
-+sweet_fb_restore_boot_scanout(void)
++bergamota_fb_restore_boot_scanout(void)
 +{
-+	if (sweet_mdp_panic_base == 0) {
++	if (bergamota_mdp_panic_base == 0) {
 +		return;
 +	}
-+	volatile uint32_t *p = (volatile uint32_t *)(sweet_mdp_panic_base + sweet_mdp_panic_off);
-+	p[SSPP_SRC0_ADDR / 4] = sweet_mdp_panic_src;
-+	p[SSPP_YSTRIDE0 / 4] = sweet_mdp_panic_stride;
++	volatile uint32_t *p = (volatile uint32_t *)(bergamota_mdp_panic_base + bergamota_mdp_panic_off);
++	p[SSPP_SRC0_ADDR / 4] = bergamota_mdp_panic_src;
++	p[SSPP_YSTRIDE0 / 4] = bergamota_mdp_panic_stride;
 +	__asm__ volatile ("dsb sy" ::: "memory");
-+	*(volatile uint32_t *)(sweet_mdp_panic_base + SWEET_MDP_CTL0 + SWEET_MDP_CTL_FLUSH) =
-+	    sweet_mdp_panic_flush | SWEET_MDP_CTL_BIT;
++	*(volatile uint32_t *)(bergamota_mdp_panic_base + BERGAMOTA_MDP_CTL0 + BERGAMOTA_MDP_CTL_FLUSH) =
++	    bergamota_mdp_panic_flush | BERGAMOTA_MDP_CTL_BIT;
 +	__asm__ volatile ("dsb sy" ::: "memory");
 +}
 +
@@ -136,20 +136,20 @@ index 2afbc2135542d6bdf6984a88df74c2613027ebf1..2f8f29984b2900f298f3142ceb1e850f
 +void
 +AppleCLCD::mdpProbe(void)
 +{
-+	fMdp = ml_io_map(SWEET_MDP_PA, SWEET_MDP_SIZE);
++	fMdp = ml_io_map(BERGAMOTA_MDP_PA, BERGAMOTA_MDP_SIZE);
 +	if (fMdp == 0) {
-+		IOLog("SWEET MDP: map failed\n");
++		IOLog("BERGAMOTA MDP: map failed\n");
 +		return;
 +	}
-+	for (uint32_t i = 0; i < sizeof(sweet_mdp_pipes) / sizeof(sweet_mdp_pipes[0]); i++) {
-+		vm_offset_t p = fMdp + sweet_mdp_pipes[i].off;
++	for (uint32_t i = 0; i < sizeof(bergamota_mdp_pipes) / sizeof(bergamota_mdp_pipes[0]); i++) {
++		vm_offset_t p = fMdp + bergamota_mdp_pipes[i].off;
 +		uint32_t src = mdp_rd(p, SSPP_SRC0_ADDR), stride = mdp_rd(p, SSPP_YSTRIDE0);
-+		IOLog("SWEET MDP: %s src0 0x%08x stride 0x%x size 0x%08x out 0x%08x fmt 0x%08x op 0x%08x%s\n",
-+		    sweet_mdp_pipes[i].name, src, stride, mdp_rd(p, SSPP_SRC_SIZE), mdp_rd(p, SSPP_OUT_SIZE),
++		IOLog("BERGAMOTA MDP: %s src0 0x%08x stride 0x%x size 0x%08x out 0x%08x fmt 0x%08x op 0x%08x%s\n",
++		    bergamota_mdp_pipes[i].name, src, stride, mdp_rd(p, SSPP_SRC_SIZE), mdp_rd(p, SSPP_OUT_SIZE),
 +		    mdp_rd(p, SSPP_SRC_FORMAT), mdp_rd(p, SSPP_OP_MODE),
 +		    src == (uint32_t)fPhys ? "  <- boot framebuffer" : "");
-+		if (sweet_mdp_pipes[i].vig) {
-+			IOLog("SWEET MDP: %s qseed3 ver 0x%08x op 0x%08x\n", sweet_mdp_pipes[i].name,
++		if (bergamota_mdp_pipes[i].vig) {
++			IOLog("BERGAMOTA MDP: %s qseed3 ver 0x%08x op 0x%08x\n", bergamota_mdp_pipes[i].name,
 +			    mdp_rd(p, 0xa00), mdp_rd(p, 0xa04));
 +		}
 +		if (src == (uint32_t)fPhys && fPipe < 0) {
@@ -158,16 +158,16 @@ index 2afbc2135542d6bdf6984a88df74c2613027ebf1..2f8f29984b2900f298f3142ceb1e850f
 +			fBootStride = stride;
 +		}
 +	}
-+	vm_offset_t ctl = fMdp + SWEET_MDP_CTL0;
-+	IOLog("SWEET MDP: CTL0 layer0 0x%08x 0x%08x 0x%08x 0x%08x top 0x%08x flush 0x%08x; LM0 out 0x%08x\n",
++	vm_offset_t ctl = fMdp + BERGAMOTA_MDP_CTL0;
++	IOLog("BERGAMOTA MDP: CTL0 layer0 0x%08x 0x%08x 0x%08x 0x%08x top 0x%08x flush 0x%08x; LM0 out 0x%08x\n",
 +	    mdp_rd(ctl, 0x00), mdp_rd(ctl, 0x04), mdp_rd(ctl, 0x08), mdp_rd(ctl, 0x0c), mdp_rd(ctl, 0x14),
-+	    mdp_rd(ctl, SWEET_MDP_CTL_FLUSH), mdp_rd(fMdp + SWEET_MDP_LM0, 0x04));
-+	uint32_t f0 = mdp_rd(fMdp + SWEET_MDP_INTF1, 0xac);
++	    mdp_rd(ctl, BERGAMOTA_MDP_CTL_FLUSH), mdp_rd(fMdp + BERGAMOTA_MDP_LM0, 0x04));
++	uint32_t f0 = mdp_rd(fMdp + BERGAMOTA_MDP_INTF1, 0xac);
 +	IODelay(100000);
-+	uint32_t f1 = mdp_rd(fMdp + SWEET_MDP_INTF1, 0xac);
-+	IOLog("SWEET MDP: INTF1 frame count %u -> %u in 100 ms (line count en 0x%x); pipe %s\n",
-+	    f0, f1, mdp_rd(fMdp + SWEET_MDP_INTF1, 0xa8),
-+	    fPipe >= 0 ? sweet_mdp_pipes[fPipe].name : "NOT FOUND");
++	uint32_t f1 = mdp_rd(fMdp + BERGAMOTA_MDP_INTF1, 0xac);
++	IOLog("BERGAMOTA MDP: INTF1 frame count %u -> %u in 100 ms (line count en 0x%x); pipe %s\n",
++	    f0, f1, mdp_rd(fMdp + BERGAMOTA_MDP_INTF1, 0xa8),
++	    fPipe >= 0 ? bergamota_mdp_pipes[fPipe].name : "NOT FOUND");
 +}
 +
 +/* Two back buffers after ABL's framebuffer, inside cont_splash_region (36 MiB). */
@@ -196,16 +196,16 @@ index 2afbc2135542d6bdf6984a88df74c2613027ebf1..2f8f29984b2900f298f3142ceb1e850f
 +		fBufVA[i] = (uintptr_t)fBufMap[i]->getVirtualAddress();
 +		memcpy((void *)fBufVA[i], (const void *)fPixels, (size_t)fRowBytes * fHeight);
 +	}
-+	sweet_mdp_panic_off = sweet_mdp_pipes[fPipe].off;
-+	sweet_mdp_panic_flush = sweet_mdp_pipes[fPipe].flush;
-+	sweet_mdp_panic_src = fBootSrc;
-+	sweet_mdp_panic_stride = fBootStride;
-+	sweet_mdp_panic_base = fMdp;
-+	sweet_fb_panic_hook = sweet_fb_restore_boot_scanout;
++	bergamota_mdp_panic_off = bergamota_mdp_pipes[fPipe].off;
++	bergamota_mdp_panic_flush = bergamota_mdp_pipes[fPipe].flush;
++	bergamota_mdp_panic_src = fBootSrc;
++	bergamota_mdp_panic_stride = fBootStride;
++	bergamota_mdp_panic_base = fMdp;
++	bergamota_fb_panic_hook = bergamota_fb_restore_boot_scanout;
 +	fFront = 0;
 +	fFlip = true;
-+	IOLog("SWEET FB: page flipping on %s: frames 0x%llx 0x%llx 0x%llx\n",
-+	    sweet_mdp_pipes[fPipe].name, fBufPA[0], fBufPA[1], fBufPA[2]);
++	IOLog("BERGAMOTA FB: page flipping on %s: frames 0x%llx 0x%llx 0x%llx\n",
++	    bergamota_mdp_pipes[fPipe].name, fBufPA[0], fBufPA[1], fBufPA[2]);
 +	return true;
 +}
 +
@@ -213,13 +213,13 @@ index 2afbc2135542d6bdf6984a88df74c2613027ebf1..2f8f29984b2900f298f3142ceb1e850f
 +void
 +AppleCLCD::scanTo(uint32_t idx)
 +{
-+	volatile uint32_t *p = (volatile uint32_t *)(fMdp + sweet_mdp_pipes[fPipe].off);
++	volatile uint32_t *p = (volatile uint32_t *)(fMdp + bergamota_mdp_pipes[fPipe].off);
 +	__asm__ volatile ("dsb sy" ::: "memory");      /* WC writes of the frame land first */
 +	p[SSPP_SRC0_ADDR / 4] = (uint32_t)fBufPA[idx];
 +	p[SSPP_YSTRIDE0 / 4] = (fBootStride & 0xffff0000u) | fRowBytes;
 +	__asm__ volatile ("dsb sy" ::: "memory");
-+	*(volatile uint32_t *)(fMdp + SWEET_MDP_CTL0 + SWEET_MDP_CTL_FLUSH) =
-+	    sweet_mdp_pipes[fPipe].flush | SWEET_MDP_CTL_BIT;
++	*(volatile uint32_t *)(fMdp + BERGAMOTA_MDP_CTL0 + BERGAMOTA_MDP_CTL_FLUSH) =
++	    bergamota_mdp_pipes[fPipe].flush | BERGAMOTA_MDP_CTL_BIT;
 +	__asm__ volatile ("dsb sy" ::: "memory");
 +	fFront = idx;
 +}
@@ -227,7 +227,7 @@ index 2afbc2135542d6bdf6984a88df74c2613027ebf1..2f8f29984b2900f298f3142ceb1e850f
  /*
   * One layer, logical rect (dx,dy,w,h) from surface origin (sx,sy), scaled
   * into the panel with nearest-neighbour sampling: every panel pixel picks
-@@ -395,11 +585,11 @@ AppleCLCD::presentScaled(SweetSurface *s, uintptr_t src, int32_t sx, int32_t sy,
+@@ -395,11 +585,11 @@ AppleCLCD::presentScaled(BergamotaSurface *s, uintptr_t src, int32_t sx, int32_t sy,
  	if (last > s->memory->getLength()) {
  		return;
  	}
@@ -242,7 +242,7 @@ index 2afbc2135542d6bdf6984a88df74c2613027ebf1..2f8f29984b2900f298f3142ceb1e850f
  	}
  	int32_t px0 = fPadX + (int32_t)((uint64_t)dx * fScaleXNum / fScaleXDen);
  	int32_t px1 = fPadX + (int32_t)((uint64_t)(dx + w) * fScaleXNum / fScaleXDen);
-@@ -424,7 +614,7 @@ AppleCLCD::presentScaled(SweetSurface *s, uintptr_t src, int32_t sx, int32_t sy,
+@@ -424,7 +614,7 @@ AppleCLCD::presentScaled(BergamotaSurface *s, uintptr_t src, int32_t sx, int32_t sy,
  		int32_t ly = (int32_t)((uint64_t)(py - fPadY) * fScaleYDen / fScaleYNum) - dy;
  		ly = ly < 0 ? 0 : (ly >= h ? h - 1 : ly);
  		const uint32_t *srow = (const uint32_t *)(base + (uint64_t)(sy + ly) * s->bytesPerRow);
@@ -262,7 +262,7 @@ index 2afbc2135542d6bdf6984a88df74c2613027ebf1..2f8f29984b2900f298f3142ceb1e850f
 +	fDrawIdx = back;
 +	fDraw = fFlip ? fBufVA[back] : fPixels;
 +
- 	for (uint32_t layer = 0; layer < SWEET_FB_LAYERS; layer++) {
+ 	for (uint32_t layer = 0; layer < BERGAMOTA_FB_LAYERS; layer++) {
  		uint32_t id = get32(rec, 0x54 + 4 * layer);
  		const uint8_t *a = rec + 0x64 + 16 * layer;
 @@ -521,13 +718,16 @@ AppleCLCD::present(const uint8_t *rec)
@@ -287,24 +287,24 @@ diff --git a/osfmk/console/serial_console.c b/osfmk/console/serial_console.c
 index 9a0bfc146e383ae5bb67c6df04a601d278e984da..17e9ee267928293117d1d83d1394709c5c436819 100644
 --- a/osfmk/console/serial_console.c
 +++ b/osfmk/console/serial_console.c
-@@ -283,6 +283,8 @@ extern void sweet_log_append(const char *c, int size);  /* bsd/dev/sweet_ufs.c *
+@@ -283,6 +283,8 @@ extern void bergamota_log_append(const char *c, int size);  /* bsd/dev/bergamota_ufs.c *
   * the GUI. A panic draws again.
   */
- int sweet_console_muted;
+ int bergamota_console_muted;
 +/* Set by AppleCLCD when it page-flips the panel away from ABL's framebuffer. */
-+void (*sweet_fb_panic_hook)(void);
++void (*bergamota_fb_panic_hook)(void);
  #endif
  
  static inline void
 @@ -290,6 +292,11 @@ _cnputs(char *c, int size, bool poll)
  {
- #if defined(ARM64_BOARD_CONFIG_SWEET)
- 	sweet_log_append(c, size);
-+	if (sweet_fb_panic_hook != NULL && panic_active()) {
-+		void (*hook)(void) = sweet_fb_panic_hook;
-+		sweet_fb_panic_hook = NULL;
+ #if defined(ARM64_BOARD_CONFIG_BERGAMOTA)
+ 	bergamota_log_append(c, size);
++	if (bergamota_fb_panic_hook != NULL && panic_active()) {
++		void (*hook)(void) = bergamota_fb_panic_hook;
++		bergamota_fb_panic_hook = NULL;
 +		hook();         /* the console draws into ABL's framebuffer */
 +	}
- 	if (sweet_console_muted && !panic_active()) {
+ 	if (bergamota_console_muted && !panic_active()) {
  		return;
  	}

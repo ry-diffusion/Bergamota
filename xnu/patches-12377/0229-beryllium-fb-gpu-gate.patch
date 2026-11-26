@@ -1,8 +1,8 @@
-diff --git a/bsd/dev/sweet_a630.c b/bsd/dev/sweet_a630.c
+diff --git a/bsd/dev/bergamota_a630.c b/bsd/dev/bergamota_a630.c
 index ae7066aa522354540565416566a344c59085a82c..b1b6da2d465b43650c82c06cabd783f5f61bf8d7 100644
---- a/bsd/dev/sweet_a630.c
-+++ b/bsd/dev/sweet_a630.c
-@@ -2798,6 +2798,31 @@ sweet_gpu_fence_last(void)
+--- a/bsd/dev/bergamota_a630.c
++++ b/bsd/dev/bergamota_a630.c
+@@ -2798,6 +2798,31 @@ bergamota_gpu_fence_last(void)
  	return a630_dev.seqno;
  }
  
@@ -12,43 +12,43 @@ index ae7066aa522354540565416566a344c59085a82c..b1b6da2d465b43650c82c06cabd783f5
 + * display waits on the GPU's write fence, and this pair is ours: the newest submitted fence when a swap arrives, and whether
 + * a fence has passed. With the GPU not running every fence counts as passed.
 + */
-+uint32_t sweet_gpu_fence_snapshot(void);
-+bool sweet_gpu_fence_passed(uint32_t fence);
-+bool sweet_gpu_fence_done(uint32_t fence);
++uint32_t bergamota_gpu_fence_snapshot(void);
++bool bergamota_gpu_fence_passed(uint32_t fence);
++bool bergamota_gpu_fence_done(uint32_t fence);
 +
 +uint32_t
-+sweet_gpu_fence_snapshot(void)
++bergamota_gpu_fence_snapshot(void)
 +{
 +	return a630_dev.ready && cp_memory ? a630_dev.seqno : 0;
 +}
 +
 +bool
-+sweet_gpu_fence_passed(uint32_t fence)
++bergamota_gpu_fence_passed(uint32_t fence)
 +{
 +	if (fence == 0 || !a630_dev.ready || !cp_memory) {
 +		return true;
 +	}
-+	return sweet_gpu_fence_done(fence);
++	return bergamota_gpu_fence_done(fence);
 +}
 +
  bool
- sweet_gpu_fence_done(uint32_t fence)
+ bergamota_gpu_fence_done(uint32_t fence)
  {
-diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
+diff --git a/iokit/Kernel/arm/BergamotaFramebuffer.cpp b/iokit/Kernel/arm/BergamotaFramebuffer.cpp
 index ac52138fa9c6fe8b004ba1c734dd3852381f3ed6..0fd7d139f1cf8b486055d05e828737d9b2b5a5f4 100644
---- a/iokit/Kernel/arm/SweetFramebuffer.cpp
-+++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
-@@ -47,7 +47,9 @@ extern "C" void sweet_busy_init(void);          /* iokit/Kernel/arm/SweetBusy.cp
- #include "../../../bsd/dev/sweet_spmi.h"
- extern "C" int sweet_smmu_probe_sid(unsigned sid, unsigned level); /* bsd/dev/sweet_smmu.c, read only */
- extern "C" void sweet_fb_stats_publish(const char *text);       /* bsd/dev/sweet_fb.c: sysctl kern.sweet_fb */
--extern "C" int sweet_fb_hud;                    /* bsd/dev/sweet_fb.c: sysctl kern.sweet_fb_hud (patch 0213) */
-+extern "C" int sweet_fb_hud;
-+extern "C" uint32_t sweet_gpu_fence_snapshot(void);     /* bsd/dev/sweet_a630.c (0229) */
-+extern "C" bool sweet_gpu_fence_passed(uint32_t fence);                    /* bsd/dev/sweet_fb.c: sysctl kern.sweet_fb_hud (patch 0213) */
+--- a/iokit/Kernel/arm/BergamotaFramebuffer.cpp
++++ b/iokit/Kernel/arm/BergamotaFramebuffer.cpp
+@@ -47,7 +47,9 @@ extern "C" void bergamota_busy_init(void);          /* iokit/Kernel/arm/BergamotaBusy.cp
+ #include "../../../bsd/dev/bergamota_spmi.h"
+ extern "C" int bergamota_smmu_probe_sid(unsigned sid, unsigned level); /* bsd/dev/bergamota_smmu.c, read only */
+ extern "C" void bergamota_fb_stats_publish(const char *text);       /* bsd/dev/bergamota_fb.c: sysctl kern.bergamota_fb */
+-extern "C" int bergamota_fb_hud;                    /* bsd/dev/bergamota_fb.c: sysctl kern.bergamota_fb_hud (patch 0213) */
++extern "C" int bergamota_fb_hud;
++extern "C" uint32_t bergamota_gpu_fence_snapshot(void);     /* bsd/dev/bergamota_a630.c (0229) */
++extern "C" bool bergamota_gpu_fence_passed(uint32_t fence);                    /* bsd/dev/bergamota_fb.c: sysctl kern.bergamota_fb_hud (patch 0213) */
  
  /*
-  * 0228: per-frame trace for frame pacing (sysctl kern.sweet_fb_trace). One record per swap id (ring of 128, index id & 127):
+  * 0228: per-frame trace for frame pacing (sysctl kern.bergamota_fb_trace). One record per swap id (ring of 128, index id & 127):
 @@ -303,6 +305,9 @@ public:
  	 */
  	bool          fSwapSync;
@@ -56,7 +56,7 @@ index ac52138fa9c6fe8b004ba1c734dd3852381f3ed6..0fd7d139f1cf8b486055d05e828737d9
 +	uint32_t      fPendFence;       /* 0229: newest GPU fence submitted when the pending swap arrived */
 +	uint64_t      fPendAbs;         /* 0229: when it arrived */
 +	bool          gpuGateOpen(uint64_t now);
- 	uint32_t      fSwapDepth;       /* sweetfb_swapdepth: 1 = SwapWait(N) waits until N latched, 2 (default) = until N-1 latched */
+ 	uint32_t      fSwapDepth;       /* bergamotafb_swapdepth: 1 = SwapWait(N) waits until N latched, 2 (default) = until N-1 latched */
  	bool          fWatching;        /* a frame is queued: the swap timer polls for its latch every 500 us */
  	void          latchWatch(void);
 @@ -329,6 +334,7 @@ public:
@@ -74,11 +74,11 @@ index ac52138fa9c6fe8b004ba1c734dd3852381f3ed6..0fd7d139f1cf8b486055d05e828737d9
 -	bool flush = fb->fDirty && (count % fb->fFlushTicks) == 0;
 +	bool flush = fb->fDirty && (count % fb->fFlushTicks) == 0 && fb->gpuGateOpen(mach_absolute_time());
  	uint8_t *rec = NULL;
- 	SweetSurface *taken[4] = {};
+ 	BergamotaSurface *taken[4] = {};
  	if (flush) {
 @@ -901,6 +907,27 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
   * back (unless a newer swap arrived meanwhile) for the vsync tick's copy path. Never
-  * copies: a copied frame is rate limited by sweetfb_hz, a scanned one is not.
+  * copies: a copied frame is rate limited by bergamotafb_hz, a scanned one is not.
   */
 +/*
 + * 0229: the pending swap is taken only once the GPU work submitted before it has completed (it may be drawing that very
@@ -87,7 +87,7 @@ index ac52138fa9c6fe8b004ba1c734dd3852381f3ed6..0fd7d139f1cf8b486055d05e828737d9
 +bool
 +AppleCLCD::gpuGateOpen(uint64_t now)
 +{
-+	if (sweet_gpu_fence_passed(fPendFence)) {
++	if (bergamota_gpu_fence_passed(fPendFence)) {
 +		return true;
 +	}
 +	uint64_t cap;
@@ -113,15 +113,15 @@ index ac52138fa9c6fe8b004ba1c734dd3852381f3ed6..0fd7d139f1cf8b486055d05e828737d9
 +		fb->fSwapTimer->setTimeoutUS(250);      /* 0229: the GPU is still drawing what was submitted before this swap */
 +		return;
 +	}
- 	memcpy(fb->fEarlyRec, fb->fPending, SWEET_FB_SWAP_REC_SIZE);
+ 	memcpy(fb->fEarlyRec, fb->fPending, BERGAMOTA_FB_SWAP_REC_SIZE);
  	fb->fDirty = false;
  	memcpy(taken, fb->fPendHold, sizeof(taken));
 @@ -1107,6 +1139,8 @@ AppleCLCD::swap(const uint8_t *rec)
  	}
  	IOLockLock(fLock);
  	fSt.swaps++;
-+	fPendFence = sweet_gpu_fence_snapshot();
++	fPendFence = bergamota_gpu_fence_snapshot();
 +	fPendAbs = mach_absolute_time();
  	__atomic_store_n(&fSwapNewest, get32(rec, 0x50), __ATOMIC_RELEASE);
  	{
- 		struct sweet_fb_trace_rec *tr = &sweet_fb_trace[get32(rec, 0x50) & (SWEET_FB_TRACE_N - 1)];
+ 		struct bergamota_fb_trace_rec *tr = &bergamota_fb_trace[get32(rec, 0x50) & (BERGAMOTA_FB_TRACE_N - 1)];

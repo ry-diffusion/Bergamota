@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Symbolicate one process from a SWEET stack sample (SMP lines, sweetsample=):
+# Symbolicate one process from a BERGAMOTA stack sample (SMP lines, bergamotasample=):
 #   tools/smp-sym.py CLEAN_LOG PROCESS SAMPLE_NO   (needs research/dsc/dyld_shared_cache_arm64 and ipsw)
 import re, subprocess, sys
 L, want, sample = sys.argv[1], sys.argv[2], sys.argv[3]

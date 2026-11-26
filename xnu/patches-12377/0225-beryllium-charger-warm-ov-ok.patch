@@ -1,7 +1,7 @@
-diff --git a/bsd/dev/sweet_charger.c b/bsd/dev/sweet_charger.c
+diff --git a/bsd/dev/bergamota_charger.c b/bsd/dev/bergamota_charger.c
 index 1e08d937ca1ed6756678ab67c4ff10ea21cea292..e4c70d7e7e78504a23c07b5c5ee826cff70a8c31 100644
---- a/bsd/dev/sweet_charger.c
-+++ b/bsd/dev/sweet_charger.c
+--- a/bsd/dev/bergamota_charger.c
++++ b/bsd/dev/bergamota_charger.c
 @@ -294,14 +294,17 @@ sc_temp_name(const struct sc_snap *s)
  }
  

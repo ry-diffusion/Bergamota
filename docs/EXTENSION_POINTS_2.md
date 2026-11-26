@@ -146,7 +146,7 @@ Primary (no code): **force a LaunchServices re-seed now that the catalog is read
 - Option B (no reflash): delete on the phone
   `/private/var/mobile/Containers/Data/InternalDaemon/3ED48A87-B795-429E-9BCB-E3502EA1A6EC/Library/Caches/com.apple.LaunchServices*`
   (store, `.csstore` writer logs, `*.error`/`*.syncInterrupted`) and reboot.
-- Make it repeatable in `tools/sweet-root-tweaks.py` (for roots that were already booted), idempotent, e.g. in `main()`
+- Make it repeatable in `tools/bergamota-root-tweaks.py` (for roots that were already booted), idempotent, e.g. in `main()`
   after `containers(root)`:
 
   ```python

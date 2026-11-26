@@ -69,7 +69,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
  
 -/* one received HTC message (ath10k_htc_rx_completion_handler: 8-byte header, endpoint 0 = control) */
 +/*
-+ * ---- HTC + WMI (sweetwmi=1, after HTC READY): ath10k core.c ath10k_core_start() order: HTC connect HTT_DATA_MSG
++ * ---- HTC + WMI (bergamotawmi=1, after HTC READY): ath10k core.c ath10k_core_start() order: HTC connect HTT_DATA_MSG
 + * (no credit flow), HTC connect WMI_CONTROL (credit flow, the one transmit credit: WCN3990 does not use the
 + * firmware's credit count), HTC SETUP_COMPLETE_EX; then the target's WMI SERVICE_READY event (capabilities, host
 + * memory requests), host memory from the pool, WMI INIT (wmi-tlv.c gen_init: ABI version, resource config, memory
@@ -115,7 +115,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	uint32_t b = WCE_BASE(wce_ring[r].ce), mask = wce_ring[r].n - 1, wr = wce.wr[r];
 +	uint32_t srri = wl_rd(wce.regs, b + CE_CURRENT_SRRI) & mask;
 +	if (((srri - 1 - wr) & mask) == 0) {
-+		printf("SWEET IPC: wmi: CE%u source ring full\n", wce_ring[r].ce);
++		printf("BERGAMOTA IPC: wmi: CE%u source ring full\n", wce_ring[r].ce);
 +		return false;
 +	}
 +	uint8_t *buf = (uint8_t *)(wce.pool + wce_ring[r].bufs + (uint64_t)wr * CE_RX_BUF);
@@ -252,7 +252,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		n += 20;
 +	}
 +	v = n;
-+	printf("SWEET IPC: wmi: INIT (%u bytes, %u memory chunks, rx reorder offload %s, tx ack rssi %s)\n", v,
++	printf("BERGAMOTA IPC: wmi: INIT (%u bytes, %u memory chunks, rx reorder offload %s, tx ack rssi %s)\n", v,
 +	    wce.nchunks, reorder ? "on" : "off", wce.ack_rssi ? "on" : "off");
 +	if (!wce_send(1, wce.wmi_eid, c, n)) {
 +		wf_fail("WMI INIT not sent", 0);
@@ -304,9 +304,9 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	memset(wce.svc, 0, sizeof(wce.svc));
 +	memcpy(wce.svc, bmap, MIN((uint32_t)bmapl, (uint32_t)sizeof(wce.svc)));
 +	wce.svc_bytes = bmapl;
-+	printf("SWEET IPC: wmi: service bitmap %u bytes: %08x %08x %08x %08x %08x %08x %08x %08x ...\n", bmapl, wce.svc[0],
++	printf("BERGAMOTA IPC: wmi: service bitmap %u bytes: %08x %08x %08x %08x %08x %08x %08x %08x ...\n", bmapl, wce.svc[0],
 +	    wce.svc[1], wce.svc[2], wce.svc[3], wce.svc[4], wce.svc[5], wce.svc[6], wce.svc[7]);
-+	printf("SWEET IPC: wmi: SERVICE_READY fw_build %#x abi %#x/%u ns %#x %#x, phy_cap %#x, %u rf chains, ht_cap %#x "
++	printf("BERGAMOTA IPC: wmi: SERVICE_READY fw_build %#x abi %#x/%u ns %#x %#x, phy_cap %#x, %u rf chains, ht_cap %#x "
 +	    "vht_cap %#x, tx power %u..%u, %u memory requests; regdomain %#x, 2 GHz %u-%u, 5 GHz %u-%u\n", e[0], e[1], e[2],
 +	    e[3], e[4], e[7], e[9], e[10], e[11], e[13], e[14], e[18], rg[0], rg[5], rg[6], rg[7], rg[8]);
 +	ipc_note(" wmi svc-ready fw %#x phy %#x chains %u mem %u rd %#x;", e[0], e[7], e[9], e[18], rg[0]);
@@ -340,7 +340,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			units = 4 + 1;                  /* NUM_UNITS_IS_NUM_VDEVS */
 +		}
 +		uint64_t sz = (uint64_t)units * usize;
-+		printf("SWEET IPC: wmi: memory request %u: id %u, %u units of %u bytes (info %#x) = %llu bytes\n",
++		printf("BERGAMOTA IPC: wmi: memory request %u: id %u, %u units of %u bytes (info %#x) = %llu bytes\n",
 +		    wce.nchunks, q[0], units, q[1], q[2], sz);
 +		if (sz == 0 || sz > WCE_POOL_LEN - off) {
 +			wf_fail("memory request does not fit the pool", 0);
@@ -354,7 +354,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		o += 4 + l;
 +	}
 +	if (wce.nchunks != e[18]) {
-+		printf("SWEET IPC: wmi: %u memory requests parsed, the event says %u\n", wce.nchunks, e[18]);
++		printf("BERGAMOTA IPC: wmi: %u memory requests parsed, the event says %u\n", wce.nchunks, e[18]);
 +		wf_fail("memory request count mismatch", 0);
 +		return;
 +	}
@@ -374,7 +374,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
  		for (uint32_t i = 0; i < MIN(len, 32u); i++) {
 @@ -4014,22 +4317,133 @@
  		wce.logged++;
- 		printf("SWEET IPC: wce: CE%u message %u bytes: %s\n", ce, len, hex);
+ 		printf("BERGAMOTA IPC: wce: CE%u message %u bytes: %s\n", ce, len, hex);
  	}
 -	if (len < 8 + 8) {
 +	if (len < 8 + 2) {
@@ -388,13 +388,13 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 -		memcpy(&wce.credit_size, p + 12, 2);
 -		wce.max_ep = p[14];
 -		wce.htc_version = hlen >= 12 && len >= 20 ? p[16] : 0xff;  /* ath10k_htc_ready_extended */
--		printf("SWEET IPC: wce: HTC READY: %u credits of %u bytes, %u endpoints, HTC version %u: the WCN3990 "
+-		printf("BERGAMOTA IPC: wce: HTC READY: %u credits of %u bytes, %u endpoints, HTC version %u: the WCN3990 "
 -		    "talks to the host\n", wce.credits, wce.credit_size, wce.max_ep, wce.htc_version);
 -		ipc_note(" wce HTC-READY %u x %u ep %u v %u;", wce.credits, wce.credit_size, wce.max_ep, wce.htc_version);
 -		wf.state = WS_HTC_READY;
 +	uint32_t trailer = (p[1] & 2) ? p[4] : 0;   /* ATH10K_HTC_FLAG_TRAILER_PRESENT */
 +	if (8u + hlen > len || trailer > hlen || ((p[1] & 2) && trailer < 4)) {
-+		printf("SWEET IPC: wce: malformed HTC message (len %u, header len %u, trailer %u)\n", len, hlen, trailer);
++		printf("BERGAMOTA IPC: wce: malformed HTC message (len %u, header len %u, trailer %u)\n", len, hlen, trailer);
 +		return;
  	}
 +	const uint8_t *pl = p + 8;
@@ -419,7 +419,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			memcpy(&wce.credit_size, pl + 4, 2);
 +			wce.max_ep = pl[6];
 +			wce.htc_version = plen >= 12 ? pl[8] : 0xff;   /* ath10k_htc_ready_extended */
-+			printf("SWEET IPC: wce: HTC READY: %u credits of %u bytes, %u endpoints, HTC version %u: the WCN3990 "
++			printf("BERGAMOTA IPC: wce: HTC READY: %u credits of %u bytes, %u endpoints, HTC version %u: the WCN3990 "
 +			    "talks to the host\n", wce.credits, wce.credit_size, wce.max_ep, wce.htc_version);
 +			ipc_note(" wce HTC-READY %u x %u ep %u v %u;", wce.credits, wce.credit_size, wce.max_ep,
 +			    wce.htc_version);
@@ -432,7 +432,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			memcpy(&svc, pl + 2, 2);
 +			memcpy(&maxm, pl + 6, 2);
 +			uint8_t st = pl[4], eid = pl[5];
-+			printf("SWEET IPC: wmi: HTC connect %#x -> status %u endpoint %u max message %u\n", svc, st, eid, maxm);
++			printf("BERGAMOTA IPC: wmi: HTC connect %#x -> status %u endpoint %u max message %u\n", svc, st, eid, maxm);
 +			ipc_note(" htc conn %#x st %u ep %u max %u;", svc, st, eid, maxm);
 +			if (svc != wce.conn_svc || st != 0 || eid == 0 || eid >= 8 || maxm == 0) {
 +				wf_fail("HTC connect refused", st);
@@ -448,13 +448,13 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +				if (!wce_send(0, 0, sc, sizeof(sc))) {
 +					wf_fail("HTC setup complete not sent", 0);
 +				} else {
-+					printf("SWEET IPC: wmi: HTC setup complete sent; waiting for WMI SERVICE_READY\n");
++					printf("BERGAMOTA IPC: wmi: HTC setup complete sent; waiting for WMI SERVICE_READY\n");
 +					wf.state = WS_WMI_WAIT_SVC;
 +					wf.sent_ms = ms_now_ms();
 +				}
 +			}
 +		} else {
-+			printf("SWEET IPC: wce: HTC control message %u (%u bytes) in state %s\n", id, plen, wf_state_name[wf.state]);
++			printf("BERGAMOTA IPC: wce: HTC control message %u (%u bytes) in state %s\n", id, plen, wf_state_name[wf.state]);
 +		}
 +		return;
 +	}
@@ -478,7 +478,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +				}
 +			}
 +			wce.svc_avail = true;
-+			printf("SWEET IPC: wmi: SERVICE_AVAILABLE: tx ack rssi %u, extended address %u\n", wce.ack_rssi,
++			printf("BERGAMOTA IPC: wmi: SERVICE_AVAILABLE: tx ack rssi %u, extended address %u\n", wce.ack_rssi,
 +			    wce.ext_addr);
 +		} else if (ev == 0x2 && wf.state == WS_WMI_INIT) {      /* READY */
 +			const uint8_t *rv = NULL;
@@ -501,18 +501,18 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +			uint32_t st;
 +			memcpy(wce.mac, rv + 24, 6);
 +			memcpy(&st, rv + 32, 4);
-+			printf("SWEET IPC: wmi: READY status %u, MAC %02x:%02x:%02x:%02x:%02x:%02x: WMI is up\n", st, wce.mac[0],
++			printf("BERGAMOTA IPC: wmi: READY status %u, MAC %02x:%02x:%02x:%02x:%02x:%02x: WMI is up\n", st, wce.mac[0],
 +			    wce.mac[1], wce.mac[2], wce.mac[3], wce.mac[4], wce.mac[5]);
 +			ipc_note(" wmi READY st %u mac %02x:%02x:%02x:%02x:%02x:%02x;", st, wce.mac[0], wce.mac[1], wce.mac[2],
 +			    wce.mac[3], wce.mac[4], wce.mac[5]);
 +			wf.state = WS_WMI_READY;
 +		} else if (wce.wmi_events <= 16) {
-+			printf("SWEET IPC: wmi: event %#x (%u bytes) in state %s\n", ev, plen, wf_state_name[wf.state]);
++			printf("BERGAMOTA IPC: wmi: event %#x (%u bytes) in state %s\n", ev, plen, wf_state_name[wf.state]);
 +		}
 +		return;
 +	}
 +	if (p[0] == wce.htt_eid && wce.htt_eid && wce.htt_msgs++ < 8) {
-+		printf("SWEET IPC: wmi: HTT message type %u (%u bytes)\n", pl[0], plen);
++		printf("BERGAMOTA IPC: wmi: HTT message type %u (%u bytes)\n", pl[0], plen);
 +	}
  }
  
@@ -548,21 +548,21 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
  
 @@ -4524,6 +4948,9 @@
  	int ce = 0;
- 	(void)PE_parse_boot_argn("sweetce", &ce, sizeof(ce));
+ 	(void)PE_parse_boot_argn("bergamotace", &ce, sizeof(ce));
  	ipc.ce = ipc.wlfw && ce == 1;
 +	int wmi = 0;
-+	(void)PE_parse_boot_argn("sweetwmi", &wmi, sizeof(wmi));
++	(void)PE_parse_boot_argn("bergamotawmi", &wmi, sizeof(wmi));
 +	ipc.wmi = ipc.ce && wmi == 1;
  	memset(&wf, 0, sizeof(wf));
  	if (ipc.wlfw && !wf_rails()) {
  		ipc.wlfw = false;
 @@ -4596,6 +5023,11 @@
  	if (ipc.ce) {
- 		printf("SWEET IPC: wce: %u target messages, HTC %s (%u credits of %u bytes, %u endpoints)\n", wce.msgs,
+ 		printf("BERGAMOTA IPC: wce: %u target messages, HTC %s (%u credits of %u bytes, %u endpoints)\n", wce.msgs,
  		    wce.credits ? "READY" : "not seen", wce.credits, wce.credit_size, wce.max_ep);
 +	}
 +	if (ipc.wmi) {
-+		printf("SWEET IPC: wmi: endpoints HTT %u WMI %u, %u WMI events, %u memory chunks, MAC %02x:%02x:%02x:%02x:%02x:%02x\n",
++		printf("BERGAMOTA IPC: wmi: endpoints HTT %u WMI %u, %u WMI events, %u memory chunks, MAC %02x:%02x:%02x:%02x:%02x:%02x\n",
 +		    wce.htt_eid, wce.wmi_eid, wce.wmi_events, wce.nchunks, wce.mac[0], wce.mac[1], wce.mac[2], wce.mac[3],
 +		    wce.mac[4], wce.mac[5]);
  	}

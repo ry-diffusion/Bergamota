@@ -24,7 +24,7 @@ struct MediaView: View {
                         Text("Phone folder").tag(false)
                     }.pickerStyle(.segmented)
                     if toPhotos {
-                        Text("Images are converted to JPEG (sips) into DCIM/100APPLE via tools/sweet-push-photo.sh; videos are copied as VID_*. Other files go to \(PhoneTools.defaultDownloads).")
+                        Text("Images are converted to JPEG (sips) into DCIM/100APPLE via tools/bergamota-push-photo.sh; videos are copied as VID_*. Other files go to \(PhoneTools.defaultDownloads).")
                             .font(.caption).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
                     } else {
                         TextField("Folder on the phone", text: $folder).textFieldStyle(.roundedBorder).font(BFont.mono(12))

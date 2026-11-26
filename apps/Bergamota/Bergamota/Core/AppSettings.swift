@@ -20,10 +20,10 @@ final class AppSettings {
     var allowRemoteStart: Bool { didSet { d.set(allowRemoteStart, forKey: "allowRemoteStart") } }
     var autoSaveLog: Bool { didSet { d.set(autoSaveLog, forKey: "autoSaveLog") } }
     var notifyOnIOS: Bool { didSet { d.set(notifyOnIOS, forKey: "notifyOnIOS") } }
-    /// Reboot the phone from iOS into fastboot (SSH `sweetreboot fastboot`) when a queued image is waiting.
+    /// Reboot the phone from iOS into fastboot (SSH `bergamotareboot fastboot`) when a queued image is waiting.
     var autoRebootToFastboot: Bool { didSet { d.set(autoRebootToFastboot, forKey: "autoRebootToFastboot") } }
 
-    /// Prefer Bergamota fastboot (Enxerto's) over ABL fastboot for the automatic reboot of queued boots; falls back to ABL when `sweetreboot bergamota` fails.
+    /// Prefer Bergamota fastboot (Enxerto's) over ABL fastboot for the automatic reboot of queued boots; falls back to ABL when `bergamotareboot bergamota` fails.
     var preferBergamotaFastboot: Bool { didSet { d.set(preferBergamotaFastboot, forKey: "preferBergamotaFastboot") } }
     /// Flash route: "auto" = Bergamota fastboot (Enxerto's, tools/bergamota-flash.py), ABL fastboot as the fallback; "abl" = ABL only.
     var flashVia: String { didSet { d.set(flashVia, forKey: "flashVia") } }
@@ -31,7 +31,7 @@ final class AppSettings {
     var flashMode: String { didSet { d.set(flashMode, forKey: "flashMode") } }
     /// Optional explicit path of tools/bergamota-flash.py (empty = find it in the repo / sibling worktrees).
     var flashToolPath: String { didSet { d.set(flashToolPath, forKey: "flashToolPath") } }
-    /// Let `sweetmetrics --gpu-info` open a SweetAdreno630 user client every poll to read the INFO selector (ready/lost). Off by default:
+    /// Let `bergamotametrics --gpu-info` open a BergamotaAdreno630 user client every poll to read the INFO selector (ready/lost). Off by default:
     /// a client on the GPU service can interfere with GPU tests and with the idle slumber of the DCVS governor.
     var metricsGPUInfo: Bool { didSet { d.set(metricsGPUInfo, forKey: "metricsGPUInfo") } }
     /// Image `fastboot boot`ed from ABL fastboot by "Enter Bergamota fastboot".

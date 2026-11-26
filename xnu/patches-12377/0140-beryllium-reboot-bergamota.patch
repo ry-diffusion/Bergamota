@@ -1,18 +1,18 @@
-diff --git a/bsd/dev/sweet_reboot.c b/bsd/dev/sweet_reboot.c
+diff --git a/bsd/dev/bergamota_reboot.c b/bsd/dev/bergamota_reboot.c
 index 15ebee60b5145db4d51de2128a34478bb2bfc285..3bd75a69240903a691f33557f79f54194ff8655c 100644
---- a/bsd/dev/sweet_reboot.c
-+++ b/bsd/dev/sweet_reboot.c
+--- a/bsd/dev/bergamota_reboot.c
++++ b/bsd/dev/bergamota_reboot.c
 @@ -22,7 +22,10 @@
   *    = 0x146bf65c) with 0x77665500 (bootloader) / 0x77665502 (recovery). Both
   *    are written (IMEM only for non-normal reasons; XBL clears it).
   *
-- * Control: boot-arg sweetreboot=bootloader|recovery|normal (default normal),
+- * Control: boot-arg bergamotareboot=bootloader|recovery|normal (default normal),
 + * bergamota: IMEM restart_reason = 0x42455247 ('BERG') and PON reason 0, so ABL
 + * boots the boot partition and our shim enters its own fastboot (Bergamota fastboot).
 + *
-+ * Control: boot-arg sweetreboot=bootloader|recovery|bergamota|normal (default normal),
++ * Control: boot-arg bergamotareboot=bootloader|recovery|bergamota|normal (default normal),
   * overridden for the next reboot by the root-only sysctl
-  * kern.sweet_reboot_mode (string; "fastboot" is accepted for "bootloader").
+  * kern.bergamota_reboot_mode (string; "fastboot" is accepted for "bootloader").
   *
 @@ -52,6 +55,7 @@ extern void delay(int usec);
  #define SR_IMEM_RESTART  0x65cu            /* restart_reason@65c */
@@ -53,17 +53,17 @@ index 15ebee60b5145db4d51de2128a34478bb2bfc285..3bd75a69240903a691f33557f79f5419
  	}
 @@ -118,7 +126,7 @@ sr_sysctl SYSCTL_HANDLER_ARGS
  
- SYSCTL_PROC(_kern, OID_AUTO, sweet_reboot_mode,
+ SYSCTL_PROC(_kern, OID_AUTO, bergamota_reboot_mode,
      CTLTYPE_STRING | CTLFLAG_RW | CTLFLAG_LOCKED, 0, 0, sr_sysctl, "A",
 -    "Reboot mode of the next reboot: bootloader (fastboot), recovery, normal");
 +    "Reboot mode of the next reboot: bootloader (fastboot), recovery, bergamota, normal");
  
  /* PSCI SYSTEM_RESET (SMCCC 1.0): fallback when PS_HOLD does not reset. */
  static void
-@@ -217,10 +225,12 @@ sweet_reboot_restart(int panic_restart)
+@@ -217,10 +225,12 @@ bergamota_reboot_restart(int panic_restart)
  	}
- 	sweet_spmi_atomic();
- 	printf("SWEET REBOOT: resetting, mode %s%s\n", sr_name(mode), panic_restart || sr_in_panic ? " (panic)" : "");
+ 	bergamota_spmi_atomic();
+ 	printf("BERGAMOTA REBOOT: resetting, mode %s%s\n", sr_name(mode), panic_restart || sr_in_panic ? " (panic)" : "");
 +	/* bergamota: PON reason 0 (normal) so ABL boots the boot partition, where our shim lives. */
  	sr_pon_set_reason(mode == SR_BOOTLOADER ? SR_MAGIC_BOOTLOADER :
  	    mode == SR_RECOVERY ? SR_MAGIC_RECOVERY : SR_MAGIC_NORMAL);
@@ -73,4 +73,4 @@ index 15ebee60b5145db4d51de2128a34478bb2bfc285..3bd75a69240903a691f33557f79f5419
 +		    mode == SR_RECOVERY ? SR_IMEM_RECOVERY : SR_IMEM_BERGAMOTA;
  		sr_imem[SR_IMEM_RESTART / 4] = magic;
  		__asm__ volatile ("dsb sy" ::: "memory");
- 		printf("SWEET REBOOT: IMEM restart_reason 0x146bf65c = 0x%08x\n", magic);
+ 		printf("BERGAMOTA REBOOT: IMEM restart_reason 0x146bf65c = 0x%08x\n", magic);

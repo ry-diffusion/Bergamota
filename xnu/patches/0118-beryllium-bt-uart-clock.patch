@@ -102,7 +102,7 @@
 +	wl_wr(base, off, val);
 +	uint32_t rb = wl_rd(base, off);
 +	bool ok = ((rb ^ val) & mask) == 0;
-+	printf("SWEET WLAN: write %s+%#x <- %#010x, read back %#010x (mask %#x) %s\n", name, off, val,
++	printf("BERGAMOTA WLAN: write %s+%#x <- %#010x, read back %#010x (mask %#x) %s\n", name, off, val,
 +	    rb, mask, ok ? "ok" : "MISMATCH");
 +	return ok;
  }
@@ -132,14 +132,14 @@
 -	unsigned best_l = 8, best_div = 0;
 -	uint64_t best_err = ~0ull;
 -	if (!(wl_rd(wl.gcc, RCG_S6 + 0x14) & 1)) {
--		printf("SWEET WLAN: S6 root clock is not in DFS mode: need RCG programming, aborting\n");
+-		printf("BERGAMOTA WLAN: S6 root clock is not in DFS mode: need RCG programming, aborting\n");
 -		return false;
 +	bool ok = true;
 +	for (unsigned i = 0; i < 4; i++) {
 +		uint32_t off = wl_uart_pins[i].pin * 0x1000u;
 +		uint32_t cfg = wl_rd(wl.tlmm, off);
 +		if (cfg == 0xffffffffu) {
-+			printf("SWEET WLAN: TLMM gpio%u reads all ones: stop\n", wl_uart_pins[i].pin);
++			printf("BERGAMOTA WLAN: TLMM gpio%u reads all ones: stop\n", wl_uart_pins[i].pin);
 +			return false;
 +		}
 +		wl.pin_orig[i] = cfg;
@@ -154,7 +154,7 @@
 +		uint32_t off = wl_uart_pins[i].pin * 0x1000u;
 +		uint32_t cfg = (wl.pin_orig[i] & ~TLMM_FUNC_PULL_DRV_MASK) | (WL_QUP6_FUNC << 2) |
 +		    wl_uart_pins[i].pull | (wl_uart_pins[i].drive << 6);
-+		printf("SWEET WLAN: TLMM gpio%u (%s): was %#x -> func %u pull %u drive %u mA\n",
++		printf("BERGAMOTA WLAN: TLMM gpio%u (%s): was %#x -> func %u pull %u drive %u mA\n",
 +		    wl_uart_pins[i].pin, wl_uart_pins[i].role, wl.pin_orig[i], WL_QUP6_FUNC,
 +		    wl_uart_pins[i].pull, 2 * (wl_uart_pins[i].drive + 1));
 +		ok &= wl_wrv(wl.tlmm, "TLMM", off, cfg, TLMM_FUNC_PULL_DRV_MASK);
@@ -228,31 +228,31 @@
 +	uint64_t even_hz = div ? main_hz / div : 0;
 +	unsigned skip = 0;
 +
-+	printf("SWEET WLAN: GPLL0 mode %#x (lock %u) L %u frac %#x user-ctl %#x vote 0x52000=%#x -> main %llu Hz, "
++	printf("BERGAMOTA WLAN: GPLL0 mode %#x (lock %u) L %u frac %#x user-ctl %#x vote 0x52000=%#x -> main %llu Hz, "
 +	    "even (post-div %u) %llu Hz\n", mode, mode >> 31, l, frac, user, wl_rd(wl.gcc, 0x52000), main_hz,
 +	    div, even_hz);
-+	(void)PE_parse_boot_argn("sweetwlanskippll", &skip, sizeof(skip));
++	(void)PE_parse_boot_argn("bergamotawlanskippll", &skip, sizeof(skip));
 +	if (!(mode & PLL_LOCK_DET)) {
-+		printf("SWEET WLAN: GPLL0 is not locked: the S6 RCG source is dead, stop\n");
++		printf("BERGAMOTA WLAN: GPLL0 is not locked: the S6 RCG source is dead, stop\n");
 +		return false;
 +	}
 +	bool main_ok = main_hz > GPLL0_HZ - GPLL0_HZ / 1000 && main_hz < GPLL0_HZ + GPLL0_HZ / 1000;
 +	bool even_ok = even_hz > GPLL0_HZ / 2 - GPLL0_HZ / 2000 && even_hz < GPLL0_HZ / 2 + GPLL0_HZ / 2000;
 +	if (!main_ok || !even_ok) {
 +		if (skip) {
-+			printf("SWEET WLAN: GPLL0 rates off the expected 600/300 MHz but sweetwlanskippll=1: using the "
++			printf("BERGAMOTA WLAN: GPLL0 rates off the expected 600/300 MHz but bergamotawlanskippll=1: using the "
 +			    "nominal ftbl anyway (baud will be off)\n");
 +			return true;
  		}
 -		uint64_t div = (hz + unit / 2) / unit;
 -		if (div == 0 || div > 4095) {
-+		printf("SWEET WLAN: GPLL0 is not 600 MHz / even 300 MHz (decode of PLL regs may be wrong; "
-+		    "sweetwlanskippll=1 overrides): stop\n");
++		printf("BERGAMOTA WLAN: GPLL0 is not 600 MHz / even 300 MHz (decode of PLL regs may be wrong; "
++		    "bergamotawlanskippll=1 overrides): stop\n");
 +		return false;
 +	}
 +	wl_gpll0_main_hz = main_hz;
 +	wl_gpll0_even_hz = even_hz;
-+	printf("SWEET WLAN: GPLL0 600 MHz / GPLL0_OUT_EVEN 300 MHz confirmed\n");
++	printf("BERGAMOTA WLAN: GPLL0 600 MHz / GPLL0_OUT_EVEN 300 MHz confirmed\n");
 +	return true;
 +}
 +
@@ -264,13 +264,13 @@
 +	wl_wr(wl.gcc, RCG_S6 + RCG_CMD, cmd | CMD_UPDATE);
 +	for (unsigned i = 0; i < 2000; i++) {
 +		if (!(wl_rd(wl.gcc, RCG_S6 + RCG_CMD) & CMD_UPDATE)) {
-+			printf("SWEET WLAN: RCG CMD %#x -> UPDATE set (wrote %#x), cleared after %u polls, cmd now %#x\n",
++			printf("BERGAMOTA WLAN: RCG CMD %#x -> UPDATE set (wrote %#x), cleared after %u polls, cmd now %#x\n",
 +			    cmd, cmd | CMD_UPDATE, i, wl_rd(wl.gcc, RCG_S6 + RCG_CMD));
 +			return true;
 +		}
 +		delay(10);
 +	}
-+	printf("SWEET WLAN: RCG UPDATE did not clear: cmd %#x\n", wl_rd(wl.gcc, RCG_S6 + RCG_CMD));
++	printf("BERGAMOTA WLAN: RCG UPDATE did not clear: cmd %#x\n", wl_rd(wl.gcc, RCG_S6 + RCG_CMD));
 +	return false;
 +}
 +
@@ -300,7 +300,7 @@
 +		return true;
 +	}
 +	if (wl_rd(wl.gcc, RCG_S6 + RCG_DFS_ENABLE) & 1) {
-+		printf("SWEET WLAN: S6 RCG is in DFS mode (dfs-cmd %#x): the non-DFS path does not apply, stop\n",
++		printf("BERGAMOTA WLAN: S6 RCG is in DFS mode (dfs-cmd %#x): the non-DFS path does not apply, stop\n",
 +		    wl_rd(wl.gcc, RCG_S6 + RCG_DFS_ENABLE));
 +		return false;
 +	}
@@ -309,7 +309,7 @@
 +	wl.rcg_orig[2] = wl_rd(wl.gcc, RCG_S6 + RCG_N);
 +	wl.rcg_orig[3] = wl_rd(wl.gcc, RCG_S6 + RCG_D);
 +	wl.rcg_saved = true;
-+	printf("SWEET WLAN: S6 RCG saved: cmd %#x cfg %#x m %#x n %#x d %#x\n", wl_rd(wl.gcc, RCG_S6),
++	printf("BERGAMOTA WLAN: S6 RCG saved: cmd %#x cfg %#x m %#x n %#x d %#x\n", wl_rd(wl.gcc, RCG_S6),
 +	    wl.rcg_orig[0], wl.rcg_orig[1], wl.rcg_orig[2], wl.rcg_orig[3]);
 +	return true;
 +}
@@ -320,14 +320,14 @@
 +	if (!wl.rcg_saved) {
 +		return;
 +	}
-+	printf("SWEET WLAN: restoring the original S6 RCG config\n");
++	printf("BERGAMOTA WLAN: restoring the original S6 RCG config\n");
 +	/* the saved CFG is written verbatim (HW_CLK_CTRL included): mask = all bits */
 +	bool ok = wl_wrv(wl.gcc, "GCC(restore)", RCG_S6 + RCG_M, wl.rcg_orig[1], RCG_MND_MASK);
 +	ok &= wl_wrv(wl.gcc, "GCC(restore)", RCG_S6 + RCG_N, wl.rcg_orig[2], RCG_MND_MASK);
 +	ok &= wl_wrv(wl.gcc, "GCC(restore)", RCG_S6 + RCG_D, wl.rcg_orig[3], RCG_MND_MASK);
 +	ok &= wl_wrv(wl.gcc, "GCC(restore)", RCG_S6 + RCG_CFG, wl.rcg_orig[0], RCG_CFG_MASK);
 +	ok &= wl_rcg_update();
-+	printf("SWEET WLAN: S6 RCG restore %s (cbcr s6 %#x)\n", ok ? "ok" : "FAILED", wl_rd(wl.gcc, CBCR_S6));
++	printf("BERGAMOTA WLAN: S6 RCG restore %s (cbcr s6 %#x)\n", ok ? "ok" : "FAILED", wl_rd(wl.gcc, CBCR_S6));
 +	wl.rcg_saved = false;
 +	wl.rcg_row = -1;
 +}
@@ -356,7 +356,7 @@
 +		unsigned div = 0;
 +		int r = wl_pick_row(bauds[i], &div);
 +		if (r < 0) {
-+			printf("SWEET WLAN: baud plan %u: NO exact ftbl row (oversampling %u)\n", bauds[i], wl.os);
++			printf("BERGAMOTA WLAN: baud plan %u: NO exact ftbl row (oversampling %u)\n", bauds[i], wl.os);
  			continue;
  		}
 -		uint64_t got = hz / div;
@@ -367,13 +367,13 @@
 -			best_div = (unsigned)div;
 -		}
 +		uint64_t hz = wl_row_hz(&wl_ftbl[r]);
-+		printf("SWEET WLAN: baud plan %u: ftbl row %d %u Hz (src %u hid %u m %u n %u, measured %llu Hz) / "
++		printf("BERGAMOTA WLAN: baud plan %u: ftbl row %d %u Hz (src %u hid %u m %u n %u, measured %llu Hz) / "
 +		    "(div %u * os %u) = %llu baud%s\n", bauds[i], r, wl_ftbl[r].hz, wl_ftbl[r].src,
 +		    wl_ftbl[r].hid, wl_ftbl[r].m, wl_ftbl[r].n, hz, div, wl.os, hz / ((uint64_t)div * wl.os),
 +		    hz == wl_ftbl[r].hz ? " exact" : " (GPLL0 off nominal)");
  	}
 -	if (best_l == 8) {
--		printf("SWEET WLAN: no DFS level of S6 gives %u baud within 0.5 %%\n", baud);
+-		printf("BERGAMOTA WLAN: no DFS level of S6 gives %u baud within 0.5 %%\n", baud);
 +}
 +
 +static bool
@@ -385,7 +385,7 @@
 +		cfg |= CFG_MODE_DUAL_EDGE;
 +	}
 +	/* M = m, N = ~(n - m), D = ~n (16 bit); HW_CLK_CTRL is cleared like Linux does */
-+	printf("SWEET WLAN: S6 RCG -> %u Hz: src %u hid %u m %u n %u cfg %#x\n", f->hz, f->src, f->hid, f->m,
++	printf("BERGAMOTA WLAN: S6 RCG -> %u Hz: src %u hid %u m %u n %u cfg %#x\n", f->hz, f->src, f->hid, f->m,
 +	    f->n, cfg);
 +	if (!wl_rcg_write(f->m, f->n ? ~(uint32_t)(f->n - f->m) : 0, f->n ? ~(uint32_t)f->n : 0, cfg, f->n != 0)) {
  		return false;
@@ -393,13 +393,13 @@
 -	wl_wr(wl.se, SE_CLK_SEL, best_l);
 -	wl_wr(wl.se, SE_M_CLK_CFG, (best_div << 4) | 1u);
 -	wl_wr(wl.se, SE_S_CLK_CFG, (best_div << 4) | 1u);
--	printf("SWEET WLAN: UART %u baud: DFS level %u (%llu Hz), divider %u\n", baud, best_l,
+-	printf("BERGAMOTA WLAN: UART %u baud: DFS level %u (%llu Hz), divider %u\n", baud, best_l,
 -	    wl_dfs_level_hz(best_l), best_div);
 +	if (!cbcr_on(CBCR_S6)) {
-+		printf("SWEET WLAN: S6 branch went off after the RCG update (cbcr %#x)\n", wl_rd(wl.gcc, CBCR_S6));
++		printf("BERGAMOTA WLAN: S6 branch went off after the RCG update (cbcr %#x)\n", wl_rd(wl.gcc, CBCR_S6));
 +		return false;
 +	}
-+	printf("SWEET WLAN: S6 RCG now cmd %#x cfg %#x m %#x n %#x d %#x, cbcr s6 %#x\n", wl_rd(wl.gcc, RCG_S6),
++	printf("BERGAMOTA WLAN: S6 RCG now cmd %#x cfg %#x m %#x n %#x d %#x, cbcr s6 %#x\n", wl_rd(wl.gcc, RCG_S6),
 +	    wl_rd(wl.gcc, RCG_S6 + RCG_CFG), wl_rd(wl.gcc, RCG_S6 + RCG_M), wl_rd(wl.gcc, RCG_S6 + RCG_N),
 +	    wl_rd(wl.gcc, RCG_S6 + RCG_D), wl_rd(wl.gcc, CBCR_S6));
  	return true;
@@ -412,7 +412,7 @@
 +	unsigned div = 0;
 +	int r = wl_pick_row(baud, &div);
 +	if (r < 0) {
-+		printf("SWEET WLAN: no exact S6 rate for %u baud (oversampling %u)\n", baud, wl.os);
++		printf("BERGAMOTA WLAN: no exact S6 rate for %u baud (oversampling %u)\n", baud, wl.os);
 +		return false;
 +	}
 +	wl_rx_stop();
@@ -421,7 +421,7 @@
 +		wl.se_orig[1] = wl_rd(wl.se, SE_S_CLK_CFG);
 +		wl.se_orig[2] = wl_rd(wl.se, SE_CLK_SEL);
 +		wl.se_saved = true;
-+		printf("SWEET WLAN: SE6 clock regs saved: m_clk_cfg %#x s_clk_cfg %#x clk_sel %#x\n",
++		printf("BERGAMOTA WLAN: SE6 clock regs saved: m_clk_cfg %#x s_clk_cfg %#x clk_sel %#x\n",
 +		    wl.se_orig[0], wl.se_orig[1], wl.se_orig[2]);
 +	}
 +	if (wl.rcg_row != r) {
@@ -437,7 +437,7 @@
 +	if (!ok) {
 +		return false;
 +	}
-+	printf("SWEET WLAN: UART %u baud: S6 root %llu Hz (ftbl row %d), GENI divider %u, oversampling %u\n",
++	printf("BERGAMOTA WLAN: UART %u baud: S6 root %llu Hz (ftbl row %d), GENI divider %u, oversampling %u\n",
 +	    baud, wl_row_hz(&wl_ftbl[r]), r, div, wl.os);
 +	return true;
 +}
@@ -459,7 +459,7 @@
  {
  	uint32_t v = wl_rd(wl.se, SE_UART_TX_TRANS_CFG);
 @@ -945,6 +1274,17 @@
- 		printf("SWEET WLAN: SE6 busy (status %#x): stop\n", wl_rd(wl.se, SE_STATUS));
+ 		printf("BERGAMOTA WLAN: SE6 busy (status %#x): stop\n", wl_rd(wl.se, SE_STATUS));
  		return false;
  	}
 +	/* qcom_geni_serial.c: sampling rate is halved for QUP hardware >= 2.5 */
@@ -469,9 +469,9 @@
 +		if (ver != 0 && ver != 0xffffffffu && ver >= QUP_SE_VERSION_2_5) {
 +			wl.os = UART_OVERSAMPLING / 2;
 +		}
-+		printf("SWEET WLAN: QUP wrapper0 HW version %#x -> UART oversampling %u\n", ver, wl.os);
++		printf("BERGAMOTA WLAN: QUP wrapper0 HW version %#x -> UART oversampling %u\n", ver, wl.os);
 +	} else {
-+		printf("SWEET WLAN: QUP wrapper0 not mapped: assuming UART oversampling %u\n", wl.os);
++		printf("BERGAMOTA WLAN: QUP wrapper0 not mapped: assuming UART oversampling %u\n", wl.os);
 +	}
  	wl.tx_depth = (wl_rd(wl.se, SE_HW_PARAM_0) >> 16) & 0x3f;
  	wl.rx_depth = (wl_rd(wl.se, SE_HW_PARAM_1) >> 16) & 0x3f;
@@ -496,7 +496,7 @@
  	uint32_t st = wl_rd(wl.se, SE_RX_FIFO_STATUS);
 +	if (irq & (S_CMD_DONE | S_RX_FIFO_RD_ERR | S_RX_FIFO_WR_ERR | S_RX_FIFO_WATERMARK | S_RX_FIFO_LAST)) {
 +		if (irq & (S_RX_FIFO_RD_ERR | S_RX_FIFO_WR_ERR)) {
-+			printf("SWEET WLAN: UART RX FIFO error (s_irq %#x)\n", irq);
++			printf("BERGAMOTA WLAN: UART RX FIFO error (s_irq %#x)\n", irq);
 +		}
 +		wl_wr(wl.se, SE_S_IRQ_CLEAR, irq);
 +		if ((irq & S_CMD_DONE) && !(wl_rd(wl.se, SE_STATUS) & (1u << 12))) {
@@ -523,7 +523,7 @@
 -	wl_gpio_cfg(47, 1, 0, 0);
 -	wl_gpio_cfg(48, 1, 3 /* pull-up */, 0);
 +	if (!wl_pins_uart()) {
-+		printf("SWEET WLAN: UART pin mux did not read back: stop\n");
++		printf("BERGAMOTA WLAN: UART pin mux did not read back: stop\n");
 +		goto out_restore;
 +	}
  	wl_dump_gpio();
@@ -533,8 +533,8 @@
  	}
 +	wl_baud_plan();
  	for (n = 0; n < sizeof(wl_bt_rails) / sizeof(wl_bt_rails[0]); n++) {
- 		err = sweet_rpmh_vreg_set(wl_bt_rails[n].res, wl_bt_rails[n].mv, true);
- 		printf("SWEET WLAN: rail %s %u mV -> %d\n", wl_bt_rails[n].res, wl_bt_rails[n].mv, err);
+ 		err = bergamota_rpmh_vreg_set(wl_bt_rails[n].res, wl_bt_rails[n].mv, true);
+ 		printf("BERGAMOTA WLAN: rail %s %u mV -> %d\n", wl_bt_rails[n].res, wl_bt_rails[n].mv, err);
  		if (err) {
 -			goto out_rails;
 +			goto out_restore;
@@ -571,19 +571,19 @@
 -		 * Leave the rails on by default. An APPS-DRV RPMh "off" vote also
 -		 * drops any "on" vote ABL placed through this DRV: boot 0116hw
 -		 * panicked right after voting ldoa7 (1.8 V) off, so something else
--		 * on the board needs it. sweetwlankeep=0 turns them off (unsafe).
+-		 * on the board needs it. bergamotawlankeep=0 turns them off (unsafe).
 -		 */
 -		unsigned keep = 1;
--		(void)PE_parse_boot_argn("sweetwlankeep", &keep, sizeof(keep));
+-		(void)PE_parse_boot_argn("bergamotawlankeep", &keep, sizeof(keep));
 -		if (!keep) {
 -			for (unsigned i = n >= sizeof(wl_bt_rails) / sizeof(wl_bt_rails[0]) ?
 -			    (unsigned)(sizeof(wl_bt_rails) / sizeof(wl_bt_rails[0])) : n; i-- > 0;) {
--				err = sweet_rpmh_vreg_set(wl_bt_rails[i].res, wl_bt_rails[i].mv, false);
--				printf("SWEET WLAN: rail %s off -> %d\n", wl_bt_rails[i].res, err);
+-				err = bergamota_rpmh_vreg_set(wl_bt_rails[i].res, wl_bt_rails[i].mv, false);
+-				printf("BERGAMOTA WLAN: rail %s off -> %d\n", wl_bt_rails[i].res, err);
 -				wl_sleep(2);
 -			}
 -		} else {
--			printf("SWEET WLAN: sweetwlankeep=1: rails left on\n");
+-			printf("BERGAMOTA WLAN: bergamotawlankeep=1: rails left on\n");
 -		}
 -	}
 -out_clocks:
@@ -592,9 +592,9 @@
 +	 * The rails are never voted off by this stage. An APPS-DRV RPMh "off" vote also
 +	 * drops any "on" vote ABL placed through this DRV: boot 0116hw panicked right
 +	 * after voting ldoa7 (1.8 V) off, so something else on the board needs it
-+	 * (0117 made keep=1 the default; 0118 removes the off path and sweetwlankeep).
++	 * (0117 made keep=1 the default; 0118 removes the off path and bergamotawlankeep).
 +	 */
-+	printf("SWEET WLAN: rails left on (%u of %u voted by this stage)\n", n,
++	printf("BERGAMOTA WLAN: rails left on (%u of %u voted by this stage)\n", n,
 +	    (unsigned)(sizeof(wl_bt_rails) / sizeof(wl_bt_rails[0])));
  	wl_rx_stop();
 +	wl_se_clk_restore();
@@ -602,5 +602,5 @@
 +	wl_pins_restore();
 +out_clocks:
  	wl_clocks_off();
- 	printf("SWEET WLAN: bluetooth stage done\n");
+ 	printf("BERGAMOTA WLAN: bluetooth stage done\n");
  }

@@ -5,7 +5,7 @@
  
  
 +/* iOS 18 trap 88, see below */
-+kern_return_t sweet_exclaves_ctl_trap(struct kern_invalid_args *args);
++kern_return_t bergamota_exclaves_ctl_trap(struct kern_invalid_args *args);
 +
  const mach_trap_t       mach_trap_table[MACH_TRAP_TABLE_COUNT] = {
  /* 0 */ MACH_TRAP(kern_invalid, 0, 0, NULL),
@@ -15,7 +15,7 @@
  /* 86 */ MACH_TRAP(kern_invalid, 0, 0, NULL),
  /* 87 */ MACH_TRAP(kern_invalid, 0, 0, NULL),
 -/* 88 */ MACH_TRAP(kern_invalid, 0, 0, NULL),
-+/* 88 */ MACH_TRAP(sweet_exclaves_ctl_trap, 0, 0, NULL),
++/* 88 */ MACH_TRAP(bergamota_exclaves_ctl_trap, 0, 0, NULL),
  /* 89 */ MACH_TRAP(mach_timebase_info_trap, 1, 1, munge_w),
  /* 90 */ MACH_TRAP(mach_wait_until_trap, 1, 2, munge_l),
  /* 91 */ MACH_TRAP(mk_timer_create_trap, 0, 0, NULL, .mach_trap_returns_port = 1),
@@ -40,7 +40,7 @@
 + * Nothing in the iOS 16 userland uses trap 88.
 + */
 +kern_return_t
-+sweet_exclaves_ctl_trap(
++bergamota_exclaves_ctl_trap(
 +	__unused struct kern_invalid_args *args)
 +{
 +	return KERN_NOT_SUPPORTED;

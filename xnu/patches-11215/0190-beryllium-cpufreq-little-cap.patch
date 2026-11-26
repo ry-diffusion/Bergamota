@@ -1,7 +1,7 @@
-diff --git a/bsd/dev/sweet_cpufreq.c b/bsd/dev/sweet_cpufreq.c
+diff --git a/bsd/dev/bergamota_cpufreq.c b/bsd/dev/bergamota_cpufreq.c
 index f2f409f..954b5fc 100644
---- a/bsd/dev/sweet_cpufreq.c
-+++ b/bsd/dev/sweet_cpufreq.c
+--- a/bsd/dev/bergamota_cpufreq.c
++++ b/bsd/dev/bergamota_cpufreq.c
 @@ -1,72 +1,544 @@
  /*
 - * Poco F1 (SDM845): run both CPU clusters at their top cpufreq-hw state.
@@ -12,7 +12,7 @@ index f2f409f..954b5fc 100644
 - * freq-domain1 (A75) 0x17d45800; LUT at +0x110 (32-byte rows, bits 31:30
 - * clock source, 7:0 L-value x 19.2 MHz), PERF_STATE at +0x920.
 - * The firmware (OSM/LMh) still applies its voltage and thermal limits.
-- * Boot-arg sweetcpufreq=0 leaves the frequencies alone.
+- * Boot-arg bergamotacpufreq=0 leaves the frequencies alone.
 + * Poco F1 (SDM845, beryllium): CPU frequency governor on the OSM /
 + * "qcom,cpufreq-hw" block. XNU has no cpufreq driver, so the clusters would
 + * stay wherever the firmware left them. Policy (user decision): the four
@@ -36,7 +36,7 @@ index f2f409f..954b5fc 100644
 + * freq-domain0 0x17d43000 (A55, cpu@0-300) and freq-domain1 0x17d45800 (A75,
 + * cpu@400-700), 0x1400 bytes each, qcom,lut-max-entries = 27, clocks xo +
 + * alternate. The addresses are hard coded for this board (like the other
-+ * sweet_* drivers); they do not need to pass through the ADT. The timer is the
++ * bergamota_* drivers); they do not need to pass through the ADT. The timer is the
 + * 19.2 MHz architectural counter (ADT timebase-frequency), independent of CPU
 + * frequency. The firmware (OSM / LMh) still applies its own voltage and
 + * thermal limits.
@@ -52,24 +52,24 @@ index f2f409f..954b5fc 100644
 + * A write is one MMIO store + dsb: no locks, safe from thread context.
 + *
 + * Boot-args:
-+ *   sweetcpufreq=gov|fixed|off   (default gov; 0 = off, 1 = gov)
++ *   bergamotacpufreq=gov|fixed|off   (default gov; 0 = off, 1 = gov)
 + *     off   leave the frequencies as the firmware set them
 + *     fixed set each domain once (see _little / _big) and keep it
-+ *   sweetcpufreq_little_max=<10..100>  gov: A55 cap, % of max (default 50)
-+ *   sweetcpufreq_big_max=<10..100>     gov: A75 cap, % of max (default 100)
-+ *   sweetcpufreq_little=<10..100>      fixed: A55 % of max (default 40)
-+ *   sweetcpufreq_big=<10..100>         fixed: A75 % of max (default 100)
-+ *   sweetcpufreq_log=<seconds>         time-in-state summary period (default
++ *   bergamotacpufreq_little_max=<10..100>  gov: A55 cap, % of max (default 50)
++ *   bergamotacpufreq_big_max=<10..100>     gov: A75 cap, % of max (default 100)
++ *   bergamotacpufreq_little=<10..100>      fixed: A55 % of max (default 40)
++ *   bergamotacpufreq_big=<10..100>         fixed: A75 % of max (default 100)
++ *   bergamotacpufreq_log=<seconds>         time-in-state summary period (default
 + *                                      10, 0 = none)
-+ *   sweetcpufreq_force=1               also act when ENABLE bit 0 is clear
++ *   bergamotacpufreq_force=1               also act when ENABLE bit 0 is clear
 + * The closest LUT entry to the percentage is used (100 = highest index).
-+ * Starts once every selected CPU is up (after iokit/Kernel/arm/SweetCPU.cpp's
-+ * SMP bring-up). All logs start with "SWEET CPUFREQ:".
++ * Starts once every selected CPU is up (after iokit/Kernel/arm/BergamotaCPU.cpp's
++ * SMP bring-up). All logs start with "BERGAMOTA CPUFREQ:".
 + *
-+ * sysctl kern.sweet_cpufreq (read-only string, stable format "v1", for the
++ * sysctl kern.bergamota_cpufreq (read-only string, stable format "v1", for the
 + * Bergamota metrics panel). Lines are separated by '\n'; each line is a
 + * sequence of space-separated key=value words:
-+ *   line 1:  sweet_cpufreq v1 mode=<gov|fixed|off> period_ms=<sample period>
++ *   line 1:  bergamota_cpufreq v1 mode=<gov|fixed|off> period_ms=<sample period>
 + *   line 2:  cluster0 name=A55 cpus=0-3 state=<applied|off|skipped|pending>
 + *            mode=<gov|fixed|off> idx=<current LUT index> cur_khz=<current>
 + *            min_khz=<lowest LUT> max_khz=<highest LUT> cap_khz=<policy max,
@@ -81,7 +81,7 @@ index f2f409f..954b5fc 100644
 + * idx/cur_khz are read live from PERF_STATE; they are 0 unless state=applied.
 + * lut_khz=<khz>,<khz>,... is also present on each cluster line (before tis_ms).
   */
- #if defined(ARM64_BOARD_CONFIG_SWEET)
+ #if defined(ARM64_BOARD_CONFIG_BERGAMOTA)
  #include <sys/param.h>
  #include <sys/systm.h>
 +#include <sys/sysctl.h>
@@ -91,13 +91,13 @@ index f2f409f..954b5fc 100644
  #include <machine/machine_routines.h>
 +#include <arm/cpu_topology.h>
  #include <pexpert/pexpert.h>
- #include "sweet_board.h"
+ #include "bergamota_board.h"
  
  extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
-+extern uint64_t sweet_processor_idle_time(int cpu);
++extern uint64_t bergamota_processor_idle_time(int cpu);
 +extern kern_return_t thread_terminate(thread_t);
-+extern boolean_t sweet_cpu_signal_is_enabled(unsigned int cpu);
- void sweet_cpufreq_max(void);
++extern boolean_t bergamota_cpu_signal_is_enabled(unsigned int cpu);
+ void bergamota_cpufreq_max(void);
  
 +#define CPUFREQ_ENABLE          0x000u
  #define CPUFREQ_FREQ_LUT        0x110u
@@ -176,7 +176,7 @@ index f2f409f..954b5fc 100644
  {
 -	vm_offset_t b = ml_io_map(pa, 0x1400);
 -	if (b == 0) {
--		printf("SWEET CPUFREQ: %s: map failed\n", name);
+-		printf("BERGAMOTA CPUFREQ: %s: map failed\n", name);
 -		return;
 -	}
 -	uint32_t best = 0, bestKHz = 0, prevKHz = 0, n = 0;
@@ -214,7 +214,7 @@ index f2f409f..954b5fc 100644
 +		uint32_t row = cf_rd(d, CPUFREQ_FREQ_LUT + i * CPUFREQ_LUT_ROW);
 +		uint32_t volt = cf_rd(d, CPUFREQ_VOLT_LUT + i * CPUFREQ_LUT_ROW);
 +		if (row == 0xffffffffu) {
-+			printf("SWEET CPUFREQ: domain %u: LUT row %u reads all-ones (block not clocked?)\n", id, i);
++			printf("BERGAMOTA CPUFREQ: domain %u: LUT row %u reads all-ones (block not clocked?)\n", id, i);
 +			d->n = 0;
 +			return false;
 +		}
@@ -227,7 +227,7 @@ index f2f409f..954b5fc 100644
 -		if (khz > bestKHz) {
 -			bestKHz = khz;
 +		if (i > 0 && khz < prev) {
-+			printf("SWEET CPUFREQ: domain %u: LUT[%u] %u kHz below the previous entry, not monotonic\n",
++			printf("BERGAMOTA CPUFREQ: domain %u: LUT[%u] %u kHz below the previous entry, not monotonic\n",
 +			    id, i, khz);
 +			d->n = 0;
 +			return false;
@@ -235,10 +235,10 @@ index f2f409f..954b5fc 100644
 +		prev = khz;
 +		d->khz[i] = khz;
 +		d->n = i + 1;
-+		printf("SWEET CPUFREQ: domain %u: LUT[%2u] %7u kHz  src %u lval %3u  volt %4u  cores %u\n",
++		printf("BERGAMOTA CPUFREQ: domain %u: LUT[%2u] %7u kHz  src %u lval %3u  volt %4u  cores %u\n",
 +		    id, i, khz, (row >> 30) & 3u, row & 0xffu, volt & 0xfffu, (row >> 16) & 7u);
 +	}
-+	printf("SWEET CPUFREQ: domain %u (%s, 0x%lx): ENABLE 0x%x, %u LUT entries\n",
++	printf("BERGAMOTA CPUFREQ: domain %u (%s, 0x%lx): ENABLE 0x%x, %u LUT entries\n",
 +	    id, d->name, (unsigned long)d->pa, en, d->n);
 +	d->top = d->n ? d->n - 1 : 0;
 +	return d->n >= 2;
@@ -268,7 +268,7 @@ index f2f409f..954b5fc 100644
 -	__asm__ volatile("dsb sy" ::: "memory");
 -	*(volatile uint32_t *)(b + CPUFREQ_PERF_STATE) = best;
 -	__asm__ volatile("dsb sy" ::: "memory");
--	printf("SWEET CPUFREQ: %s: %u LUT states, perf state %u (%u MHz) -> %u (%u MHz)\n",
+-	printf("BERGAMOTA CPUFREQ: %s: %u LUT states, perf state %u (%u MHz) -> %u (%u MHz)\n",
 -	    name, n, old, oldKHz / 1000, best, bestKHz / 1000);
 +	return best;
 +}
@@ -283,7 +283,7 @@ index f2f409f..954b5fc 100644
 +		waited++;
 +		now = cf_rd(d, CPUFREQ_PERF_STATE);
 +	}
-+	printf("SWEET CPUFREQ: domain %u: readback perf state %u (%u kHz) after %u ms: %s\n",
++	printf("BERGAMOTA CPUFREQ: domain %u: readback perf state %u (%u kHz) after %u ms: %s\n",
 +	    id, now, cf_state_khz(d, now), waited,
 +	    now == idx ? "as requested" : "DIFFERS (firmware/LMh may limit it)");
 +}
@@ -293,27 +293,27 @@ index f2f409f..954b5fc 100644
 +{
 +	d->state = CF_SKIPPED;
 +	if (d->first_cpu >= cf_ncpus) {
-+		printf("SWEET CPUFREQ: domain %u: CPU %u not online, skipped\n", id, d->first_cpu);
++		printf("BERGAMOTA CPUFREQ: domain %u: CPU %u not online, skipped\n", id, d->first_cpu);
 +		return;
 +	}
 +	d->base = ml_io_map(d->pa, CPUFREQ_WINDOW);
 +	if (d->base == 0) {
-+		printf("SWEET CPUFREQ: domain %u: map 0x%lx failed\n", id, (unsigned long)d->pa);
++		printf("BERGAMOTA CPUFREQ: domain %u: map 0x%lx failed\n", id, (unsigned long)d->pa);
 +		return;
 +	}
 +	if (!cf_read_lut(id, d)) {
-+		printf("SWEET CPUFREQ: domain %u: LUT invalid, not touching the perf state\n", id);
++		printf("BERGAMOTA CPUFREQ: domain %u: LUT invalid, not touching the perf state\n", id);
 +		return;
 +	}
 +	if (!(cf_rd(d, CPUFREQ_ENABLE) & 1u) && !cf_force) {
-+		printf("SWEET CPUFREQ: domain %u: ENABLE bit 0 clear (firmware did not enable the domain), "
-+		    "not touching it (sweetcpufreq_force=1 forces)\n", id);
++		printf("BERGAMOTA CPUFREQ: domain %u: ENABLE bit 0 clear (firmware did not enable the domain), "
++		    "not touching it (bergamotacpufreq_force=1 forces)\n", id);
 +		return;
 +	}
 +	uint32_t old = cf_rd(d, CPUFREQ_PERF_STATE);
-+	printf("SWEET CPUFREQ: domain %u: current perf state %u (%u kHz)\n", id, old, cf_state_khz(d, old));
++	printf("BERGAMOTA CPUFREQ: domain %u: current perf state %u (%u kHz)\n", id, old, cf_state_khz(d, old));
 +	d->cap = cf_pick(d, d->percent);
-+	printf("SWEET CPUFREQ: domain %u: %s %d%% of max -> perf state %u (%u kHz)\n", id,
++	printf("BERGAMOTA CPUFREQ: domain %u: %s %d%% of max -> perf state %u (%u kHz)\n", id,
 +	    cf_mode == MODE_GOV ? "cap" : "fixed target", d->percent, d->cap, d->khz[d->cap]);
 +	/* gov starts at the cap and lets the first idle samples bring it down */
 +	cf_request(d, d->cap);
@@ -328,7 +328,7 @@ index f2f409f..954b5fc 100644
 +{
 +	uint32_t worst = 0;
 +	for (unsigned k = 0; k < d->ncpu && d->first_cpu + k < cf_ncpus; k++) {
-+		uint64_t idle = sweet_processor_idle_time((int)(d->first_cpu + k));
++		uint64_t idle = bergamota_processor_idle_time((int)(d->first_cpu + k));
 +		if (idle == ~0ULL) {
 +			continue;
 +		}
@@ -393,7 +393,7 @@ index f2f409f..954b5fc 100644
 +{
 +	char line[512];
 +	size_t n = 0;
-+	n += snprintf(line + n, sizeof(line) - n, "SWEET CPUFREQ: %s cluster%u load %u%% idx %u (%u kHz) changes %u tis_ms(%us):",
++	n += snprintf(line + n, sizeof(line) - n, "BERGAMOTA CPUFREQ: %s cluster%u load %u%% idx %u (%u kHz) changes %u tis_ms(%us):",
 +	    cf_mode == MODE_GOV ? "gov" : "fixed", id, d->load, d->req, cf_state_khz(d, d->req), d->changes, cf_log_secs);
 +	for (uint32_t i = 0; i < d->n && n < sizeof(line); i++) {
 +		uint64_t ms = (d->tis_ns[i] - d->tis_snap[i]) / NSEC_PER_MSEC;
@@ -416,20 +416,20 @@ index f2f409f..954b5fc 100644
 +	for (unsigned t = 0; t < CPUFREQ_UP_WAIT_S * 10; t++) {
 +		unsigned up = 0;
 +		for (unsigned c = 0; c < cf_ncpus; c++) {
-+			up += sweet_cpu_signal_is_enabled(c) ? 1 : 0;
++			up += bergamota_cpu_signal_is_enabled(c) ? 1 : 0;
 +		}
 +		if (up == cf_ncpus && cf_ncpus > 0) {
 +			break;
 +		}
 +		if (t == CPUFREQ_UP_WAIT_S * 10 - 1) {
-+			printf("SWEET CPUFREQ: only %u/%u CPUs up after %d s, leaving the frequencies alone\n",
++			printf("BERGAMOTA CPUFREQ: only %u/%u CPUs up after %d s, leaving the frequencies alone\n",
 +			    up, cf_ncpus, CPUFREQ_UP_WAIT_S);
 +			cf_dom[0].state = cf_dom[1].state = CF_SKIPPED;
 +			goto out;
 +		}
 +		cf_sleep_ms(100);
 +	}
-+	printf("SWEET CPUFREQ: %u CPUs up; mode %s; A55 %d%%, A75 %d%% of max\n", cf_ncpus,
++	printf("BERGAMOTA CPUFREQ: %u CPUs up; mode %s; A55 %d%%, A75 %d%% of max\n", cf_ncpus,
 +	    cf_mode == MODE_GOV ? "gov" : "fixed", cf_dom[0].percent, cf_dom[1].percent);
 +	for (unsigned i = 0; i < 2; i++) {
 +		cf_setup(i, &cf_dom[i]);
@@ -482,55 +482,55 @@ index f2f409f..954b5fc 100644
 +{
 +	int v = dflt;
 +	if (PE_parse_boot_argn(name, &v, sizeof(v)) && (v < 10 || v > 100)) {
-+		printf("SWEET CPUFREQ: %s=%d out of range 10..100, using %d\n", name, v, dflt);
++		printf("BERGAMOTA CPUFREQ: %s=%d out of range 10..100, using %d\n", name, v, dflt);
 +		v = dflt;
 +	}
 +	return v;
  }
  
-+/* Name kept from the first version (patch 0093), called from sweet_ufs_init(). */
++/* Name kept from the first version (patch 0093), called from bergamota_ufs_init(). */
  void
- sweet_cpufreq_max(void)
+ bergamota_cpufreq_max(void)
  {
 -	int on = 1;
--	PE_parse_boot_argn("sweetcpufreq", &on, sizeof(on));
--	if (!on || !sweet_board_beryllium()) {
+-	PE_parse_boot_argn("bergamotacpufreq", &on, sizeof(on));
+-	if (!on || !bergamota_board_beryllium()) {
 +	char arg[16] = "gov";
 +	thread_t thread;
 +
-+	if (!sweet_board_beryllium() || cf_started) {
++	if (!bergamota_board_beryllium() || cf_started) {
  		return;
  	}
 -	cpufreq_domain_max("silver (A55)", 0x17d43000u);
 -	cpufreq_domain_max("gold (A75)", 0x17d45800u);
 +	cf_started = true;
-+	(void)PE_parse_boot_argn("sweetcpufreq", arg, sizeof(arg));
++	(void)PE_parse_boot_argn("bergamotacpufreq", arg, sizeof(arg));
 +	if (!strcmp(arg, "off") || !strcmp(arg, "0")) {
 +		cf_mode = MODE_OFF;
 +		cf_dom[0].state = cf_dom[1].state = CF_OFF;
-+		printf("SWEET CPUFREQ: off (sweetcpufreq=%s), frequencies left as the firmware set them\n", arg);
++		printf("BERGAMOTA CPUFREQ: off (bergamotacpufreq=%s), frequencies left as the firmware set them\n", arg);
 +		return;
 +	}
 +	if (!strcmp(arg, "fixed")) {
 +		cf_mode = MODE_FIXED;
-+		cf_dom[0].percent = cf_percent_arg("sweetcpufreq_little", 40);
-+		cf_dom[1].percent = cf_percent_arg("sweetcpufreq_big", 100);
++		cf_dom[0].percent = cf_percent_arg("bergamotacpufreq_little", 40);
++		cf_dom[1].percent = cf_percent_arg("bergamotacpufreq_big", 100);
 +	} else {
 +		if (strcmp(arg, "gov") && strcmp(arg, "1")) {
-+			printf("SWEET CPUFREQ: unknown sweetcpufreq=%s, using gov\n", arg);
++			printf("BERGAMOTA CPUFREQ: unknown bergamotacpufreq=%s, using gov\n", arg);
 +		}
 +		cf_mode = MODE_GOV;
-+		cf_dom[0].percent = cf_percent_arg("sweetcpufreq_little_max", 50);
-+		cf_dom[1].percent = cf_percent_arg("sweetcpufreq_big_max", 100);
++		cf_dom[0].percent = cf_percent_arg("bergamotacpufreq_little_max", 50);
++		cf_dom[1].percent = cf_percent_arg("bergamotacpufreq_big_max", 100);
 +	}
 +	int v = 10;
-+	(void)PE_parse_boot_argn("sweetcpufreq_log", &v, sizeof(v));
++	(void)PE_parse_boot_argn("bergamotacpufreq_log", &v, sizeof(v));
 +	cf_log_secs = v < 0 ? 0 : (unsigned)v;
-+	(void)PE_parse_boot_argn("sweetcpufreq_force", &cf_force, sizeof(cf_force));
++	(void)PE_parse_boot_argn("bergamotacpufreq_force", &cf_force, sizeof(cf_force));
 +	if (kernel_thread_start((thread_continue_t)cf_thread, NULL, &thread) == KERN_SUCCESS) {
 +		thread_deallocate(thread);
 +	} else {
-+		printf("SWEET CPUFREQ: kernel_thread_start failed\n");
++		printf("BERGAMOTA CPUFREQ: kernel_thread_start failed\n");
 +	}
 +}
 +
@@ -557,7 +557,7 @@ index f2f409f..954b5fc 100644
 +	size_t n = 0;
 +	const char *modes[] = { "off", "gov", "fixed" };
 +
-+	n = cf_cat(buf, sizeof(buf), n, "sweet_cpufreq v1 mode=%s period_ms=%u\n", modes[cf_mode],
++	n = cf_cat(buf, sizeof(buf), n, "bergamota_cpufreq v1 mode=%s period_ms=%u\n", modes[cf_mode],
 +	    cf_mode == MODE_GOV ? GOV_PERIOD_MS : FIXED_PERIOD_MS);
 +	for (unsigned i = 0; i < 2; i++) {
 +		const struct cf_domain *d = &cf_dom[i];
@@ -583,10 +583,10 @@ index f2f409f..954b5fc 100644
 +	return sysctl_handle_string(oidp, buf, sizeof(buf), req);
  }
 +
-+SYSCTL_PROC(_kern, OID_AUTO, sweet_cpufreq,
++SYSCTL_PROC(_kern, OID_AUTO, bergamota_cpufreq,
 +    CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, 0, 0, cf_sysctl, "A",
-+    "Poco F1 cpufreq governor state per cluster (see bsd/dev/sweet_cpufreq.c)");
- #endif /* ARM64_BOARD_CONFIG_SWEET */
++    "Poco F1 cpufreq governor state per cluster (see bsd/dev/bergamota_cpufreq.c)");
+ #endif /* ARM64_BOARD_CONFIG_BERGAMOTA */
 diff --git a/osfmk/kern/processor.c b/osfmk/kern/processor.c
 index 899c093..aaa671e 100644
 --- a/osfmk/kern/processor.c
@@ -596,13 +596,13 @@ index 899c093..aaa671e 100644
  }
  
 +/*
-+ * Poco F1 cpufreq governor (bsd/dev/sweet_cpufreq.c): up-to-date idle time of a
++ * Poco F1 cpufreq governor (bsd/dev/bergamota_cpufreq.c): up-to-date idle time of a
 + * CPU in mach absolute time units, from the scheduler's idle accounting
 + * (processor_idle(), the WFI path). ~0 if the processor is not registered.
 + */
-+uint64_t sweet_processor_idle_time(int cpu);
++uint64_t bergamota_processor_idle_time(int cpu);
 +uint64_t
-+sweet_processor_idle_time(int cpu)
++bergamota_processor_idle_time(int cpu)
 +{
 +	processor_t processor = (cpu >= 0 && cpu < MAX_SCHED_CPUS) ? processor_array[cpu] : PROCESSOR_NULL;
 +	struct recount_usage usage = { 0 };

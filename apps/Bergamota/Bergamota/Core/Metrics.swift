@@ -1,6 +1,6 @@
 import Foundation
 
-/// Live device metrics of the phone: the JSON printed by `/usr/local/bin/sweetmetrics` (docs/BERGAMOTA_METRICS.md, schema 1).
+/// Live device metrics of the phone: the JSON printed by `/usr/local/bin/bergamotametrics` (docs/BERGAMOTA_METRICS.md, schema 1).
 /// Every field except `schema` may be missing or null (a kernel interface that is not there yet): the UI shows "unknown", never 0.
 struct ClusterMetrics: Equatable, Sendable {
     var id: Int
@@ -40,7 +40,7 @@ struct ClusterMetrics: Equatable, Sendable {
 
 struct GPUMetrics: Equatable, Sendable {
     var present = false
-    /// on | slumber | off | lost | unknown (a driver, no state source) | absent (no SweetAdreno630 service)
+    /// on | slumber | off | lost | unknown (a driver, no state source) | absent (no BergamotaAdreno630 service)
     var state = "absent"
     var level: Int?
     var levels: Int?
@@ -77,7 +77,7 @@ struct BatteryMetrics: Equatable, Sendable {
     var percent: Double?
     var charging: Bool?
     var external: Bool?
-    /// Positive while charging, negative while discharging (kernel SweetBattery).
+    /// Positive while charging, negative while discharging (kernel BergamotaBattery).
     var currentMa: Double?
     var voltageMv: Double?
     var source: String?
@@ -97,7 +97,7 @@ struct PhoneMetrics: Equatable, Sendable {
     var battery = BatteryMetrics()
     var batteryTempC: Double?
     var errors: [String] = []
-    /// The object exactly as printed by sweetmetrics (re-published in status.json `phone.metrics`).
+    /// The object exactly as printed by bergamotametrics (re-published in status.json `phone.metrics`).
     var json = ""
 
     /// The JSON object in `out`: the last line that starts with `{` (an SSH banner or motd may come first).
@@ -230,10 +230,10 @@ func formatMa(_ ma: Double) -> String { String(format: "%+.0f mA", ma) }
 /// "waiting on" lines shared by both views: which kernel interface is not there yet.
 func metricsWaiting(_ m: PhoneMetrics) -> [String] {
     var w: [String] = []
-    if !m.freqKnown { w.append("CPU frequency: kern.sweet_cpufreq missing (kernel without the cpufreq patch)") }
+    if !m.freqKnown { w.append("CPU frequency: kern.bergamota_cpufreq missing (kernel without the cpufreq patch)") }
     if m.clusters.contains(where: { $0.mode == "static" }) && m.clusters.allSatisfy({ $0.minKhz == nil && $0.maxKhz == nil }) {
         w.append("CPU governor: the sysctl reports a fixed state only (no min/max/governor yet)")
     }
-    if !m.gpu.hasDCVS { w.append(m.gpu.state == "absent" ? "GPU: no SweetAdreno630 service (kernel without the GPU driver)" : "GPU level/MHz/busy: waiting on kern.sweet_gpu (DCVS governor)") }
+    if !m.gpu.hasDCVS { w.append(m.gpu.state == "absent" ? "GPU: no BergamotaAdreno630 service (kernel without the GPU driver)" : "GPU level/MHz/busy: waiting on kern.bergamota_gpu (DCVS governor)") }
     return w
 }

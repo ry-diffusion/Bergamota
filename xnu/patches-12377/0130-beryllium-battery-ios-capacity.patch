@@ -1,9 +1,9 @@
-diff --git a/iokit/Kernel/arm/SweetBattery.cpp b/iokit/Kernel/arm/SweetBattery.cpp
+diff --git a/iokit/Kernel/arm/BergamotaBattery.cpp b/iokit/Kernel/arm/BergamotaBattery.cpp
 index 0f472f7a040fccb97edb99cc32fbb4825cbb809c..e40174885569fd9a9ad3f7a75a7047eedbb1922e 100644
---- a/iokit/Kernel/arm/SweetBattery.cpp
-+++ b/iokit/Kernel/arm/SweetBattery.cpp
+--- a/iokit/Kernel/arm/BergamotaBattery.cpp
++++ b/iokit/Kernel/arm/BergamotaBattery.cpp
 @@ -103,11 +103,17 @@ void
- SweetBattery::publish(unsigned percent, unsigned mv, int ma, bool external,
+ BergamotaBattery::publish(unsigned percent, unsigned mv, int ma, bool external,
      bool capable, bool charging, bool full, bool measured, bool currentValid)
  {
 -	/* Use consistent mAh units (DT nominal=5020). powerd computes C*100/M. */
@@ -23,7 +23,7 @@ index 0f472f7a040fccb97edb99cc32fbb4825cbb809c..e40174885569fd9a9ad3f7a75a7047ee
  	setExternalConnected(external);
  	setExternalChargeCapable(capable);
  	setIsCharging(charging);
-@@ -116,9 +122,78 @@ SweetBattery::publish(unsigned percent, unsigned mv, int ma, bool external,
+@@ -116,9 +122,78 @@ BergamotaBattery::publish(unsigned percent, unsigned mv, int ma, bool external,
  	setAtCriticalLevel(false);
  	setVoltage(mv);
  	setAmperage(ma);

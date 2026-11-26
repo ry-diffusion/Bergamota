@@ -1,8 +1,8 @@
-diff --git a/bsd/dev/sweet_touch.c b/bsd/dev/sweet_touch.c
+diff --git a/bsd/dev/bergamota_touch.c b/bsd/dev/bergamota_touch.c
 index 16175cfdd2487820a7091c846a5a975c2ef832cf..e7f397fbe3300517f6ad5abe6e7069768b4990fd 100644
---- a/bsd/dev/sweet_touch.c
-+++ b/bsd/dev/sweet_touch.c
-@@ -46,6 +46,7 @@ void sweet_touch_init(void);
+--- a/bsd/dev/bergamota_touch.c
++++ b/bsd/dev/bergamota_touch.c
+@@ -46,6 +46,7 @@ void bergamota_touch_init(void);
  #define NVT_CHIP_ID      0x08u
  #define NVT_RECORD       6u
  #define NVT_EMPTY_RELEASE 3u  /* empty frames before an unannounced release */
@@ -29,7 +29,7 @@ index 16175cfdd2487820a7091c846a5a975c2ef832cf..e7f397fbe3300517f6ad5abe6e706976
 +		 * keep a contact down forever: that blocks every new touch.
 +		 */
 +		if (st.active && ++bad_run >= NVT_BAD_RELEASE) {
-+			printf("SWEET TOUCH: %u torn frames in a row while touched; releasing\n", bad_run);
++			printf("BERGAMOTA TOUCH: %u torn frames in a row while touched; releasing\n", bad_run);
 +			bad_run = 0;
 +			empty_frames = 0;
 +			touch_report(0, x, y);

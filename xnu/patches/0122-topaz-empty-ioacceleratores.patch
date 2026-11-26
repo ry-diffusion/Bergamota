@@ -1,8 +1,8 @@
 # Empty IOAcceleratorES service: QuartzCore polls for one for 30 s at every backboardd start.
-# Ported from MakrSas/ios-topaz (branch topaz) 0138; boot-arg sweetaccel=0 turns it off.
+# Ported from MakrSas/ios-topaz (branch topaz) 0138; boot-arg bergamotaaccel=0 turns it off.
 
---- a/iokit/Kernel/arm/SweetFramebuffer.cpp
-+++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+--- a/iokit/Kernel/arm/BergamotaFramebuffer.cpp
++++ b/iokit/Kernel/arm/BergamotaFramebuffer.cpp
 @@ -117,6 +117,22 @@ class IOMobileFramebuffer : public IOService {
  
  OSDefineMetaClassAndStructors(IOMobileFramebuffer, IOService);
@@ -14,7 +14,7 @@
 + * seconds at every backboardd start (338 "IOAcceleratorES -> 0 found" lines in
 + * logs/boot-0091q.clean.txt). One without MetalPluginName/MetalPluginClassName
 + * is found and then passed over by Metal (_MTLRegisterDevices), which leaves
-+ * the renderers as they were. A real GPU driver (sweetgpu) must replace this
++ * the renderers as they were. A real GPU driver (bergamotagpu) must replace this
 + * stub, not add a second service: Metal wants exactly one.
 + */
 +class IOAcceleratorES : public IOService {
@@ -27,20 +27,20 @@
  
  class AppleCLCD : public IOMobileFramebuffer {
 @@ -231,6 +247,17 @@ AppleCLCD::start(IOService *provider)
- 		IOLog("SWEET FB: no boot framebuffer\n");
+ 		IOLog("BERGAMOTA FB: no boot framebuffer\n");
  		return false;
  	}
 +	uint32_t accelOn = 1;
-+	(void)PE_parse_boot_argn("sweetaccel", &accelOn, sizeof(accelOn));
++	(void)PE_parse_boot_argn("bergamotaaccel", &accelOn, sizeof(accelOn));
 +	IOAcceleratorES *accel = accelOn ? OSTypeAlloc(IOAcceleratorES) : NULL;
 +	if (accel != NULL && accel->init()) {
 +		accel->setName("sgx");
 +		if (accel->attach(this)) {
 +			accel->registerService();
-+			IOLog("SWEET FB: empty IOAcceleratorES published (no 30 s wait in CAMetalContextCreate)\n");
++			IOLog("BERGAMOTA FB: empty IOAcceleratorES published (no 30 s wait in CAMetalContextCreate)\n");
 +		}
 +	}
 +	OSSafeReleaseNULL(accel);
  	int native = 0;
- 	PE_parse_boot_argn("sweetfb_native", &native, sizeof(native));
+ 	PE_parse_boot_argn("bergamotafb_native", &native, sizeof(native));
  	fLogicalW = fWidth;

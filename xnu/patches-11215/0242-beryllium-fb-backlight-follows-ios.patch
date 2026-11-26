@@ -1,6 +1,6 @@
-diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
---- a/iokit/Kernel/arm/SweetFramebuffer.cpp
-+++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+diff --git a/iokit/Kernel/arm/BergamotaFramebuffer.cpp b/iokit/Kernel/arm/BergamotaFramebuffer.cpp
+--- a/iokit/Kernel/arm/BergamotaFramebuffer.cpp
++++ b/iokit/Kernel/arm/BergamotaFramebuffer.cpp
 @@ -450,6 +450,8 @@
  	uint16_t      fBlRaw[2];        /* brightness bytes of strings 0, 1 as found */
  	void          blInit(void);
@@ -36,12 +36,12 @@ diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFrame
  	if (fb->fZc) {
  		fb->zcPoll();
  	}
--	if (fb->fBlOK && fb->fBlPos < SWEET_FB_BL_STEPS && !dirty) {
+-	if (fb->fBlOK && fb->fBlPos < BERGAMOTA_FB_BL_STEPS && !dirty) {
 -		fb->blStep(+1);     /* back on: the latest frame is up, light the panel again */
-+	if (fb->fBlOK && fb->fBlPos != SWEET_FB_BL_STEPS && !dirty) {
++	if (fb->fBlOK && fb->fBlPos != BERGAMOTA_FB_BL_STEPS && !dirty) {
 +		(void)fb->blSet(true);     /* 0242: back on: the latest frame is up, light the panel in one step */
  	}
- 	sweet_hold_release(taken);      /* copied: CA may render into them again */
+ 	bergamota_hold_release(taken);      /* copied: CA may render into them again */
  	fb->statsTick(now);
 @@ -2461,6 +2467,49 @@
   * (fBlOK cleared, the original value written back as well as possible) when
@@ -56,8 +56,8 @@ diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFrame
 +AppleCLCD::blSet(bool on)
 +{
 +	if (!on) {
-+		uint16_t now[SWEET_WLED_STRINGS];
-+		if (sweet_wled_read16(0, &now[0]) == 0 && sweet_wled_read16(1, &now[1]) == 0 &&
++		uint16_t now[BERGAMOTA_WLED_STRINGS];
++		if (bergamota_wled_read16(0, &now[0]) == 0 && bergamota_wled_read16(1, &now[1]) == 0 &&
 +		    now[0] != 0xffff && now[1] != 0xffff && ((now[0] | now[1]) & 0xfff) != 0) {
 +			fBlRaw[0] = now[0];     /* what the panel shows now is what "on" restores */
 +			fBlRaw[1] = now[1];
@@ -65,28 +65,28 @@ diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFrame
 +	}
 +	for (int attempt = 0; attempt < 3; attempt++) {
 +		bool ok = true;
-+		uint16_t want[SWEET_WLED_STRINGS];
-+		for (unsigned n = 0; n < SWEET_WLED_STRINGS && ok; n++) {
++		uint16_t want[BERGAMOTA_WLED_STRINGS];
++		for (unsigned n = 0; n < BERGAMOTA_WLED_STRINGS && ok; n++) {
 +			want[n] = on ? fBlRaw[n] : 0;
 +			uint8_t d[2] = { (uint8_t)want[n], (uint8_t)(want[n] >> 8) };
-+			ok = sweet_spmi_write(SWEET_WLED_SID, SWEET_WLED_BRIGHT(n), d, 2) == 0;
++			ok = bergamota_spmi_write(BERGAMOTA_WLED_SID, BERGAMOTA_WLED_BRIGHT(n), d, 2) == 0;
 +		}
-+		uint8_t clr = 0, set = SWEET_WLED_SYNC_MASK;
-+		ok = ok && sweet_spmi_write(SWEET_WLED_SID, SWEET_WLED_SYNC, &clr, 1) == 0 &&
-+		    sweet_spmi_write(SWEET_WLED_SID, SWEET_WLED_SYNC, &set, 1) == 0;
-+		for (unsigned n = 0; n < SWEET_WLED_STRINGS && ok; n++) {
++		uint8_t clr = 0, set = BERGAMOTA_WLED_SYNC_MASK;
++		ok = ok && bergamota_spmi_write(BERGAMOTA_WLED_SID, BERGAMOTA_WLED_SYNC, &clr, 1) == 0 &&
++		    bergamota_spmi_write(BERGAMOTA_WLED_SID, BERGAMOTA_WLED_SYNC, &set, 1) == 0;
++		for (unsigned n = 0; n < BERGAMOTA_WLED_STRINGS && ok; n++) {
 +			uint16_t got = 0xffff;
-+			ok = sweet_wled_read16(n, &got) == 0 && got == want[n];
++			ok = bergamota_wled_read16(n, &got) == 0 && got == want[n];
 +		}
 +		if (ok) {
-+			fBlPos = on ? SWEET_FB_BL_STEPS : 0;
-+			IOLog("SWEET FB: backlight %s (0x%04x/0x%04x)%s\n", on ? "on" : "off", want[0], want[1],
++			fBlPos = on ? BERGAMOTA_FB_BL_STEPS : 0;
++			IOLog("BERGAMOTA FB: backlight %s (0x%04x/0x%04x)%s\n", on ? "on" : "off", want[0], want[1],
 +			    attempt ? " after a retry" : "");
 +			return true;
 +		}
 +		IODelay(200);
 +	}
-+	IOLog("SWEET FB: backlight %s did not take after 3 tries\n", on ? "on" : "off");
++	IOLog("BERGAMOTA FB: backlight %s did not take after 3 tries\n", on ? "on" : "off");
 +	return false;
 +}
 +

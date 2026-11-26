@@ -3,8 +3,8 @@
  * Polled Synopsys DWC3 device-mode driver for the SDM845 USB controller
  * (0x0a600000), just enough for Android fastboot: ep0 + one bulk OUT and one
  * bulk IN endpoint, high speed, no interrupts, MMU off (Device memory).
- * Port of the sequence that works in xnu (xnu/patches/0072..0109, sweet_usb.c
- * + sweet_smmu.c); see docs/BERGAMOTA_FASTBOOT.md.
+ * Port of the sequence that works in xnu (xnu/patches/0072..0109, bergamota_usb.c
+ * + bergamota_smmu.c); see docs/BERGAMOTA_FASTBOOT.md.
  *
  * Every blocking call keeps servicing ep0 / bus resets while it waits.
  * Return values: >= 0 ok / byte count, USB_LINK_LOST when the host reset or

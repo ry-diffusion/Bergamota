@@ -26,8 +26,8 @@ def sha(b):
 
 
 FILES = {
-    'sweetnet/ios18/sweetuicache': (b'\xcf\xfa\xed\xfeuicache', 0o755),
-    'sweetnet/sweetreboot': (b'\xcf\xfa\xed\xfereboot', 0o755),
+    'bergamotanet/ios18/bergamotauicache': (b'\xcf\xfa\xed\xfeuicache', 0o755),
+    'bergamotanet/bergamotareboot': (b'\xcf\xfa\xed\xfereboot', 0o755),
     'bergamota-gl/bgl-launch': (b'\xcf\xfa\xed\xfelaunch', 0o755),
     'bergamota-gl/libOSMesa.8.dylib': (b'\xcf\xfa\xed\xfemesa', 0o755),
     'LICENSES/NOTICE.txt': (b'notice\n', 0o644),
@@ -142,7 +142,7 @@ class TestInstall(Base):
         self.assertTrue(os.path.isfile(os.path.join(d, bt.MANIFEST)))
         self.assertEqual(bt.current_dir(self.cache), d)
         sn, gl = bt.search_dirs(self.cache)
-        self.assertEqual(sn, os.path.join(d, 'sweetnet'))
+        self.assertEqual(sn, os.path.join(d, 'bergamotanet'))
         self.assertEqual(gl, os.path.join(d, 'bergamota-gl'))
         self.assertEqual([n for n in os.listdir(self.cache) if n.startswith('.')], [])      # no temp leftovers
 
@@ -158,22 +158,22 @@ class TestInstall(Base):
         self.assertFalse(os.path.exists(os.path.join(self.cache, 'berga-tools-v7')))
 
     def test_file_not_matching_manifest(self):
-        make_zip(self.zip, tamper=lambda p, d: d + b'!' if p == 'sweetnet/sweetreboot' else d)
+        make_zip(self.zip, tamper=lambda p, d: d + b'!' if p == 'bergamotanet/bergamotareboot' else d)
         with self.assertRaises(bt.ToolsError) as c:
             bt.install_zip(self.zip, self.cache, log=self.log.append)
-        self.assertIn('sweetnet/sweetreboot', str(c.exception))
+        self.assertIn('bergamotanet/bergamotareboot', str(c.exception))
         self.assertFalse(os.path.exists(os.path.join(self.cache, 'berga-tools-v7')))
         self.assertIsNone(bt.current_dir(self.cache))
 
     def test_unlisted_file_in_zip(self):
-        make_zip(self.zip, extra={'sweetnet/evil': b'x'})
+        make_zip(self.zip, extra={'bergamotanet/evil': b'x'})
         with self.assertRaises(bt.ToolsError) as c:
             bt.install_zip(self.zip, self.cache, log=self.log.append)
         self.assertIn('does not list', str(c.exception))
 
     def test_file_missing_from_zip(self):
         def drop(m):
-            m['files'].append({'path': 'sweetnet/gone', 'sha256': '0' * 64, 'size': 1})
+            m['files'].append({'path': 'bergamotanet/gone', 'sha256': '0' * 64, 'size': 1})
         make_zip(self.zip, manifest_edit=drop)
         with self.assertRaises(bt.ToolsError) as c:
             bt.install_zip(self.zip, self.cache, log=self.log.append)
@@ -191,7 +191,7 @@ class TestInstall(Base):
 
     def test_manifest_required_and_tag_checked(self):
         with zipfile.ZipFile(self.zip, 'w') as zf:
-            zf.writestr('sweetnet/x', b'x')
+            zf.writestr('bergamotanet/x', b'x')
         with self.assertRaises(bt.ToolsError):
             bt.install_zip(self.zip, self.cache, log=self.log.append)
         make_zip(self.zip, tag='../../etc')
@@ -258,15 +258,15 @@ class TestLookupOrder(Base):
         os.environ['RENEGADE_TOOLS_CACHE'] = self.cache
         bt.install_zip(self.zip, self.cache, log=self.log.append)
         rt = self.load()
-        cached = os.path.join(self.cache, 'berga-tools-v7', 'sweetnet')
-        self.assertEqual(rt.SWEETNET_DIRS[-1], cached)                                      # last
-        rt.SWEETNET_DIRS[:] = [os.path.join(self.tmp, 'no-local-build'), cached]            # this checkout may have a real build
-        self.assertEqual(rt.find_sweetnet('ios18/sweetuicache'), os.path.join(cached, 'ios18', 'sweetuicache'))
+        cached = os.path.join(self.cache, 'berga-tools-v7', 'bergamotanet')
+        self.assertEqual(rt.BERGAMOTANET_DIRS[-1], cached)                                      # last
+        rt.BERGAMOTANET_DIRS[:] = [os.path.join(self.tmp, 'no-local-build'), cached]            # this checkout may have a real build
+        self.assertEqual(rt.find_bergamotanet('ios18/bergamotauicache'), os.path.join(cached, 'ios18', 'bergamotauicache'))
         local = os.path.join(self.tmp, 'local')
         os.makedirs(os.path.join(local, 'ios18'))
-        open(os.path.join(local, 'ios18', 'sweetuicache'), 'w').write('local build')
-        rt.SWEETNET_DIRS.insert(0, local)
-        self.assertEqual(rt.find_sweetnet('ios18/sweetuicache'), os.path.join(local, 'ios18', 'sweetuicache'))
+        open(os.path.join(local, 'ios18', 'bergamotauicache'), 'w').write('local build')
+        rt.BERGAMOTANET_DIRS.insert(0, local)
+        self.assertEqual(rt.find_bergamotanet('ios18/bergamotauicache'), os.path.join(local, 'ios18', 'bergamotauicache'))
 
     def test_bgl_payload_needs_all_files(self):
         os.environ['RENEGADE_TOOLS_CACHE'] = self.cache
@@ -285,8 +285,8 @@ class TestLookupOrder(Base):
     def test_nothing_anywhere_is_still_a_skip(self):
         os.environ['RENEGADE_TOOLS_CACHE'] = os.path.join(self.tmp, 'empty')
         rt = self.load()
-        rt.SWEETNET_DIRS[:] = [d for d in rt.SWEETNET_DIRS if d and os.path.basename(os.path.dirname(d)) != 'berga-tools']
-        rt.SWEETNET_DIRS[:] = [os.path.join(self.tmp, 'none')]
+        rt.BERGAMOTANET_DIRS[:] = [d for d in rt.BERGAMOTANET_DIRS if d and os.path.basename(os.path.dirname(d)) != 'berga-tools']
+        rt.BERGAMOTANET_DIRS[:] = [os.path.join(self.tmp, 'none')]
         rt.BGL_DIRS[:] = [os.path.join(self.tmp, 'none')]
         gaps = rt.tool_gaps({f: True for f in rt.FEATURES})
         self.assertTrue({'appreg', 'posterboard', 'wallpaper', 'bglrender'} <= set(gaps))
@@ -295,8 +295,8 @@ class TestLookupOrder(Base):
     def test_env_dir_override(self):
         os.environ['RENEGADE_BERGA_TOOLS'] = os.path.join(self.tmp, 'x')
         self.assertIsNone(bt.current_dir(self.cache))
-        os.makedirs(os.path.join(self.tmp, 'x', 'sweetnet'))
-        self.assertEqual(bt.search_dirs(self.cache)[0], os.path.join(self.tmp, 'x', 'sweetnet'))
+        os.makedirs(os.path.join(self.tmp, 'x', 'bergamotanet'))
+        self.assertEqual(bt.search_dirs(self.cache)[0], os.path.join(self.tmp, 'x', 'bergamotanet'))
 
 
 if __name__ == '__main__':

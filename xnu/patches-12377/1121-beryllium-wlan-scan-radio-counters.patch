@@ -20,7 +20,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
  	uint8_t htt_major, htt_minor;
 @@ -4604,8 +4612,65 @@
  	}
- 	printf("SWEET IPC: scan: bss %u %02x:%02x:%02x:%02x:%02x:%02x %u MHz %d dBm \"%s\"%s\n", k, bssid[0], bssid[1],
+ 	printf("BERGAMOTA IPC: scan: bss %u %02x:%02x:%02x:%02x:%02x:%02x %u MHz %d dBm \"%s\"%s\n", k, bssid[0], bssid[1],
  	    bssid[2], bssid[3], bssid[4], bssid[5], mhz, rssi, scan.bss[k].ssid, scan.bss[k].ssid_len ? "" : " (hidden)");
 +}
 +
@@ -60,7 +60,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	}
 +	if (scan.chan_logged < 64) {
 +		scan.chan_logged++;
-+		printf("SWEET IPC: scan: chan_info %u MHz flags %#x err %u nf %d rx_clear %u cycles %u rx_frames %u tx_frames %u "
++		printf("BERGAMOTA IPC: scan: chan_info %u MHz flags %#x err %u nf %d rx_clear %u cycles %u rx_frames %u tx_frames %u "
 +		    "my_bss_cycles %u mac_clk %u MHz\n", c[1], c[2], c[0], (int32_t)c[3], c[4], c[5], c[8], c[11], c[9], c[12]);
 +	}
  }
@@ -85,23 +85,23 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
  static void
  scan_htt(const uint8_t *pl, uint32_t plen)
 @@ -4629,6 +4694,18 @@
- 	printf("SWEET IPC: scan summary: htt %u.%u, %s, %u events, %u channel visits, %u beacons/probe responses, %u BSS\n",
+ 	printf("BERGAMOTA IPC: scan summary: htt %u.%u, %s, %u events, %u channel visits, %u beacons/probe responses, %u BSS\n",
  	    scan.htt_major, scan.htt_minor, scan.completed ? "completed" : (scan.started ? "started, not completed" :
  	    "not started"), scan.events, scan.foreign, scan.beacons, scan.nbss);
-+	printf("SWEET IPC: scan summary radio: %u CHAN_INFO events, rx frames %llu, tx frames %llu, %u HTT messages\n",
++	printf("BERGAMOTA IPC: scan summary radio: %u CHAN_INFO events, rx frames %llu, tx frames %llu, %u HTT messages\n",
 +	    scan.chan_infos, scan.rx_frames, scan.tx_frames, scan.htt);
 +	for (unsigned k = 0; k < SCAN_NCHAN; k++) {
 +		if (scan.ch[k].mhz) {
-+			printf("SWEET IPC: scan summary chan %u MHz: rx_frames %u nf %d rx_clear %u cycles %u\n", scan.ch[k].mhz,
++			printf("BERGAMOTA IPC: scan summary chan %u MHz: rx_frames %u nf %d rx_clear %u cycles %u\n", scan.ch[k].mhz,
 +			    scan.ch[k].rx_frames, (int32_t)scan.ch[k].nf, scan.ch[k].rx_clear, scan.ch[k].cycles);
 +		}
 +	}
 +	for (unsigned k = 0; k < scan.nev; k++) {
-+		printf("SWEET IPC: scan summary event %#x x %u\n", scan.ev[k].id, scan.ev[k].n);
++		printf("BERGAMOTA IPC: scan summary event %#x x %u\n", scan.ev[k].id, scan.ev[k].n);
 +	}
-+	sweet_log_sync();
++	bergamota_log_sync();
  	for (unsigned k = 0; k < scan.nbss; k++) {
- 		printf("SWEET IPC: scan summary bss %u: %02x:%02x:%02x:%02x:%02x:%02x %u MHz %d dBm \"%s\"\n", k,
+ 		printf("BERGAMOTA IPC: scan summary bss %u: %02x:%02x:%02x:%02x:%02x:%02x %u MHz %d dBm \"%s\"\n", k,
  		    scan.bss[k].bssid[0], scan.bss[k].bssid[1], scan.bss[k].bssid[2], scan.bss[k].bssid[3], scan.bss[k].bssid[4],
 @@ -4777,9 +4854,19 @@
  				wf.sent_ms = ms_now_ms();
@@ -118,10 +118,10 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		} else if (ipc.scan && wf.state >= WS_SCAN_SETUP) {
 +			scan_tally(ev);
 +			if (wce.wmi_events <= 32) {
-+				printf("SWEET IPC: wmi: event %#x (%u bytes) in state %s\n", ev, plen, wf_state_name[wf.state]);
++				printf("BERGAMOTA IPC: wmi: event %#x (%u bytes) in state %s\n", ev, plen, wf_state_name[wf.state]);
 +			}
  		} else if (wce.wmi_events <= 16) {
- 			printf("SWEET IPC: wmi: event %#x (%u bytes) in state %s\n", ev, plen, wf_state_name[wf.state]);
+ 			printf("BERGAMOTA IPC: wmi: event %#x (%u bytes) in state %s\n", ev, plen, wf_state_name[wf.state]);
  		}
 @@ -4787,6 +4874,7 @@
  	}

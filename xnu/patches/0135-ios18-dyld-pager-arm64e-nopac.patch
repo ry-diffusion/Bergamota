@@ -6,7 +6,7 @@
  
 +#else /* !defined(HAS_APPLE_PAC) */
  /*
-+ * No pointer authentication in this kernel (SWEET, SDM845): arm64e images
++ * No pointer authentication in this kernel (BERGAMOTA, SDM845): arm64e images
 + * (rewritten offline by tools/ios18/pacstrip.py so that their code contains no
 + * PAC instruction) still carry DYLD_CHAINED_PTR_ARM64E fixups. Their pointers
 + * stay unsigned: the AUTx and PACx instructions are NOPs in the rewritten code.

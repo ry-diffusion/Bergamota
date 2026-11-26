@@ -9,7 +9,7 @@ Two halves exist, but they are not connected:
 
 | Half | What works | Where |
 |------|------------|-------|
-| **iOS side** (W1-W3, boots 23-29) | `en0` (Ethernet, Wi-Fi subfamily), the IOKit entries `wifid` matches, the `SIOCGA80211/SIOCSA80211` ioctl dispatcher, kernel events. wifid powers the "radio", scans, and **Settings › Wi-Fi lists the synthetic network "Bergamota-test"** (`sweet80211=2`). Join fails by design (ASSOCIATE -> ENXIO). | `bsd/dev/sweet_80211.c` (1100-1103), `iokit/Kernel/arm/SweetNetwork.cpp` |
+| **iOS side** (W1-W3, boots 23-29) | `en0` (Ethernet, Wi-Fi subfamily), the IOKit entries `wifid` matches, the `SIOCGA80211/SIOCSA80211` ioctl dispatcher, kernel events. wifid powers the "radio", scans, and **Settings › Wi-Fi lists the synthetic network "Bergamota-test"** (`bergamota80211=2`). Join fails by design (ASSOCIATE -> ENXIO). | `bsd/dev/bergamota_80211.c` (1100-1103), `iokit/Kernel/arm/BergamotaNetwork.cpp` |
 | **Chip side** (W4+, boots 30-49) | modem (MBA, MPSS), rmtfs/TFTP/pd-mapper, WLFW to FW READY, SMMU + copy engines, HTC + WMI, HTT setup, **a passive scan that reports real beacons** (12 networks on boot 49). | `bsd/dev/beryllium_wlan.c` (1104-1123) |
 
 The chip side runs as a **120 s test stage**: about 60 s after boot it brings everything up, scans once, then
@@ -21,30 +21,30 @@ side, so that Settings shows real networks and, later, joins one.
 ```
  Settings / wifid / configd                     (user space, unchanged Apple code)
         |  SIOCGA80211 / SIOCSA80211, KEV_IEEE80211 events, en0 packets
- sweet_80211.c  (iOS side)  ---- backend ops ---->  beryllium_wlan.c  (WLAN service)
+ bergamota_80211.c  (iOS side)  ---- backend ops ---->  beryllium_wlan.c  (WLAN service)
    power / scan / scan results / join / leave        modem + IPC services (rmtfs, TFTP, pd-mapper)
    tx (802.3 mbuf) / rx -> ifnet_input               WLFW, CE, HTC, WMI, HTT
    link and scan events -> kev_post_msg               one service thread, state machine
 ```
 
-* **Backend ops** (a small struct of function pointers that `sweet_80211.c` calls, replacing the null and fake
+* **Backend ops** (a small struct of function pointers that `bergamota_80211.c` calls, replacing the null and fake
   backends): `power(on)`, `scan(params)`, `scan_result(i)`, `join(bss, security)`, `leave()`, `tx(mbuf)`, plus
   callbacks the service calls back: `scan_done`, `link(up/down)`, `rx(mbuf)`. The fake backend stays for tests.
 * **One service thread** owns the chip (as the test stage does today). It no longer has a hold time or a
-  teardown: it runs until shutdown. Requests from `sweet_80211.c` (ioctl context) are queued to it; replies
+  teardown: it runs until shutdown. Requests from `bergamota_80211.c` (ioctl context) are queued to it; replies
   and events come back through the callbacks. Nothing in the ioctl path touches hardware directly.
 * **Polling, then interrupts.** Today everything is polled every 1 ms, which is fine for 120 s but burns a
   core forever. The service polls fast only while something is in flight (a WMI command, a scan, traffic) and
   backs off to ~20-50 ms when idle; interrupts (GLINK/SMP2P doorbell from the modem, CE interrupts SPI 414-425)
   replace polling in a later step.
 * **Boot-args.** The field is full (603-606 of 607 bytes). Phase 2 folds the Wi-Fi gates into one
-  (`sweetwlan=5` = the whole service: MSS, MPSS, rmtfs, TFTP, pd-mapper, WLFW, CE, WMI, HTT, RF clock), which
-  frees about 100 bytes. The step-by-step gates stay available under `sweetwlan=4`.
+  (`bergamotawlan=5` = the whole service: MSS, MPSS, rmtfs, TFTP, pd-mapper, WLFW, CE, WMI, HTT, RF clock), which
+  frees about 100 bytes. The step-by-step gates stay available under `bergamotawlan=4`.
 
 ## 3. Milestones (each: patch(es), harness test, independent review, one boot with the user's OK)
 
 ### WL1. Long-lived service (1124)
-`sweetwlan=5`: the boot 49 sequence without the hold and without the teardown; Wi-Fi left on (mode mission)
+`bergamotawlan=5`: the boot 49 sequence without the hold and without the teardown; Wi-Fi left on (mode mission)
 after WMI READY and the HTT setup; the service thread keeps rmtfs/TFTP/QRTR/GLINK alive and idles with adaptive
 polling. A status line every 60 s (scan count, WMI/HTT counters, CPU use of the thread) and on demand through a
 sysctl. Folded boot-args.
@@ -52,7 +52,7 @@ sysctl. Folded boot-args.
 periodic WMI ECHO round trip), the thread's CPU share in `top` is small.
 
 ### WL2. Real networks in Settings (1125)
-`sweet_80211.c` gets the WCN3990 backend (`sweet80211=3`):
+`bergamota_80211.c` gets the WCN3990 backend (`bergamota80211=3`):
 * POWER on/off -> keep the firmware up, mark the radio on/off (WLAN_MODE off/on later, once on/off is proven
   safe to repeat).
 * SCAN_REQ -> WMI START_SCAN on the requested channels (default: all of the regdomain's), then SCAN_DONE

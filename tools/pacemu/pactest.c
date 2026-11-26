@@ -1,5 +1,5 @@
 /*
- * pactest: exercise the kernel PAC emulation (xnu patch 1019, sweetarm64e=1) from an arm64e binary that
+ * pactest: exercise the kernel PAC emulation (xnu patch 1019, bergamotaarm64e=1) from an arm64e binary that
  * was NOT run through pacstrip. Build: tools/pacemu/build.sh. Run on the phone: /var/root/pactest
  *
  * Every PAC sequence (pactest_asm.S) is valid arm64e code, so the tool also passes on a CPU with

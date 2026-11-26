@@ -109,7 +109,7 @@ APT_SUITE = '2000'                                  # Procursus CF suite for iOS
 
 SSH = ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10',
        '-o', 'UserKnownHostsFile=/Users/zesmoi/.ssh/known_hosts_ios18']
-HOST = os.environ.get('SWEET_HOST', 'root@192.168.7.2')
+HOST = os.environ.get('BERGAMOTA_HOST', 'root@192.168.7.2')
 PHONE_PATH = 'PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin; export PATH; '
 
 
@@ -463,7 +463,7 @@ Suites: @SUITE@
 Components: main
 EOF
 # 2. LaunchServices registration of Sileo (System app, like every other app of this root)
-[ -x /usr/local/bin/sweetuicache ] && /usr/local/bin/sweetuicache $JB/Applications/Sileo.app
+[ -x /usr/local/bin/bergamotauicache ] && /usr/local/bin/bergamotauicache $JB/Applications/Sileo.app
 # 3. TrollStore: the upstream installer (trollstorehelper install-trollstore, as root), then ldid
 if ! ls /var/containers/Bundle/Application/*/TrollStore.app/trollstorehelper >/dev/null 2>&1; then
 	T=/var/tmp/renegade-jb-ts
@@ -688,7 +688,7 @@ def verify_phone(st, rounds=3):
 
 
 REMOVE = r'''
-S=/usr/local/bin/sweetuicache
+S=/usr/local/bin/bergamotauicache
 [ -x $S ] && $S -u /var/jb/Applications/Sileo.app
 H=$(ls /var/containers/Bundle/Application/*/TrollStore.app/trollstorehelper 2>/dev/null | head -1)
 [ -n "$H" ] && $H uninstall-trollstore

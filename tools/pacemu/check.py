@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Host checks for the kernel PAC emulation (xnu/patches-12377/1019-sweet-pac-emulation.patch).
+"""Host checks for the kernel PAC emulation (xnu/patches-12377/1019-bergamota-pac-emulation.patch).
 
-  tools/pacemu/check.py [--header sweet_pacemu.h] [--fuzz N]
+  tools/pacemu/check.py [--header bergamota_pacemu.h] [--fuzz N]
 
-1. sweet_pacemu.h is taken from the patch (or --header) and pacemu_test.c is built with ASan/UBSan;
+1. bergamota_pacemu.h is taken from the patch (or --header) and pacemu_test.c is built with ASan/UBSan;
    its unit tests run.
 2. forms.s (every decoded form + near neighbours) is assembled with `clang -arch arm64e`; each word's
    decode must equal the comment in forms.s.
@@ -26,7 +26,7 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
-PATCH = os.path.join(ROOT, 'xnu', 'patches-12377', '1019-sweet-pac-emulation.patch')
+PATCH = os.path.join(ROOT, 'xnu', 'patches-12377', '1019-bergamota-pac-emulation.patch')
 sys.path.insert(0, os.path.join(ROOT, 'tools', 'renegade'))
 import pacstrip  # noqa: E402
 
@@ -49,8 +49,8 @@ def run(cmd, **kw):
 
 def extract_header(tmp):
     os.makedirs(os.path.join(tmp, 'x'))
-    run(['git', 'apply', '--include=osfmk/arm64/sweet_pacemu.h', PATCH], cwd=os.path.join(tmp, 'x'))
-    return os.path.join(tmp, 'x', 'osfmk', 'arm64', 'sweet_pacemu.h')
+    run(['git', 'apply', '--include=osfmk/arm64/bergamota_pacemu.h', PATCH], cwd=os.path.join(tmp, 'x'))
+    return os.path.join(tmp, 'x', 'osfmk', 'arm64', 'bergamota_pacemu.h')
 
 
 def assemble_words(tmp, asm_lines, name):
@@ -186,7 +186,7 @@ def interp(w, st):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--header', help='sweet_pacemu.h to test instead of the one in the patch')
+    ap.add_argument('--header', help='bergamota_pacemu.h to test instead of the one in the patch')
     ap.add_argument('--fuzz', type=int, default=20000, help='random words (default 20000)')
     ap.add_argument('--seed', type=int, default=845)
     ap.add_argument('--keep', action='store_true', help='keep the temporary directory')
@@ -196,7 +196,7 @@ def main():
     try:
         hdr = a.header or extract_header(tmp)
         os.makedirs(os.path.join(tmp, 'inc'), exist_ok=True)
-        shutil.copy(hdr, os.path.join(tmp, 'inc', 'sweet_pacemu.h'))
+        shutil.copy(hdr, os.path.join(tmp, 'inc', 'bergamota_pacemu.h'))
         exe = os.path.join(tmp, 'pacemu_test')
         run(['xcrun', 'clang', '-std=c11', '-O1', '-g', '-Wall', '-Wextra', '-Werror', '-Wshadow',
              '-fsanitize=address,undefined', '-fno-sanitize-recover=all', '-I', os.path.join(tmp, 'inc'),

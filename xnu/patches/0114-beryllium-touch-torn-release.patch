@@ -1,5 +1,5 @@
---- a/bsd/dev/sweet_touch.c
-+++ b/bsd/dev/sweet_touch.c
+--- a/bsd/dev/bergamota_touch.c
++++ b/bsd/dev/bergamota_touch.c
 @@ -46,6 +46,7 @@
  #define NVT_CHIP_ID      0x08u
  #define NVT_RECORD       6u
@@ -27,7 +27,7 @@
 +		 * keep a contact down forever: that blocks every new touch.
 +		 */
 +		if (st.active && ++bad_run >= NVT_BAD_RELEASE) {
-+			printf("SWEET TOUCH: %u torn frames in a row while touched; releasing\n", bad_run);
++			printf("BERGAMOTA TOUCH: %u torn frames in a row while touched; releasing\n", bad_run);
 +			bad_run = 0;
 +			empty_frames = 0;
 +			touch_report(0, x, y);

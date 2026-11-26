@@ -1,7 +1,7 @@
-diff --git a/bsd/dev/sweet_touch.c b/bsd/dev/sweet_touch.c
+diff --git a/bsd/dev/bergamota_touch.c b/bsd/dev/bergamota_touch.c
 index 113081151fbf1e59a81a2456a75e4853cc3c75b4..96ae95573148f5f67ac1b8fdf26036218796623e 100644
---- a/bsd/dev/sweet_touch.c
-+++ b/bsd/dev/sweet_touch.c
+--- a/bsd/dev/bergamota_touch.c
++++ b/bsd/dev/bergamota_touch.c
 @@ -690,7 +690,7 @@ touch_novatek(void)
  		unsigned px = ((unsigned)p[1] << 4) | (p[3] >> 4);
  		unsigned py = ((unsigned)p[2] << 4) | (p[3] & 15u);

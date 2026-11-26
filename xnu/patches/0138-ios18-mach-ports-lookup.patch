@@ -5,7 +5,7 @@
  static void ipc_kobject_subst_once_no_senders(ipc_port_t, mach_msg_type_number_t);
  
 +/*
-+ * iOS 18 userland on this xnu-8796 kernel (docs/IOS18_PORT.md, sweetarm64e=1).
++ * iOS 18 userland on this xnu-8796 kernel (docs/IOS18_PORT.md, bergamotaarm64e=1).
 + *
 + * xnu-10002+ replaced the kernel side of task routines 3403/3404 (same
 + * msgh_ids) by _kernelrpc_mach_ports_register3 / _kernelrpc_mach_ports_lookup3:
@@ -17,31 +17,31 @@
 + * launchd 18 exit with "mach_ports_lookup() failed: -300".
 + * The two layouts cannot share a MIG stub, so intercept here:
 + *  - lookup (request has no arguments, identical for both layouts): only for
-+ *    arm64e callers, with sweetarm64e=1; arm64 (iOS 16) callers keep the OOL reply.
++ *    arm64e callers, with bergamotaarm64e=1; arm64 (iOS 16) callers keep the OOL reply.
 + *  - register: by request shape (3 descriptors, size of the new layout); the
 + *    old request (1 OOL descriptor + NDR + count) has a different size.
 + */
-+#define SWEET_MSGH_ID_PORTS_REGISTER 3403
-+#define SWEET_MSGH_ID_PORTS_LOOKUP   3404
++#define BERGAMOTA_MSGH_ID_PORTS_REGISTER 3403
++#define BERGAMOTA_MSGH_ID_PORTS_LOOKUP   3404
 +
-+extern bool sweet_arm64e_enabled(void);
-+extern bool sweet_proc_is_arm64e(struct proc *p);
++extern bool bergamota_arm64e_enabled(void);
++extern bool bergamota_proc_is_arm64e(struct proc *p);
 +
 +#pragma pack(push, 4)
 +typedef struct {
 +	mach_msg_header_t Head;
 +	mach_msg_body_t msgh_body;
 +	mach_msg_port_descriptor_t port[TASK_PORT_REGISTER_MAX];
-+} sweet_ports3_msg_t;
++} bergamota_ports3_msg_t;
 +#pragma pack(pop)
 +
 +static bool
-+sweet_ports3_register_shape(const mach_msg_header_t *hdr)
++bergamota_ports3_register_shape(const mach_msg_header_t *hdr)
 +{
-+	const sweet_ports3_msg_t *m = (const sweet_ports3_msg_t *)hdr;
++	const bergamota_ports3_msg_t *m = (const bergamota_ports3_msg_t *)hdr;
 +
 +	if (!(hdr->msgh_bits & MACH_MSGH_BITS_COMPLEX) ||
-+	    hdr->msgh_size != sizeof(sweet_ports3_msg_t) ||
++	    hdr->msgh_size != sizeof(bergamota_ports3_msg_t) ||
 +	    m->msgh_body.msgh_descriptor_count != TASK_PORT_REGISTER_MAX) {
 +		return false;
 +	}
@@ -55,22 +55,22 @@
 +
 +/* Returns true when the request was answered here (reply filled in). */
 +static bool
-+sweet_ports3_intercept(
++bergamota_ports3_intercept(
 +	mach_msg_header_t *req_hdr,
 +	mach_msg_header_t *reply_hdr,
 +	struct proc       *curproc)
 +{
 +	mig_reply_error_t *err = (mig_reply_error_t *)reply_hdr;
-+	sweet_ports3_msg_t *out = (sweet_ports3_msg_t *)reply_hdr;
-+	sweet_ports3_msg_t *in = (sweet_ports3_msg_t *)req_hdr;
++	bergamota_ports3_msg_t *out = (bergamota_ports3_msg_t *)reply_hdr;
++	bergamota_ports3_msg_t *in = (bergamota_ports3_msg_t *)req_hdr;
 +	task_t target_task;
 +	kern_return_t kr;
 +
-+	if (req_hdr->msgh_id == SWEET_MSGH_ID_PORTS_LOOKUP) {
++	if (req_hdr->msgh_id == BERGAMOTA_MSGH_ID_PORTS_LOOKUP) {
 +		mach_port_array_t ports = NULL;
 +		mach_msg_type_number_t cnt = 0;
 +
-+		if (!sweet_arm64e_enabled() || !sweet_proc_is_arm64e(curproc)) {
++		if (!bergamota_arm64e_enabled() || !bergamota_proc_is_arm64e(curproc)) {
 +			return false;
 +		}
 +		if ((req_hdr->msgh_bits & MACH_MSGH_BITS_COMPLEX) ||
@@ -94,12 +94,12 @@
 +		kfree_type(ipc_port_t, TASK_PORT_REGISTER_MAX, ports);
 +		out->msgh_body.msgh_descriptor_count = TASK_PORT_REGISTER_MAX;
 +		out->Head.msgh_bits |= MACH_MSGH_BITS_COMPLEX;
-+		out->Head.msgh_size = (mach_msg_size_t)sizeof(sweet_ports3_msg_t);
++		out->Head.msgh_size = (mach_msg_size_t)sizeof(bergamota_ports3_msg_t);
 +		return true;
 +	}
 +
-+	if (req_hdr->msgh_id == SWEET_MSGH_ID_PORTS_REGISTER &&
-+	    sweet_arm64e_enabled() && sweet_ports3_register_shape(req_hdr)) {
++	if (req_hdr->msgh_id == BERGAMOTA_MSGH_ID_PORTS_REGISTER &&
++	    bergamota_arm64e_enabled() && bergamota_ports3_register_shape(req_hdr)) {
 +		mach_port_array_t ports;
 +
 +		ports = kalloc_type(mach_port_t, TASK_PORT_REGISTER_MAX,
@@ -127,10 +127,10 @@
  	} else {
  		reply_size = ptr->size;
  	}
-+	if (request_msgh_id == SWEET_MSGH_ID_PORTS_LOOKUP &&
-+	    reply_size < sizeof(sweet_ports3_msg_t)) {
++	if (request_msgh_id == BERGAMOTA_MSGH_ID_PORTS_LOOKUP &&
++	    reply_size < sizeof(bergamota_ports3_msg_t)) {
 +		/* iOS 18 layout reply (3 port descriptors) is larger than the old one */
-+		reply_size = sizeof(sweet_ports3_msg_t);
++		reply_size = sizeof(bergamota_ports3_msg_t);
 +	}
  
  	/*
@@ -140,9 +140,9 @@
  
  		__BeforeKobjectServerTrace(idx);
 -		(*ptr->routine)(req_hdr, reply_hdr);
-+		if (!((request_msgh_id == SWEET_MSGH_ID_PORTS_LOOKUP ||
-+		    request_msgh_id == SWEET_MSGH_ID_PORTS_REGISTER) &&
-+		    sweet_ports3_intercept(req_hdr, reply_hdr, curproc))) {
++		if (!((request_msgh_id == BERGAMOTA_MSGH_ID_PORTS_LOOKUP ||
++		    request_msgh_id == BERGAMOTA_MSGH_ID_PORTS_REGISTER) &&
++		    bergamota_ports3_intercept(req_hdr, reply_hdr, curproc))) {
 +			(*ptr->routine)(req_hdr, reply_hdr);
 +		}
  		__AfterKobjectServerTrace(idx);

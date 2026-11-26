@@ -1,7 +1,7 @@
-diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
+diff --git a/iokit/Kernel/arm/BergamotaFramebuffer.cpp b/iokit/Kernel/arm/BergamotaFramebuffer.cpp
 index c19b9805d102df1e9b081b9a476c3ba5b390317f..03f0356be70c8ca7b82dad0a9d1ea5735ef5ea51 100644
---- a/iokit/Kernel/arm/SweetFramebuffer.cpp
-+++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+--- a/iokit/Kernel/arm/BergamotaFramebuffer.cpp
++++ b/iokit/Kernel/arm/BergamotaFramebuffer.cpp
 @@ -488,6 +488,21 @@ AppleCLCD::start(IOService *provider)
  	IOAcceleratorES *accel = accelOn ? OSTypeAlloc(IOAcceleratorES) : NULL;
  	if (accel != NULL && accel->init()) {
@@ -19,8 +19,8 @@ index c19b9805d102df1e9b081b9a476c3ba5b390317f..03f0356be70c8ca7b82dad0a9d1ea573
 +		if (chlorophyll) {
 +			accel->setProperty("MetalPluginName", "Chlorophyll");
 +			accel->setProperty("MetalPluginClassName", "CHLDevice");
-+			IOLog("SWEET FB: IOAcceleratorES names Chlorophyll.bundle as the Metal driver (chlorophyll=1)\n");
++			IOLog("BERGAMOTA FB: IOAcceleratorES names Chlorophyll.bundle as the Metal driver (chlorophyll=1)\n");
 +		}
  		if (accel->attach(this)) {
  			accel->registerService();
- 			IOLog("SWEET FB: empty IOAcceleratorES published (no 30 s wait in CAMetalContextCreate)\n");
+ 			IOLog("BERGAMOTA FB: empty IOAcceleratorES published (no 30 s wait in CAMetalContextCreate)\n");

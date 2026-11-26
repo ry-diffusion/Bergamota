@@ -50,7 +50,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		if (!ipc_tx(&h, (uint32_t)sizeof(h), (const uint8_t *)data + off, chunk)) {
 +			/* __qcom_glink_send(): the intent is free again and the send fails */
 +			best->used = false;
-+			printf("SWEET IPC: glink send of %u bytes failed at %u%s\n", len, off, off ? " (partial message on the ring)" : "");
++			printf("BERGAMOTA IPC: glink send of %u bytes failed at %u%s\n", len, off, off ? " (partial message on the ring)" : "");
 +			return false;
 +		}
 +		off += chunk;
@@ -68,7 +68,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
  	}
  	if (ipc.txq_n == 0 && ipc_send_now(data, len)) {
 @@ -2592,8 +2604,13 @@
- 		printf("SWEET IPC: glink TX queue full: %u-byte packet dropped\n", len);
+ 		printf("BERGAMOTA IPC: glink TX queue full: %u-byte packet dropped\n", len);
  		return false;
  	}
 +	uint8_t *copy = kalloc_data(len, Z_WAITOK);
@@ -113,20 +113,20 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	if (ipc.tftp) {
 +		uint32_t tsrv[5] = { Q_NEW_SERVER, 4096u, 1u, QRTR_NODE_LOCAL, 0x4001u };   /* TFTP_SERVICE/INSTANCE/PORT */
 +		bool c = ipc_qrtr_send(Q_NEW_SERVER, QRTR_PORT_CTRL, ipc.node, QRTR_PORT_CTRL, tsrv, sizeof(tsrv));
-+		printf("SWEET IPC: qrtr: tftp announced as service 4096 instance 1 at %u:0x4001 %s\n", QRTR_NODE_LOCAL,
++		printf("BERGAMOTA IPC: qrtr: tftp announced as service 4096 instance 1 at %u:0x4001 %s\n", QRTR_NODE_LOCAL,
 +		    c ? "" : "(FAILED)");
 +	}
- 	printf("SWEET IPC: qrtr: hello %s, rmtfs announced as service %u instance %u at %u:%#x %s\n", a ? "sent" : "FAILED",
+ 	printf("BERGAMOTA IPC: qrtr: hello %s, rmtfs announced as service %u instance %u at %u:%#x %s\n", a ? "sent" : "FAILED",
  	    RMTFS_SERVICE, RMTFS_INSTANCE, QRTR_NODE_LOCAL, QRTR_RMTFS_PORT, b ? "" : "(FAILED)");
  }
 @@ -2863,9 +2890,521 @@
  		break;
  	}
- 	sweet_log_sync();
+ 	bergamota_log_sync();
 +}
 +
 +/*
-+ * ---- TFTP over QRTR (sweettftp=1), linux-msm/tqftpserv: service 4096 version 1, RFC 1350 + options
++ * ---- TFTP over QRTR (bergamotatftp=1), linux-msm/tqftpserv: service 4096 version 1, RFC 1350 + options
 + * (blksize, timeoutms, tsize, wsize, rsize, seek) in network byte order. A request arrives at the server
 + * port; every transfer then runs on its own port (tqftpserv: qrtr_open(0) + connect()). Read-only: the
 + * firmware paths map to the phone's modem partition, /readwrite/ files live in RAM only.
@@ -387,7 +387,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +static void
 +tftp_close(struct tftp_client *c, const char *why)
 +{
-+	printf("SWEET IPC: tftp %s %s: %s, %llu bytes\n", c->writer ? "write" : "read", c->path, why, c->sent);
++	printf("BERGAMOTA IPC: tftp %s %s: %s, %llu bytes\n", c->writer ? "write" : "read", c->path, why, c->sent);
 +	c->used = false;
 +}
 +
@@ -436,12 +436,12 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		octet = (mode[k] | 0x20) == "octet"[k];
 +	}
 +	if (!octet) {
-+		printf("SWEET IPC: tftp %s: mode \"%s\" refused\n", file, mode);
++		printf("BERGAMOTA IPC: tftp %s: mode \"%s\" refused\n", file, mode);
 +		tftp_error(tftp_next_port++, node, rport, 4, "Only octet mode supported");
 +		return;
 +	}
 +	if (!tftp_options(opts, end, c, &tsize, &any)) {
-+		printf("SWEET IPC: tftp %s: options refused\n", file);
++		printf("BERGAMOTA IPC: tftp %s: options refused\n", file);
 +		tftp_error(tftp_next_port++, node, rport, 8, "Option negotiation failed");
 +		return;
 +	}
@@ -463,7 +463,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	if (c->writer) {
 +		c->rw = rel && rw ? tftp_rw_find(rel, true) : -1;
 +		if (c->rw < 0) {
-+			printf("SWEET IPC: tftp write %s refused (not /readwrite/ or no room)\n", file);
++			printf("BERGAMOTA IPC: tftp write %s refused (not /readwrite/ or no room)\n", file);
 +			tftp_error(tftp_next_port++, node, rport, 2, "Access violation");
 +			return;
 +		}
@@ -475,13 +475,13 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	} else if (!rel || fat_open(&ms_fat, fat_path, &c->cl, &c->size)) {
 +		c->port = tftp_next_port++;
 +		c->used = false;
-+		printf("SWEET IPC: tftp read %s (opts %s): not found\n", file, any ? "yes" : "no");
++		printf("BERGAMOTA IPC: tftp read %s (opts %s): not found\n", file, any ? "yes" : "no");
 +		tftp_error(c->port, node, rport, 1, "file not found");
 +		return;
 +	}
 +	if (!c->writer && rw && c->rw < 0) {
 +		c->port = tftp_next_port++;
-+		printf("SWEET IPC: tftp read %s: not found (RAM)\n", file);
++		printf("BERGAMOTA IPC: tftp read %s: not found (RAM)\n", file);
 +		tftp_error(c->port, node, rport, 1, "file not found");
 +		return;
 +	}
@@ -490,7 +490,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +	}
 +	c->port = tftp_next_port++;
 +	c->used = true;
-+	printf("SWEET IPC: tftp %s %s (%u bytes) blksize %u wsize %u rsize %u seek %u%s from %u:%#x on port %#x\n",
++	printf("BERGAMOTA IPC: tftp %s %s (%u bytes) blksize %u wsize %u rsize %u seek %u%s from %u:%#x on port %#x\n",
 +	    c->writer ? "write" : "read", file, c->writer ? 0 : c->size, c->blksize, c->wsize, c->rsize, c->seek,
 +	    any ? "" : " (no options)", node, rport, c->port);
 +	if (any) {
@@ -605,7 +605,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		if (op == T_RRQ || op == T_WRQ) {
 +			tftp_request(node, rport, buf, len);
 +		} else {
-+			printf("SWEET IPC: tftp: opcode %u at the server port from %u:%#x\n", op, node, rport);
++			printf("BERGAMOTA IPC: tftp: opcode %u at the server port from %u:%#x\n", op, node, rport);
 +		}
 +		return true;
 +	}
@@ -629,7 +629,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +{
 +	for (unsigned k = 0; k < TFTP_RW_FILES; k++) {
 +		if (tftp_rw[k].data) {
-+			printf("SWEET IPC: tftp RAM file /readwrite/%s: %u bytes (dropped)\n", tftp_rw[k].name, tftp_rw[k].len);
++			printf("BERGAMOTA IPC: tftp RAM file /readwrite/%s: %u bytes (dropped)\n", tftp_rw[k].name, tftp_rw[k].len);
 +			kfree_data(tftp_rw[k].data, TFTP_RW_MAX);
 +			tftp_rw[k].data = NULL;
 +		}
@@ -648,7 +648,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		} else if (tftp_rx(dport, snode, sport, pl, size)) {
 +			/* TFTP server or one of its transfers */
  		} else {
- 			printf("SWEET IPC: qrtr: %u bytes from %u:%#x to port %#x (no server)\n", size, snode, sport, dport);
+ 			printf("BERGAMOTA IPC: qrtr: %u bytes from %u:%#x to port %#x (no server)\n", size, snode, sport, dport);
  		}
 @@ -2934,6 +3475,17 @@
  		break;
@@ -662,18 +662,18 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
 +		}
 +		break;
 +	case Q_BYE:
-+		printf("SWEET IPC: qrtr: bye from node %u\n", snode);
++		printf("BERGAMOTA IPC: qrtr: bye from node %u\n", snode);
 +		tftp_client_gone(snode, 0, true);
 +		break;
  	default:
- 		printf("SWEET IPC: qrtr: control %u from %u:%#x (%u bytes)\n", type, snode, sport, size);
+ 		printf("BERGAMOTA IPC: qrtr: control %u from %u:%#x (%u bytes)\n", type, snode, sport, size);
  		break;
 @@ -2945,6 +3497,9 @@
  ms_ipc_setup(void)
  {
  	memset(&ipc, 0, sizeof(ipc));
 +	int tftp = 0;
-+	(void)PE_parse_boot_argn("sweettftp", &tftp, sizeof(tftp));
++	(void)PE_parse_boot_argn("bergamotatftp", &tftp, sizeof(tftp));
 +	ipc.tftp = tftp == 1;
  	ipc.features = GLINK_FEATURE_REUSE;
  	ipc.node = 0;
@@ -684,7 +684,7 @@ diff --git a/bsd/dev/beryllium_wlan.c b/bsd/dev/beryllium_wlan.c
  		ipc_flush();
 +		tftp_pump();
  		if (ipc.open_acked && !ipc.announced && ms_now_ms() > ipc.open_ms + 3000) {
- 			printf("SWEET IPC: qrtr: no hello from the modem 3 s after IPCRTR opened: sending ours\n");
+ 			printf("BERGAMOTA IPC: qrtr: no hello from the modem 3 s after IPCRTR opened: sending ours\n");
  			ipc_qrtr_announce();
 @@ -3015,6 +3571,11 @@
  static void

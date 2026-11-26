@@ -16,7 +16,7 @@ struct ActivityBanner: Equatable {
 final class ControlPlaneHooks {
     /// Reboots the phone to fastboot; returns a short result. nil = feature not available.
     var rebootToFastboot: (@MainActor () async -> String)?
-    /// Reboots iOS into Bergamota fastboot (`sweetreboot bergamota`).
+    /// Reboots iOS into Bergamota fastboot (`bergamotareboot bergamota`).
     var rebootToBergamota: (@MainActor () async -> String)?
 }
 
@@ -59,14 +59,14 @@ extension AppModel {
         if let s = queue.sending { return ActivityBanner(title: "SENDING \(s.name.uppercased())", subtitle: "fastboot boot, do not unplug", tone: .amber, symbol: "paperplane.fill") }
 
         if tools.enteringBergamota { return ActivityBanner(title: "ENTERING BERGAMOTA FASTBOOT", subtitle: "fastboot boot bergamota-fastboot.img, do not unplug", tone: .lime, symbol: "leaf.circle.fill") }
-        if let n = tools.rebooting { return ActivityBanner(title: "REBOOTING TO \(n.uppercased())", subtitle: "sweetreboot over SSH", tone: n == "bergamota" ? .lime : .amber, symbol: "arrow.triangle.2.circlepath") }
+        if let n = tools.rebooting { return ActivityBanner(title: "REBOOTING TO \(n.uppercased())", subtitle: "bergamotareboot over SSH", tone: n == "bergamota" ? .lime : .amber, symbol: "arrow.triangle.2.circlepath") }
 
         if let sent = lastSent, let at = sent.sentAt {
             let el = now.timeIntervalSince(at)
             let up = st == .ios && monitor.stateSince > at
             if !up && el < Self.bootTimeout {
                 var hint = "elapsed \(formatElapsed(el))"
-                if let l = logs.lastSweetLine, let t = logs.lastSweetAt, now.timeIntervalSince(t) < 20 { hint += "  |  " + String(l.prefix(110)) }
+                if let l = logs.lastBergamotaLine, let t = logs.lastBergamotaAt, now.timeIntervalSince(t) < 20 { hint += "  |  " + String(l.prefix(110)) }
                 if st.isFastboot && el > 20 {
                     return ActivityBanner(title: "STILL IN \(st.title.uppercased())", subtitle: "\(sent.name) did not start (\(formatElapsed(el)) after send). Re-enter fastboot.", tone: .amber, symbol: "exclamationmark.triangle.fill")
                 }

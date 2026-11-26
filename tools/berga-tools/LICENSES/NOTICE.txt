@@ -7,7 +7,7 @@ Everything was built from the sources in https://github.com/ry-diffusion/Bergamo
 
 What is in it
 -------------
-sweetnet/        Bergamota's own on-device tools (sources: tools/sweetnet/*.c, *.m, sweetrun-app/), built with the Xcode
+bergamotanet/        Bergamota's own on-device tools (sources: tools/bergamotanet/*.c, *.m, bergamotarun-app/), built with the Xcode
                  iphoneos SDK, ad-hoc signed; the iOS 18 ones are arm64e rewritten by `renegade strip --sign` (pacstrip).
 bergamota-gl/    The bglrender payload (sources: gpu/eagl/ on the gpu-eagl branch):
                    bgl-launch, OpenGLES.framework/OpenGLES   Bergamota's own code

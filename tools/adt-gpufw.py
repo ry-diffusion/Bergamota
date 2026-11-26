@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Add the Adreno 630 firmware to an Apple Device Tree as a /sweet-gpu node.
+"""Add the Adreno 630 firmware to an Apple Device Tree as a /bergamota-gpu node.
 
   adt-gpufw.py IN.adt OUT.adt --fw DIR [--zap DIR]
 
-Heartwood's GPU bring-up (sweetgpu=N, patches 0103/0180-0185) loads its firmware from the ADT
-node /sweet-gpu before the root filesystem exists, so nothing has to be written to the iOS root:
+Heartwood's GPU bring-up (bergamotagpu=N, patches 0103/0180-0185) loads its firmware from the ADT
+node /bergamota-gpu before the root filesystem exists, so nothing has to be written to the iOS root:
   gmu-firmware  DIR/a630_gmu.bin   (linux-firmware qcom/a630_gmu.bin)
   sqe-firmware  DIR/a630_sqe.fw    (linux-firmware qcom/a630_sqe.fw)
   zap-mdt, zap-b00..zap-bNN        ZAPDIR/a630_zap.mdt + .bNN (signed for the phone, e.g. split from
@@ -28,9 +28,9 @@ def main():
     ap.add_argument('--zap', help='directory with a630_zap.mdt and a630_zap.bNN')
     a = ap.parse_args()
     root, _ = adt.parse(adt.load(a.inp))
-    root.children = [c for c in root.children if c.name != 'sweet-gpu']
+    root.children = [c for c in root.children if c.name != 'bergamota-gpu']
     n = adt.Node()
-    n.props.append(('name', 0, b'sweet-gpu\0'))
+    n.props.append(('name', 0, b'bergamota-gpu\0'))
     n.props.append(('gmu-firmware', 0, open(os.path.join(a.fw, 'a630_gmu.bin'), 'rb').read()))
     n.props.append(('sqe-firmware', 0, open(os.path.join(a.fw, 'a630_sqe.fw'), 'rb').read()))
     if a.zap:
@@ -39,7 +39,7 @@ def main():
             n.props.append(('zap-' + f[-3:], 0, open(f, 'rb').read()))
     root.children.append(n)
     open(a.out, 'wb').write(adt.serialize(root))
-    print('%s: /sweet-gpu with %s' % (a.out, ', '.join('%s (%d)' % (p, len(v)) for p, _, v in n.props[1:])))
+    print('%s: /bergamota-gpu with %s' % (a.out, ', '.join('%s (%d)' % (p, len(v)) for p, _, v in n.props[1:])))
 
 
 if __name__ == '__main__':

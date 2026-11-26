@@ -5,7 +5,7 @@
 # Usage: [BOARD=..] [DTB=..] ./build.sh [payload.bin]
 set -euo pipefail
 cd "$(dirname "$0")"
-BOARD=${BOARD:-sweet}
+BOARD=${BOARD:-bergamota}
 # Linux cross toolchain if present, else the bare-metal one (Homebrew aarch64-elf-gcc on macOS)
 if [ -z "${CROSS:-}" ]; then
 	if command -v aarch64-linux-gnu-gcc >/dev/null; then CROSS=aarch64-linux-gnu-; else CROSS=aarch64-elf-; fi

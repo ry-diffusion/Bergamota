@@ -101,7 +101,7 @@ struct PerformanceModePanel: View {
                     .help("Restart SpringBoard so its switches take effect (backboardd keeps running)")
             }
             Button("Reboot phone") { confirmReboot = true }
-                .help("A normal reboot (sweetreboot normal): comes up on the flashed boot image; backboardd reads its switches then")
+                .help("A normal reboot (bergamotareboot normal): comes up on the flashed boot image; backboardd reads its switches then")
                 .disabled(model.tools.rebooting != nil)
             Button { Task { await p.read() } } label: { Image(systemName: "arrow.clockwise") }
                 .help("Read the switches from the phone again")

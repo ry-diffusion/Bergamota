@@ -1,5 +1,5 @@
---- a/bsd/dev/sweet_touch.c
-+++ b/bsd/dev/sweet_touch.c
+--- a/bsd/dev/bergamota_touch.c
++++ b/bsd/dev/bergamota_touch.c
 @@ -104,7 +104,7 @@
  
  static struct {
@@ -148,7 +148,7 @@
 +	}
 +	bb_stop();
 +	if (st.probing) {
-+		printf("SWEET TOUCH: bb addr=%#x reg=%#x len=%u err=%d sda=%d scl=%d\n",
++		printf("BERGAMOTA TOUCH: bb addr=%#x reg=%#x len=%u err=%d sda=%d scl=%d\n",
 +		    addr, nreg ? reg[0] : 0, len, err, bb_get(tb->sda), bb_get(tb->scl));
  	}
  	return err;
@@ -186,7 +186,7 @@
  	touch_wait(100);
  	st.probing = true;
 @@ -694,15 +845,22 @@
- 		printf("SWEET TOUCH: MMIO mapping failed\n");
+ 		printf("BERGAMOTA TOUCH: MMIO mapping failed\n");
  		goto out;
  	}
 -	if (!touch_clocks() || !touch_se_init()) {
@@ -195,7 +195,7 @@
  	if (!tb->rpmh_l11c) {
 +		uint32_t ifdis = touch_rd(st.se, 0x64), fw = touch_rd(st.se, SE_FW);
 +		st.bitbang = (ifdis & 1u) != 0;
-+		printf("SWEET TOUCH: %s fw=%#x if-disable=%#x -> %s\n", tb->name, fw, ifdis,
++		printf("BERGAMOTA TOUCH: %s fw=%#x if-disable=%#x -> %s\n", tb->name, fw, ifdis,
 +		    st.bitbang ? "GSI-only SE, bit-banged I2C on the GPIOs" : "FIFO I2C");
 +		if (!st.bitbang && (!touch_clocks() || !touch_se_init())) {
 +			goto out;
@@ -208,7 +208,7 @@
 +	if (!touch_clocks() || !touch_se_init()) {
 +		goto out;
 +	}
- 	printf("SWEET TOUCH: TLMM reset=%#x irq=%#x vdd90=%#x; voting L11C through RPMh\n",
+ 	printf("BERGAMOTA TOUCH: TLMM reset=%#x irq=%#x vdd90=%#x; voting L11C through RPMh\n",
  	    touch_rd(st.gpio, TOUCH_GPIO_IO(8)), touch_rd(st.gpio, TOUCH_GPIO_IO(9)),
  	    touch_rd(st.gpio, TOUCH_GPIO_IO(90)));
 @@ -752,6 +910,13 @@
@@ -227,14 +227,14 @@
  			    st.kind == TOUCH_NVT ? touch_novatek() : touch_focaltech();
 @@ -785,6 +950,7 @@
  	st.started = true;
- 	if (sweet_board_beryllium()) {
+ 	if (bergamota_board_beryllium()) {
  		tb = &touch_beryllium;
 +		st.irq_hint = 1; /* bit-banged reads are slow: only on IRQ edges or while touched */
  	}
- 	(void)PE_parse_boot_argn("sweettouch", &enabled, sizeof(enabled));
- 	(void)PE_parse_boot_argn("sweettouchirq", &st.irq_hint, sizeof(st.irq_hint));
---- a/bsd/dev/sweet_usb.c
-+++ b/bsd/dev/sweet_usb.c
+ 	(void)PE_parse_boot_argn("bergamotatouch", &enabled, sizeof(enabled));
+ 	(void)PE_parse_boot_argn("bergamotatouchirq", &st.irq_hint, sizeof(st.irq_hint));
+--- a/bsd/dev/bergamota_usb.c
++++ b/bsd/dev/bergamota_usb.c
 @@ -273,7 +273,7 @@
  	dwc_wr(DEPCMDPAR1(ep), p1);
  	dwc_wr(DEPCMDPAR2(ep), p2);
@@ -248,8 +248,8 @@
  		}
  		delay(1);
  	}
--	printf("SWEET USB: ep%u cmd 0x%x timeout\n", ep, cmd & 0xf);
-+	printf("SWEET USB: ep%u cmd 0x%x timeout, DEPCMD 0x%08x DSTS 0x%08x GSTS 0x%08x\n", ep, cmd & 0xf,
+-	printf("BERGAMOTA USB: ep%u cmd 0x%x timeout\n", ep, cmd & 0xf);
++	printf("BERGAMOTA USB: ep%u cmd 0x%x timeout, DEPCMD 0x%08x DSTS 0x%08x GSTS 0x%08x\n", ep, cmd & 0xf,
 +	    dwc_rd(DEPCMD(ep)), dwc_rd(DSTS), dwc_rd(0xc118));
  	return -1;
  }
@@ -260,13 +260,13 @@
  	 */
 -	if (dwc_rd(GCTL) != gctl_abl) {
 -		dwc_wr(GCTL, gctl_abl);
--		printf("SWEET USB: GCTL restored to 0x%08x (now 0x%08x), GUSB3PIPECTL 0x%08x\n",
+-		printf("BERGAMOTA USB: GCTL restored to 0x%08x (now 0x%08x), GUSB3PIPECTL 0x%08x\n",
 -		    gctl_abl, dwc_rd(GCTL), dwc_rd(0xc2c0));
 -	}
 +	uint32_t gctl_rst = dwc_rd(GCTL);
 +	/* Bus clock for the controller RAM (RAMCLKSEL 7:6 = 0) whatever reset left. */
 +	dwc_wr(GCTL, gctl_abl & ~(3u << 6));
-+	printf("SWEET USB: GCTL before reset 0x%08x, after 0x%08x, now 0x%08x; GUSB3PIPECTL 0x%08x GUSB2PHYCFG 0x%08x GUCTL 0x%08x GSTS 0x%08x\n",
++	printf("BERGAMOTA USB: GCTL before reset 0x%08x, after 0x%08x, now 0x%08x; GUSB3PIPECTL 0x%08x GUSB2PHYCFG 0x%08x GUCTL 0x%08x GSTS 0x%08x\n",
 +	    gctl_abl, gctl_rst, dwc_rd(GCTL), dwc_rd(0xc2c0), dwc_rd(0xc200), dwc_rd(0xc12c), dwc_rd(0xc118));
  
  	dwc_wr(GEVNTADRLO, (uint32_t)(ud.dma_pa + UD_EVT));

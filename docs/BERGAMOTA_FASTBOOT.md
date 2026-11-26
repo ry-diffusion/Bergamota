@@ -11,12 +11,12 @@ Status: compiles; the protocol, sparse, GPT/allowlist, hash and delta-tool end-t
 ## Entry
 `usb_power_up()` runs on every boot (no-op when GDSC + clocks are on). Then fastboot starts when
 - the boot.img cmdline has `bergamota.fastboot=1` (`BERGAMOTA=1 enxerto/build.sh` adds it), or
-- the flag is absent and the ABL ramdisk holds no SWEETXNU payload (plain `build.sh`).
+- the flag is absent and the ABL ramdisk holds no BERGAMOTAXNU payload (plain `build.sh`).
 
 `bergamota.fastboot=0` (`BERGAMOTA=0`) keeps the old loader/diagnostics path. If fastboot cannot start (USB init error, no buffer) the reason is
 shown for 30 s and the old path continues (a payload in the ramdisk still boots). `bergamota.smmu=0` skips the SMMU step (debug).
 
-## Controller bring-up (copy of what finally worked in xnu: sweet_usb.c `sweetusbfix=7` + sweet_smmu.c)
+## Controller bring-up (copy of what finally worked in xnu: bergamota_usb.c `bergamotausbfix=7` + bergamota_smmu.c)
 MMU off, Device memory, polled, event interrupt masked. After `fastboot boot`, ABL leaves GDSC/clocks on but the QUSB2 PHY powered down
 (PWR_CTRL1 0x23, POWER_DOWN set); every earlier xnu attempt that only "took over the halted core" timed out in SETEPCONFIG (NOTES).
 1. Check GCC USB30_PRIM GDSCR bit31 and CBCRs (master, cfg-noc) before touching DWC3 (a gated block hangs the bus); best-effort enable otherwise.
@@ -25,7 +25,7 @@ MMU off, Device memory, polled, event interrupt masked. After `fastboot boot`, A
 4. Linux core soft reset (GCTL.CORESOFTRESET + both PHYSOFTRST, 100 ms), DCTL.CSFTRST, then restore ABL's GCTL with RAMCLKSEL = 0.
 5. HS quirks (GUCTL1 bit17, DCTL INITU1/2ENA = 0, GUSB2PHYCFG SUSPHY/ENBLSLPM = 0), GUCTL1 bit26.
 6. apps_smmu (0x15000000): stream 0x740 (DT `iommus = <&apps_smmu 0x740 0>`) -> a stage-1 context bank that identity-maps DRAM
-   0x80000000..0x27fffffff (Normal NC), exactly as sweet_smmu.c. Under the Qualcomm hypervisor an unmapped stream faults and the first DMA resets the SoC.
+   0x80000000..0x27fffffff (Normal NC), exactly as bergamota_smmu.c. Under the Qualcomm hypervisor an unmapped stream faults and the first DMA resets the SoC.
    An existing exact SMR is retargeted, otherwise a free one is used; the originals are restored by `usb_dwc3_stop()`.
 7. Our event buffer (4 KiB in the image), DEVTEN = reset/disconnect/connect-done, DEVSPD = HS, ep0 config, DALEPENA, SETUP TRB.
 8. QSCRATCH VBUS override (HS_PHY_CTRL bits 20/28, SS_PHY_CTRL bit 24), then DCTL.RUN_STOP.
@@ -54,7 +54,7 @@ Bus reset/disconnect ends all transfers, returns ep0 to SETUP and tells the prot
 **slot-count 0** (the Poco F1 is not A/B), **usb-speed** high/super/full, `getvar:all` (INFO lines + OKAY),
 **`partition-size:<p>`** (`0x<hex bytes>`), **`partition-type:<p>`** (`raw`), `has-slot:<p>` / `is-logical:<p>` (`no`): only for userdata, boot, logo, FAIL for any other name.
 `download:<hex>` (DATA, bulk data, OKAY; > max or 0 -> FAIL). `boot`: the download must be an Android boot.img
-(v0-v4: take the ramdisk) whose ramdisk is a SWEETXNU payload, or a raw SWEETXNU payload; `loader_check` validates the header, every file range and every destination
+(v0-v4: take the ramdisk) whose ramdisk is a BERGAMOTAXNU payload, or a raw BERGAMOTAXNU payload; `loader_check` validates the header, every file range and every destination
 (inside `[phys_base, +mem_size)`) **before** OKAY is sent, then `loader_boot_payload(start, end, 1)` runs with the buffer instead of the ABL initrd (it shows the branded boot screen).
 `reboot` (restart reason 0x77665501, PSCI SYSTEM_RESET, PS_HOLD fallback), `reboot-bootloader` (IMEM 0x146bf65c = 0x77665500: ABL fastboot), `continue` (= reboot); unchanged.
 Everything else (`format`, `set_active`, `flashing`, logical-partition and snapshot commands, unknown `oem` ...) answers FAIL. Link loss drops the session state (download, staged data).
@@ -161,5 +161,5 @@ Build: `BOARD=beryllium DTB=.../dtb/beryllium/dtb enxerto/build.sh` -> `enxerto/
 On a power-on without fastboot, ABL leaves USB off. `usb_power_up()`: if GDSC/clocks are on, nothing. Otherwise: cfg-noc/aggre/ahb2phy branches, CLKREF_EN, clear GDSC SW_COLLAPSE,
 master RCG 66.67 MHz (GPLL0/9; DT core-clk-rate-hs), mock-UTMI/aux RCGs 19.2 MHz (XO), branches, BCR pulses (USB30_PRIM 0xf000, AHB2PHY 0x6a000, QUSB2PHY 0x12000),
 the QUSB2 init sequence from live.dts ending with PWR_CTRL1 = 0x22, then reads GSNPSID. Not handled: PHY supplies (vdda18/vdda33/vdd via PMIC/RPMh), the efuse tune correction,
-PIPE/QMP SuperSpeed (port is USB 2.0). The GCC offsets of cfg-noc (0x0502c) and aggre are copied from sweet_usb.c (checked on beryllium by the xnu probe only in the "already on" case);
+PIPE/QMP SuperSpeed (port is USB 2.0). The GCC offsets of cfg-noc (0x0502c) and aggre are copied from bergamota_usb.c (checked on beryllium by the xnu probe only in the "already on" case);
 voted-clock enable registers are not used. Treat as best effort.

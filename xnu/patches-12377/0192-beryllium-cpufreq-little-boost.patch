@@ -1,17 +1,17 @@
-diff --git a/bsd/dev/sweet_cpufreq.c b/bsd/dev/sweet_cpufreq.c
+diff --git a/bsd/dev/bergamota_cpufreq.c b/bsd/dev/bergamota_cpufreq.c
 index 1ca3f56569ac70d60c18fb79d09e7433127ac126..50b04bead8b12b5f0fc9a9859ad8961096ae6eff 100644
---- a/bsd/dev/sweet_cpufreq.c
-+++ b/bsd/dev/sweet_cpufreq.c
+--- a/bsd/dev/bergamota_cpufreq.c
++++ b/bsd/dev/bergamota_cpufreq.c
 @@ -48,6 +48,10 @@
-  *   sweetcpufreq_log=<seconds>         time-in-state summary period (default
+  *   bergamotacpufreq_log=<seconds>         time-in-state summary period (default
   *                                      10, 0 = none)
-  *   sweetcpufreq_force=1               also act when ENABLE bit 0 is clear
-+ *   sweetcpufreq_little_boost=1        gov: when the A55 cluster sits at >= 90% load at its
+  *   bergamotacpufreq_force=1               also act when ENABLE bit 0 is clear
++ *   bergamotacpufreq_little_boost=1        gov: when the A55 cluster sits at >= 90% load at its
 + *                                      ceiling for 1 s, raise the ceiling by 2 LUT states (up to
-+ *                                      sweetcpufreq_little_boost_max, % of max, default 100); back
++ *                                      bergamotacpufreq_little_boost_max, % of max, default 100); back
 + *                                      to the base cap after 1 s below 50% load (default off)
-  *   sweetamp=0|1                       idle-core steering in the scheduler (default 1)
-  *   sweetamp_prio=<n>                  base_pri threshold (default 31)
+  *   bergamotaamp=0|1                       idle-core steering in the scheduler (default 1)
+  *   bergamotaamp_prio=<n>                  base_pri threshold (default 31)
   * Core-class steering (independent of the cpufreq mode): once all CPUs are up,
 @@ -66,13 +70,13 @@
   *   line 2:  cluster0 name=A55 cpus=0-3 state=<applied|off|skipped|pending>
@@ -30,9 +30,9 @@ index 1ca3f56569ac70d60c18fb79d09e7433127ac126..50b04bead8b12b5f0fc9a9859ad89610
   * idx/cur_khz are read live from PERF_STATE; they are 0 unless state=applied.
 - * lut_khz=<khz>,<khz>,... is also present on each cluster line (before tis_ms).
   */
- #if defined(ARM64_BOARD_CONFIG_SWEET)
+ #if defined(ARM64_BOARD_CONFIG_BERGAMOTA)
  #include <sys/param.h>
-@@ -109,6 +113,9 @@ void sweet_cpufreq_max(void);
+@@ -109,6 +113,9 @@ void bergamota_cpufreq_max(void);
  #define GOV_DOWN_SAMPLES        3u
  #define GOV_DOWN_STEP           2u
  #define FIXED_PERIOD_MS         250u
@@ -65,7 +65,7 @@ index 1ca3f56569ac70d60c18fb79d09e7433127ac126..50b04bead8b12b5f0fc9a9859ad89610
  static int cf_amp_pri = 31;             /* BASEPRI_DEFAULT */
  static uint64_t cf_amp_big;
 @@ -288,6 +301,11 @@ cf_setup(unsigned id, struct cf_domain *d)
- 	printf("SWEET CPUFREQ: domain %u: %s %d%% of max -> perf state %u (%u kHz)\n", id,
+ 	printf("BERGAMOTA CPUFREQ: domain %u: %s %d%% of max -> perf state %u (%u kHz)\n", id,
  	    cf_mode == MODE_GOV ? "cap" : "fixed target", d->percent, d->cap, d->khz[d->cap]);
  	/* gov starts at the cap and lets the first idle samples bring it down */
 +	d->eff_cap = d->cap;
@@ -80,14 +80,14 @@ index 1ca3f56569ac70d60c18fb79d09e7433127ac126..50b04bead8b12b5f0fc9a9859ad89610
  	if (cf_mode != MODE_GOV) {
  		return;
  	}
-+	/* A55 boost (sweetcpufreq_little_boost=1): saturated at its ceiling for 1 s -> raise it. */
++	/* A55 boost (bergamotacpufreq_little_boost=1): saturated at its ceiling for 1 s -> raise it. */
 +	if (id == 0 && cf_boost && d->boost_top > d->cap) {
 +		if (load >= GOV_JUMP_PCT && cur >= d->eff_cap) {
 +			d->calm_cnt = 0;
 +			if (++d->sat_cnt >= BOOST_SAT_SAMPLES && d->eff_cap < d->boost_top) {
 +				d->sat_cnt = 0;
 +				d->eff_cap = (d->boost_top - d->eff_cap > BOOST_STEP) ? d->eff_cap + BOOST_STEP : d->boost_top;
-+				printf("SWEET CPUFREQ: cluster%u saturated, ceiling raised to state %u (%u kHz)\n",
++				printf("BERGAMOTA CPUFREQ: cluster%u saturated, ceiling raised to state %u (%u kHz)\n",
 +				    id, d->eff_cap, d->khz[d->eff_cap]);
 +			}
 +		} else {
@@ -96,7 +96,7 @@ index 1ca3f56569ac70d60c18fb79d09e7433127ac126..50b04bead8b12b5f0fc9a9859ad89610
 +				if (++d->calm_cnt >= BOOST_SAT_SAMPLES) {
 +					d->calm_cnt = 0;
 +					d->eff_cap = d->cap;
-+					printf("SWEET CPUFREQ: cluster%u calm, ceiling back to state %u (%u kHz)\n",
++					printf("BERGAMOTA CPUFREQ: cluster%u calm, ceiling back to state %u (%u kHz)\n",
 +					    id, d->cap, d->khz[d->cap]);
 +				}
 +			} else {
@@ -131,12 +131,12 @@ index 1ca3f56569ac70d60c18fb79d09e7433127ac126..50b04bead8b12b5f0fc9a9859ad89610
  }
  
  static void
-@@ -530,6 +571,8 @@ sweet_cpufreq_max(void)
- 	(void)PE_parse_boot_argn("sweetcpufreq_log", &v, sizeof(v));
+@@ -530,6 +571,8 @@ bergamota_cpufreq_max(void)
+ 	(void)PE_parse_boot_argn("bergamotacpufreq_log", &v, sizeof(v));
  	cf_log_secs = v < 0 ? 0 : (unsigned)v;
- 	(void)PE_parse_boot_argn("sweetcpufreq_force", &cf_force, sizeof(cf_force));
-+	(void)PE_parse_boot_argn("sweetcpufreq_little_boost", &cf_boost, sizeof(cf_boost));
-+	cf_boost_pct = cf_percent_arg("sweetcpufreq_little_boost_max", 100);
+ 	(void)PE_parse_boot_argn("bergamotacpufreq_force", &cf_force, sizeof(cf_force));
++	(void)PE_parse_boot_argn("bergamotacpufreq_little_boost", &cf_boost, sizeof(cf_boost));
++	cf_boost_pct = cf_percent_arg("bergamotacpufreq_little_boost_max", 100);
  start:
  	if (kernel_thread_start((thread_continue_t)cf_thread, NULL, &thread) == KERN_SUCCESS) {
  		thread_deallocate(thread);

@@ -5,19 +5,19 @@ diff --git a/osfmk/console/video_console.c b/osfmk/console/video_console.c
  	}
  }
  
-+#if defined(ARM64_BOARD_CONFIG_SWEET)
++#if defined(ARM64_BOARD_CONFIG_BERGAMOTA)
 +/*
 + * Bergamota boot log (boot-arg -v). The loader starts the kernel in graphics mode (v_display=1), where xnu's text
-+ * console never draws, so this is a text renderer of its own: a thread call drains the console ring (sweet_log_copy:
++ * console never draws, so this is a text renderer of its own: a thread call drains the console ring (bergamota_log_copy:
 + * every printf and kprintf) every 33 ms and draws the lines over the dimmed Bergamota logo, ISO font scaled 2x
-+ * (boot-arg sweetbootlog_scale=1..4), with a drop shadow, coloured by severity, newest line at the bottom.
-+ * Below the notch a fixed header shows the time since boot and the battery (SweetBattery's percent and current).
-+ * It only draws until the GUI presents its first frame (sweet_bootlog_stop, from AppleCLCD); it never mutes the
++ * (boot-arg bergamotabootlog_scale=1..4), with a drop shadow, coloured by severity, newest line at the bottom.
++ * Below the notch a fixed header shows the time since boot and the battery (BergamotaBattery's percent and current).
++ * It only draws until the GUI presents its first frame (bergamota_bootlog_stop, from AppleCLCD); it never mutes the
 + * console, and a panic still draws through the normal console.
 + */
-+extern uint32_t sweet_log_copy(uint64_t *pos, char *out, uint32_t max);    /* bsd/dev/sweet_ufs.c */
-+extern int sweet_battery_hud(int *percent, int *ma);                        /* iokit/Kernel/arm/SweetBattery.cpp */
-+void sweet_bootlog_stop(void);
++extern uint32_t bergamota_log_copy(uint64_t *pos, char *out, uint32_t max);    /* bsd/dev/bergamota_ufs.c */
++extern int bergamota_battery_hud(int *percent, int *ma);                        /* iokit/Kernel/arm/BergamotaBattery.cpp */
++void bergamota_bootlog_stop(void);
 +
 +#define BL_MAXCOLS      200
 +#define BL_MAXROWS      200
@@ -167,7 +167,7 @@ diff --git a/osfmk/console/video_console.c b/osfmk/console/video_console.c
 +
 +	snprintf(num, sizeof(num), "%llu.%03llu s", ns / 1000000000ull, (ns / 1000000ull) % 1000ull);
 +	bl_put_str(right, rcols, &rn, (int)sizeof(right), num, BL_COL_HDR_INK);
-+	if (sweet_battery_hud(&pct, &ma)) {
++	if (bergamota_battery_hud(&pct, &ma)) {
 +		snprintf(num, sizeof(num), "   %d%%", pct);
 +		bl_put_str(right, rcols, &rn, (int)sizeof(right), num,
 +		    pct <= 15 ? BL_COL_HDR_RED : pct <= 30 ? BL_COL_HDR_AMBER : BL_COL_HDR_LEAF);
@@ -252,7 +252,7 @@ diff --git a/osfmk/console/video_console.c b/osfmk/console/video_console.c
 +		y0 = ((int)vinfo.v_height - CONSOLE_LOGO_H) / 2;
 +	}
 +	bl_scrolled = FALSE;
-+	while (!bl_stopped && (n = sweet_log_copy(&bl_pos, buf, sizeof(buf))) > 0) {
++	while (!bl_stopped && (n = bergamota_log_copy(&bl_pos, buf, sizeof(buf))) > 0) {
 +		for (uint32_t i = 0; i < n; i++) {
 +			bl_put(buf[i]);
 +		}
@@ -282,7 +282,7 @@ diff --git a/osfmk/console/video_console.c b/osfmk/console/video_console.c
 +}
 +
 +static void
-+sweet_bootlog_start(boolean_t graphics)
++bergamota_bootlog_start(boolean_t graphics)
 +{
 +	int verbose = 0, scale = 2;
 +
@@ -292,7 +292,7 @@ diff --git a/osfmk/console/video_console.c b/osfmk/console/video_console.c
 +	if (!PE_parse_boot_argn("-v", &verbose, sizeof(verbose))) {
 +		return;
 +	}
-+	PE_parse_boot_argn("sweetbootlog_scale", &scale, sizeof(scale));
++	PE_parse_boot_argn("bergamotabootlog_scale", &scale, sizeof(scale));
 +	if (scale < 1 || scale > 4) {
 +		scale = 2;
 +	}
@@ -328,11 +328,11 @@ diff --git a/osfmk/console/video_console.c b/osfmk/console/video_console.c
 +
 +/* AppleCLCD, on the GUI's first frame: the boot log stops drawing for good */
 +void
-+sweet_bootlog_stop(void)
++bergamota_bootlog_stop(void)
 +{
 +	bl_stopped = 1;
 +}
-+#endif /* ARM64_BOARD_CONFIG_SWEET */
++#endif /* ARM64_BOARD_CONFIG_BERGAMOTA */
 +
  void
  initialize_screen(PE_Video * boot_vinfo, unsigned int op)
@@ -341,28 +341,28 @@ diff --git a/osfmk/console/video_console.c b/osfmk/console/video_console.c
  		gc_enable( !graphics_now );
  		gc_acquired = TRUE;
  		gc_desire_text = FALSE;
-+#if defined(ARM64_BOARD_CONFIG_SWEET)
-+		sweet_bootlog_start(graphics_now);
++#if defined(ARM64_BOARD_CONFIG_BERGAMOTA)
++		bergamota_bootlog_start(graphics_now);
 +#endif
  		break;
  
  	case kPEDisableScreen:
-diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
---- a/iokit/Kernel/arm/SweetFramebuffer.cpp
-+++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+diff --git a/iokit/Kernel/arm/BergamotaFramebuffer.cpp b/iokit/Kernel/arm/BergamotaFramebuffer.cpp
+--- a/iokit/Kernel/arm/BergamotaFramebuffer.cpp
++++ b/iokit/Kernel/arm/BergamotaFramebuffer.cpp
 @@ -40,6 +40,7 @@
- #include "SweetSurface.h"
+ #include "BergamotaSurface.h"
  
- extern "C" int sweet_console_muted;     /* osfmk/console/serial_console.c */
-+extern "C" void sweet_bootlog_stop(void);     /* osfmk/console/video_console.c: the -v boot log stops at the first frame */
- extern "C" void (*sweet_fb_panic_hook)(void);   /* osfmk/console/serial_console.c */
+ extern "C" int bergamota_console_muted;     /* osfmk/console/serial_console.c */
++extern "C" void bergamota_bootlog_stop(void);     /* osfmk/console/video_console.c: the -v boot log stops at the first frame */
+ extern "C" void (*bergamota_fb_panic_hook)(void);   /* osfmk/console/serial_console.c */
  extern "C" vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
- extern "C" void sweet_busy_init(void);          /* iokit/Kernel/arm/SweetBusy.cpp (boot-arg sweetbusy=N) */
+ extern "C" void bergamota_busy_init(void);          /* iokit/Kernel/arm/BergamotaBusy.cpp (boot-arg bergamotabusy=N) */
 @@ -2775,6 +2776,7 @@
  {
  	if (!fConsolePaused) {
  		int quiet = 0;
-+		sweet_bootlog_stop();
++		bergamota_bootlog_stop();
  		fConsolePaused = true;
- 		if (PE_parse_boot_argn("sweetfb_noconsole", &quiet, sizeof(quiet)) && quiet != 0) {
+ 		if (PE_parse_boot_argn("bergamotafb_noconsole", &quiet, sizeof(quiet)) && quiet != 0) {
  			/* Not PE_initialize_console(kPEDisableScreen): its console switch

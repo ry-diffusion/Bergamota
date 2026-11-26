@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the minimal Apple Device Tree that the SWEET xnu needs to boot.
+"""Build the minimal Apple Device Tree that the BERGAMOTA xnu needs to boot.
 
 Only what the early boot path actually reads (see NOTES.md); every MMIO
 address comes from the sweet live FDT. Usage:  mkadt.py OUT.adt [--dump] [--qemu] [--highmem] [--board sweet|beryllium] [--display-scale 3|2] [--points WxH] [--lowpool BASE:SIZE]
@@ -23,7 +23,7 @@ SOC_BASE = 0x01000000
 GICD, GICD_SIZE = 0x17a00000, 0x10000
 GICR, GICR_SIZE = 0x17a60000, 0x100000
 FB, FB_SIZE = 0x9c000000, 0x1700000
-SWEET_ECID = 0x5357454554000001  # 'SWEET' + 1, synthetic
+BERGAMOTA_ECID = 0x5357454554000001  # ASCII 'SWEET' + 1, synthetic; value kept so the phone's identity (UDID) stays the same
 FB_W, FB_H, FB_STRIDE = 1080, 2400, 1080 * 4
 # Internal UFS host (ufshc@1d84000 "ufs_mem"); QEMU virt has none
 UFS, UFS_SIZE = 0x01d84000, 0x3000
@@ -49,7 +49,7 @@ BOARDS = {
     'beryllium': dict(
         # cont_splash_mem@9d400000, simple-framebuffer 1080x2246 (mainline beryllium-common)
         fb=(0x9d400000, 0x2400000), fb_wh=(1080, 2246),
-        # 'xiaomi,sweet' stays: SweetPlatformExpert matches it
+        # 'xiaomi,sweet' stays: BergamotaPlatformExpert matches it
         compat=['xiaomi,beryllium', 'xiaomi,sweet', 'qcom,sdm845'],
         # 0-3 Kryo 385 Silver (A55), 4-7 Gold (A75)
         cpu_compat='qcom,kryo385', big_from=4, freqs=(1766400000, 2803200000),
@@ -67,7 +67,7 @@ BOARDS = {
             ('mac-address-wifi0', bytes([0x02, 0x00, 0x5e, 0x77, 0xe0, 0x01])),
             ('mac-address-bluetooth0', BT_MAC),
         ],
-        # /arm-io/bluetooth for bluetoothd/BlueTool (docs/BT_IOS_TRANSPORT.md 3.2). Sweet has no
+        # /arm-io/bluetooth for bluetoothd/BlueTool (docs/BT_IOS_TRANSPORT.md 3.2). Bergamota has no
         # Bluetooth driver: the node is beryllium only.
         bluetooth=True),
 }
@@ -117,11 +117,11 @@ def node(name, props=(), children=()):
     return n
 
 
-# SWEET low pool for zero-copy scanout (kernel boot-arg sweetfb_zc=1, docs/DISPLAY_HW.md
+# BERGAMOTA low pool for zero-copy scanout (kernel boot-arg bergamotafb_zc=1, docs/DISPLAY_HW.md
 # section 3): a window of the low DDR bank that the kernel does not manage. The kernel
 # has the same default built in (0xb0400000 + 252 MiB) and validates whatever it is given
 # against the live reserved-memory regions; --lowpool BASE:SIZE (hex) writes
-# /arm-io/disp0 "sweet-lowpool" = <u64 base, u64 size> to override it.
+# /arm-io/disp0 "bergamota-lowpool" = <u64 base, u64 size> to override it.
 LOWPOOL_MIN, LOWPOOL_MAX = 0x9f800000, 0xfd000000
 
 
@@ -155,7 +155,7 @@ def bluetooth_node(ph):
 def build(seed=None, qemu=False, highmem=False, board='sweet', display_scale=3, points=(375, 812), lowpool=None,
           identity='d22ap'):
     ident = IDENTITIES[identity]
-    """qemu=True: same tree, but with QEMU virt's GIC addresses and CNTFRQ (tools/qemu-sweet.py)."""
+    """qemu=True: same tree, but with QEMU virt's GIC addresses and CNTFRQ (tools/qemu-bergamota.py)."""
     b = BOARDS[board]
     phys_base, mem_size = (HIGH_PHYS_BASE, HIGH_MEM_SIZE) if highmem else (PHYS_BASE, MEM_SIZE)
     if board != 'sweet' and not qemu:
@@ -206,7 +206,7 @@ def build(seed=None, qemu=False, highmem=False, board='sweet', display_scale=3, 
         # files), so e.g. DataMigration never records LastSystemVersion and
         # migrates on every boot. Synthetic ECID (not the phone's); chip-id
         # of the A11 that the iPhone X userland expects.
-        ('unique-chip-id', struct.pack('<Q', SWEET_ECID)),
+        ('unique-chip-id', struct.pack('<Q', BERGAMOTA_ECID)),
         ('chip-id', u32(0x8015)),
         # Security status as on a dev-fused, undemoted board (tuple 0,0,1,1):
         # MobileGestalt reads these from /chosen, and mobileactivationd's
@@ -224,16 +224,16 @@ def build(seed=None, qemu=False, highmem=False, board='sweet', display_scale=3, 
         # with CSR_ALLOW_UNRESTRICTED_FS (vm_unix.c shared region checks).
         node('asmb', [ph(), ('lp-sip0', u64(0x6f)), ('lp-sip1', u32(1))])])
 
-    # SWEET SMP: all eight cores in physical-core order (sweet: 0-5 Cortex-A55,
+    # BERGAMOTA SMP: all eight cores in physical-core order (sweet: 0-5 Cortex-A55,
     # 6-7 Cortex-A76; beryllium: 0-3 A55, 4-7 A75), one homogeneous cluster. The kernel defaults to one
     # and uses cpus=N to select an initial prefix (N <= 8).
-    # QEMU retains its original single-CPU tree: its MPIDRs differ from sweet.
+    # QEMU retains its original single-CPU tree: its MPIDRs differ from bergamota.
     cpu_nodes = []
     for core in range(1 if qemu else 8):
         cpu_nodes.append(node(f'cpu{core}', [
             ph(),
             ('device_type', cstr('cpu')),
-            # SweetCPU matches IONameMatch 'qcom,kryo470': keep it after the real core name
+            # BergamotaCPU matches IONameMatch 'qcom,kryo470': keep it after the real core name
             ('compatible', cstr(b['cpu_compat']) + (cstr('qcom,kryo470') if b['cpu_compat'] != 'qcom,kryo470' else b'') + cstr('ARM,v8')),
             ('reg', u32(core << 8)),  # actual MPIDR Aff1:Aff0, NOT logical ID
             ('cpu-id', u32(core)),   # descriptive: XNU assigns IDs by DT order
@@ -263,8 +263,8 @@ def build(seed=None, qemu=False, highmem=False, board='sweet', display_scale=3, 
     ])
     arm_io = node('arm-io', [
         ph(),
-        ('device_type', cstr('sweet-io')),
-        ('compatible', cstr('sweet-io') + cstr('arm-io')),
+        ('device_type', cstr('bergamota-io')),
+        ('compatible', cstr('bergamota-io') + cstr('arm-io')),
         ('#address-cells', u32(2)),
         ('#size-cells', u32(2)),
         ('ranges', u64(0, SOC_BASE, 0x100000000 - SOC_BASE)),
@@ -275,7 +275,7 @@ def build(seed=None, qemu=False, highmem=False, board='sweet', display_scale=3, 
         node('wdt', [ph(), ('no-pmu', u32(1))]),
         # Main display: IOMobileFramebuffer.framework counts /arm-io children
         # with this device_type and reads the canvas size from the node
-        # (the presented iPhone X size, see SweetFramebuffer.cpp);
+        # (the presented iPhone X size, see BergamotaFramebuffer.cpp);
         # the kernel's AppleCLCD matches the compatible string.
         node('disp0', [
             ph(),
@@ -289,9 +289,9 @@ def build(seed=None, qemu=False, highmem=False, board='sweet', display_scale=3, 
             # a red "rdar:45025538" banner instead; 414x896 @2x is a real one.
             ('canvas-width', u32(points[0] * display_scale)),
             ('canvas-height', u32(points[1] * display_scale)),
-        ] + ([('sweet-lowpool', u64(lp_base, lp_size))] if lowpool is not None else []))])
+        ] + ([('bergamota-lowpool', u64(lp_base, lp_size))] if lowpool is not None else []))])
 
-    fbcon = node('sweet-fbcon', [
+    fbcon = node('bergamota-fbcon', [
         ph(),
         ('reg', u64(fb, fb_size)),
         ('width', u32(fb_w)),
@@ -299,8 +299,8 @@ def build(seed=None, qemu=False, highmem=False, board='sweet', display_scale=3, 
         ('stride', u32(fb_w * 4)),
     ])
 
-    # bsd/dev/sweet_ufs.c: the UFS host ABL leaves running (absolute physical reg).
-    ufs = node('sweet-ufs', [
+    # bsd/dev/bergamota_ufs.c: the UFS host ABL leaves running (absolute physical reg).
+    ufs = node('bergamota-ufs', [
         ph(),
         ('compatible', cstr('qcom,ufshc')),
         ('reg', u64(UFS, UFS_SIZE)),
@@ -332,7 +332,7 @@ def build(seed=None, qemu=False, highmem=False, board='sweet', display_scale=3, 
 
     # Identity of the iPhone whose userland runs here: compatible[0] is
     # hw.model/hw.target (D22AP / N104AP), model is hw.machine/hw.product
-    # (iPhone10,3 / iPhone12,1). 'xiaomi,sweet' stays for SweetPlatformExpert matching.
+    # (iPhone10,3 / iPhone12,1). 'xiaomi,sweet' stays for BergamotaPlatformExpert matching.
     return node('device-tree', [
         ph(),
         ('compatible', cstr(ident['target']) + cstr(ident['machine']) + b''.join(cstr(c) for c in b['compat']) + cstr('AppleARM')),
