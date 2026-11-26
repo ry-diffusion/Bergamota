@@ -369,9 +369,9 @@ def ssh(root):
     as /bin/sh, toybox, host keys, authorized_keys, launchd job. Needs the
     binaries from tools/ssh/build.sh in research/ssh-build/out."""
     out = os.path.normpath(SSH_OUT)
-    # macOS also needs the host builds (applet list, host keys); Linux needs only the iOS binaries (see toybox_applets)
-    need = [os.path.join(out, n) for n in (('dropbear', 'dash', 'toybox') if rplat.is_linux() else
-                                           ('dropbear', 'dash', 'toybox', 'dropbear-mac', 'toybox-mac'))]
+    # only the iOS binaries are required: without host builds the applet list comes from the iOS toybox
+    # (toybox_applets) and dropbear -R makes the host keys on the phone (host_dropbearkey)
+    need = [os.path.join(out, n) for n in ('dropbear', 'dash', 'toybox')]
     missing = [p for p in need if not os.path.isfile(p)]
     if missing:
         print('ssh: skipped, not built (run tools/ssh/build.sh):', ', '.join(os.path.basename(p) for p in missing))
@@ -893,7 +893,13 @@ def crimson_link(root, rel):
         shutil.copyfile(binp, tmp)
         os.chmod(tmp, 0o755)
         ents, ident = entitlements_of(tmp), pacstrip.cs_identity(tmp)
-        subprocess.run([sys.executable, '-I', ADDLC, tmp, CRIMSON_INJECT], check=True)
+        r = subprocess.run([sys.executable, '-I', ADDLC, tmp, CRIMSON_INJECT], capture_output=True, text=True)
+        if r.returncode != 0:
+            # shortcut: iOS 18's SpringBoard has 16 bytes of load-command slack; needs exec-time injection to get it
+            why = (r.stderr.strip().splitlines() or ['addlc failed'])[-1]
+            print('crimson: cannot link the inject into %s (%s): left stock' % (rel, why))
+            note_skip('crimson ' + os.path.basename(rel), why)
+            return False
         pacstrip.sign(tmp)
         if entitlements_of(tmp) != ents or pacstrip.cs_identity(tmp)[:2] != ident[:2]:
             sys.exit('crimson: entitlements or identifier changed by the re-sign: %s left alone' % rel)

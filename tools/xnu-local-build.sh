@@ -59,6 +59,15 @@ cd "$W/dxb"
 git checkout -q -- . && rm -f patches/$PSUB/bergamota-* patches/$PSUB/zz-bergamota-*
 rm -rf xnu        # dxb clones a pristine xnu and patches it
 for f in "$SERIES"/*.patch "$SERIES"/*.sh; do cp "$f" "patches/$PSUB/zz-bergamota-$(basename "$f")"; done
+# xnu-11215 takes TrustCache/API.h from the SDK's Kernel.framework PrivateHeaders, which Xcode 27's SDK no longer
+# has (CI uses Xcode 16.2). Local builds only: stage them from an installed 26.x KDK into EXTERNAL_HEADERS.
+# shortcut: 26.x TrustCache headers on a 15.x tree; use Xcode 16.2's SDK if they stop compiling.
+if [ "$PSUB" = 15.0 ] && [ ! -d "$(xcrun --sdk macosx --show-sdk-path)/System/Library/Frameworks/Kernel.framework/Versions/A/PrivateHeaders" ]; then
+    PH=$(ls -d /Library/Developer/KDKs/KDK_26.*.kdk/System/Library/Frameworks/Kernel.framework/Versions/A/PrivateHeaders/platform 2>/dev/null | tail -1)
+    [ -n "$PH" ] || { echo "the SDK has no Kernel.framework PrivateHeaders and no 26.x KDK is installed" >&2; exit 1; }
+    printf '#!/bin/bash\nset -e\nmkdir -p EXTERNAL_HEADERS\ncp -R "%s/TrustCache" EXTERNAL_HEADERS/\n' "$PH" > patches/15.0/zz-local-private-headers.sh
+    mkdir -p "$W/no-kdk"; export KDKROOT="$W/no-kdk"   # the 15.3 KDK only adds closed libs for Apple SoCs
+fi
 sed -i '' 's/ARCHS="x86_64 arm64e" VALID_ARCHS="x86_64 arm64e"/ARCHS="x86_64 arm64e arm64" VALID_ARCHS="x86_64 arm64e arm64"/' build.sh
 python3 - <<'PY'
 s = open('build.sh').read()
