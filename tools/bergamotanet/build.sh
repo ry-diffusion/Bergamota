@@ -84,6 +84,8 @@ if [ "${IOS18:-1}" = 1 ]; then
 	python3 -I "$pacstrip" --sign "$out18/lockstate"
 	# bergamotawifijoin: join a network through wifid (MobileWiFi), passphrase on stdin (tools/berga-wifi-test.sh)
 	b18 bergamotawifijoin bergamotawifijoin.m wifijoin.entitlements
+	# logstream: live unified log (os_log) on the phone, LoggingSupport OSLogEventLiveStream (iOS has no `log`)
+	b18 logstream logstream.m logstream.entitlements
 	# sblaunch: SpringBoard's launchd Program when it runs on Crimson (DYLD_INSERT_LIBRARIES, then exec; root_tweaks18.crimson)
 	xcrun -sdk iphoneos clang -arch arm64e -mios-version-min=18.0 -O2 -Wall "$here/sblaunch.c" -o "$out18/sblaunch"
 	codesign -s - -f --entitlements "$here/entitlements.plist" "$out18/sblaunch"

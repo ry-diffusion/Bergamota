@@ -1,0 +1,35 @@
+1135: let HFSIOC_RESIZE_VOLUME grow an unjournaled HFS+ volume (the iOS 18 root is newfs_hfs without -J): drop the
+jnl == NULL refusal in hfs_extendfs and write the invalidated old alternate volume header directly when there is no journal.
+
+--- a/bsd/bergamota_hfs/core/hfs_resize.c
++++ b/bsd/bergamota_hfs/core/hfs_resize.c
+@@ -86,8 +86,8 @@
+ 	 * - Journaling must be enabled.
+ 	 * - No embedded volumes.
+ 	 */
++	/* 1135: no journal check here: the Bergamota iOS 18 root is unjournaled HFS+ (built without sudo) */
+ 	if ((vcb->vcbSigWord == kHFSSigWord) ||
+-        (hfsmp->jnl == NULL) ||
+         (vcb->hfsPlusIOPosOffset != 0)) {
+ 		return (EPERM);
+ 	}
+@@ -416,11 +416,15 @@
+ 		if (buf_meta_bread(hfsmp->hfs_devvp,
+                            HFS_PHYSBLK_ROUNDDOWN(prev_fs_alt_sector, hfsmp->hfs_log_per_phys),
+                            hfsmp->hfs_physical_block_size, NOCRED, &bp) == 0) {
+-			journal_modify_block_start(hfsmp->jnl, bp);
+-            
++			if (hfsmp->jnl) {
++				journal_modify_block_start(hfsmp->jnl, bp);
++			}
+ 			bzero((char *)buf_dataptr(bp) + HFS_ALT_OFFSET(hfsmp->hfs_physical_block_size), kMDBSize);
+-            
+-			journal_modify_block_end(hfsmp->jnl, bp, NULL, NULL);
++			if (hfsmp->jnl) {
++				journal_modify_block_end(hfsmp->jnl, bp, NULL, NULL);
++			} else {
++				(void) buf_bwrite(bp);	/* 1135: unjournaled: write it directly */
++			}
+ 		} else if (bp) {
+ 			buf_brelse(bp);
+ 		}
