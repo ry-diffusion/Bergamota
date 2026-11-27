@@ -25,10 +25,11 @@ TARGETS = {
         work='research/ios18',
         board='N841',
         adt_target='D22',
-        # tools/mkadt.py enxerto/out/beryllium-hi-2x.adt --board beryllium --highmem --display-scale 2 --identity d22ap (@2x: the XR's own
-        # asset scale, 750x1624 upscaled by QSEED3; App Library 42 -> 48-50 fps vs @3x), then
+        # tools/mkadt.py enxerto/out/beryllium-hi-2x-xr.adt --board beryllium --highmem --display-scale 2 --identity d22ap --points 414x896
+        # (the XR's own geometry, 828x1792: 375x812 @2x is no real iPhone and UIKit shows the red rdar:45025538 status bar; also run
+        # tools/mg-artwork-xr.sh once per root so MobileGestalt's artwork traits say @2x/1792), then
         # tools/adt-gpufw.py IN OUT --fw research/gpu-fw --zap research/gpu-fw/zap (linux-firmware a630_gmu/sqe, sdm845-mainline a630_zap)
-        adt='enxerto/out/beryllium-hi-2x-gpufw.adt'),
+        adt='enxerto/out/beryllium-hi-2x-xr-gpufw.adt'),
 }
 
 NAME = os.environ.get('RENEGADE_TARGET', 'ios18')

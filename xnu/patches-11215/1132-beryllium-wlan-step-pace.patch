@@ -1,0 +1,58 @@
+1132: bergamotawlanpace=MS pauses before each Wi-Fi data-path step after FW READY (SMMU + pool, WLAN_CFG,
+WLAN_MODE mission, copy engines) so the USB live log shows which step freezes the iOS 18 kernel.
+
+--- a/bsd/dev/beryllium_wlan.c
++++ b/bsd/dev/beryllium_wlan.c
+@@ -5094,6 +5094,23 @@
+ 	}
+ }
+ 
++/*
++ * 1132: bergamotawlanpace=MS sleeps before each data-path step after FW READY, so the previous step's console
++ * line reaches the USB live log before a step that may freeze the SoC (the iOS 18 kernel freezes in this window).
++ */
++static void
++wl_pace(const char *next)
++{
++	static uint32_t pace_ms = UINT32_MAX;
++	if (pace_ms == UINT32_MAX && !PE_parse_boot_argn("bergamotawlanpace", &pace_ms, sizeof(pace_ms))) {
++		pace_ms = 0;
++	}
++	if (pace_ms) {
++		printf("BERGAMOTA IPC: wce: pace %u ms, next: %s\n", pace_ms, next);
++		wl_sleep(pace_ms);
++	}
++}
++
+ /* FW READY reached: with bergamotace=1 continue into the data path (SMMU + pool, then WLAN_CFG) */
+ static void
+ wf_data_path(void)
+@@ -5101,10 +5118,12 @@
+ 	if (!ipc.ce || wf.state != WS_READY) {
+ 		return;
+ 	}
++	wl_pace("SMMU streams + DMA pool");
+ 	if (!wce_prepare()) {
+ 		wf_fail("SMMU or DMA pool not ready", 0);
+ 		return;
+ 	}
++	wl_pace("WLAN_CFG request");
+ 	wce_send_cfg();
+ }
+ 
+@@ -5319,6 +5338,7 @@
+ 		if (res) {
+ 			wf_fail("wlan-cfg rejected", err);
+ 		} else {
++			wl_pace("WLAN_MODE mission request");
+ 			wce_send_mode(0, WS_MODE);
+ 		}
+ 		break;
+@@ -5333,6 +5353,7 @@
+ 			wf_fail("wlan-mode mission rejected", err);
+ 		} else {
+ 			wce.mode_on = true;
++			wl_pace("copy engine setup");
+ 			if (wce_up()) {
+ 				wf.state = WS_CE;
+ 				wf.sent_ms = ms_now_ms();

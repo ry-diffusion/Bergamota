@@ -1,0 +1,91 @@
+1133: bergamotawlanpace samples the WLAN streams' SMMU bank (FSR/FAR/FSYNR0, sGFSR) every 100 ms while pausing;
+bergamotasmmucfie=0 builds the shared identity bank without the context-fault interrupt (iOS 18 mission-mode freeze test).
+
+--- a/bsd/dev/bergamota_smmu.c
++++ b/bsd/dev/bergamota_smmu.c
+@@ -32,12 +32,14 @@
+ #include <vm/pmap.h>
+ #include <vm/vm_kern.h>
+ #include <vm/vm_kern_xnu.h>
++#include <pexpert/pexpert.h>
+ #include "bergamota_board.h"
+ 
+ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+ extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
+ int bergamota_smmu_map_sid(unsigned sid);
+ int bergamota_smmu_probe_sid(unsigned sid, unsigned level);
++int bergamota_smmu_fault_status(uint32_t *fsr, uint64_t *far, uint32_t *fsynr0, uint32_t *gfsr);
+ 
+ #define SMMU_PA         0x15000000u     /* apps_smmu */
+ #define SMMU_SIZE       0x100000u
+@@ -146,13 +148,33 @@
+ 	for (int t = 0; t < 100000 && (smmu_rd(cb + 0x7f4) & 1); t++) {
+ 		delay(1);
+ 	}
+-	smmu_wr(cb + 0x0, 1u << 6 | 1u << 5 | 1u << 2 | 1u << 1 | 1); /* CFIE CFRE AFE TRE M */
++	/* 1133: bergamotasmmucfie=0 leaves the context-fault interrupt off (CFRE still aborts the faulting access) */
++	uint32_t cfie = 1;
++	PE_parse_boot_argn("bergamotasmmucfie", &cfie, sizeof(cfie));
++	smmu_wr(cb + 0x0, (cfie ? 1u << 6 : 0) | 1u << 5 | 1u << 2 | 1u << 1 | 1); /* CFIE CFRE AFE TRE M */
+ 	if (!(smmu_rd(cb + 0x0) & 1)) {
+ 		printf("BERGAMOTA SMMU: context bank %d did not enable\n", smmu_cb);
+ 		smmu_cb = -1;
+ 		return EIO;
+ 	}
+ 	printf("BERGAMOTA SMMU: context bank %d, identity map, ttbr0 0x%llx\n", smmu_cb, l1_pa);
++	return 0;
++}
++
++/* 1133: fault state of the shared bank (FSR, FAR, FSYNR0) and the global sGFSR, read-only; EIO before the bank exists */
++int
++bergamota_smmu_fault_status(uint32_t *fsr, uint64_t *far, uint32_t *fsynr0, uint32_t *gfsr)
++{
++	if (smmu_base == 0 || smmu_cb < 0) {
++		return EIO;
++	}
++	uint32_t id1 = smmu_rd(0x24);
++	unsigned pgshift = (id1 >> 31) ? 16 : 12;
++	uint32_t cb = ((1u << (((id1 >> 28) & 7) + 1)) << pgshift) + ((uint32_t)smmu_cb << pgshift);
++	*fsr = smmu_rd(cb + 0x58);
++	*far = (uint64_t)smmu_rd(cb + 0x60) | (uint64_t)smmu_rd(cb + 0x64) << 32;
++	*fsynr0 = smmu_rd(cb + 0x68);
++	*gfsr = smmu_rd(0x48);
+ 	return 0;
+ }
+ 
+--- a/bsd/dev/beryllium_wlan.c
++++ b/bsd/dev/beryllium_wlan.c
+@@ -67,6 +67,7 @@
+ extern int bergamota_ufs_part_size(const char *name, uint8_t *lun, uint64_t *bytes);
+ extern int bergamota_rpmh_vreg_set(const char *res, unsigned mv, bool enable);
+ extern int bergamota_smmu_map_sid(unsigned sid);
++extern int bergamota_smmu_fault_status(uint32_t *fsr, uint64_t *far, uint32_t *fsynr0, uint32_t *gfsr);
+ extern int bergamota_rpmh_rfclk_enable(const char *res);
+ extern int bergamota_rpmh_lookup(const char *res, uint32_t *address);
+ void beryllium_wlan_init(void);
+@@ -5105,10 +5106,22 @@
+ 	if (pace_ms == UINT32_MAX && !PE_parse_boot_argn("bergamotawlanpace", &pace_ms, sizeof(pace_ms))) {
+ 		pace_ms = 0;
+ 	}
+-	if (pace_ms) {
+-		printf("BERGAMOTA IPC: wce: pace %u ms, next: %s\n", pace_ms, next);
+-		wl_sleep(pace_ms);
++	if (!pace_ms) {
++		return;
+ 	}
++	printf("BERGAMOTA IPC: wce: pace %u ms, next: %s\n", pace_ms, next);
++	/* 1133: sample the WLAN streams' SMMU bank every 100 ms while pausing; print the first sample and changes */
++	uint32_t last_fsr = UINT32_MAX, last_g = UINT32_MAX;
++	for (uint32_t t = 0; t < pace_ms; t += 100) {
++		uint32_t fsr, fsynr0, gfsr;
++		uint64_t far;
++		if (bergamota_smmu_fault_status(&fsr, &far, &fsynr0, &gfsr) == 0 && (fsr != last_fsr || gfsr != last_g)) {
++			printf("BERGAMOTA IPC: wce: +%u ms smmu FSR %#x FAR %#llx FSYNR0 %#x sGFSR %#x\n", t, fsr, far, fsynr0, gfsr);
++			last_fsr = fsr;
++			last_g = gfsr;
++		}
++		wl_sleep(MIN(100u, pace_ms - t));
++	}
+ }
+ 
+ /* FW READY reached: with bergamotace=1 continue into the data path (SMMU + pool, then WLAN_CFG) */
