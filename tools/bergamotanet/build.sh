@@ -69,6 +69,10 @@ if [ "${IOS18:-1}" = 1 ]; then
 		"$here/bergamotametrics.c" -o "$out18/bergamotametrics"
 	codesign -s - -f --entitlements "$here/entitlements.plist" "$out18/bergamotametrics"
 	python3 -I "$pacstrip" --sign "$out18/bergamotametrics"
+	# bergamotagrowroot: grow the HFS root into the rest of userdata, short of the log ring (dry run unless --apply)
+	xcrun -sdk iphoneos clang -arch arm64e -mios-version-min=18.0 -O2 -Wall "$here/bergamotagrowroot.c" -o "$out18/bergamotagrowroot"
+	codesign -s - -f --entitlements "$here/entitlements.plist" "$out18/bergamotagrowroot"
+	python3 -I "$pacstrip" --sign "$out18/bergamotagrowroot"
 	# sysctlstr: string sysctls of any length (kern.bergamota_log_prev)
 	xcrun -sdk iphoneos clang -arch arm64e -mios-version-min=18.0 -O2 -Wall "$here/sysctlstr.c" -o "$out18/sysctlstr"
 	codesign -s - -f --entitlements "$here/entitlements.plist" "$out18/sysctlstr"
