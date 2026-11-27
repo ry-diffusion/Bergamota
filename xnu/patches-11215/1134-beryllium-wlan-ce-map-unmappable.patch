@@ -1,0 +1,19 @@
+1134: map the WCN3990 copy-engine window with ml_io_map_unmappable (VM_WIMG_IO) instead of ml_io_map: on xnu-11215
+the KMA_PERMANENT kernel VA range is exhausted after the 12 MiB pool and the 2.3 MiB map panicked right after WLAN_MODE mission.
+
+--- a/bsd/dev/beryllium_wlan.c
++++ b/bsd/dev/beryllium_wlan.c
+@@ -3994,7 +3994,12 @@
+ wce_up(void)
+ {
+ 	if (!wce.regs) {
+-		wce.regs = ml_io_map(WCE_MEMBASE_PA, WCE_MEMBASE_LEN);
++		/*
++		 * 1134: not ml_io_map(): that takes KMA_PERMANENT kernel VA, and on xnu-11215 that range is exhausted
++		 * by this point (panic "kmem_alloc(..., 2424832, 0x100021): failed with 3", right after WLAN_MODE
++		 * mission); the unmappable route is the one the 12 MiB pool already uses. Device memory (VM_WIMG_IO).
++		 */
++		wce.regs = ml_io_map_unmappable(WCE_MEMBASE_PA, WCE_MEMBASE_LEN, VM_WIMG_IO);
+ 	}
+ 	if (!wce.regs) {
+ 		return false;

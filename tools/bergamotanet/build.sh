@@ -69,6 +69,10 @@ if [ "${IOS18:-1}" = 1 ]; then
 		"$here/bergamotametrics.c" -o "$out18/bergamotametrics"
 	codesign -s - -f --entitlements "$here/entitlements.plist" "$out18/bergamotametrics"
 	python3 -I "$pacstrip" --sign "$out18/bergamotametrics"
+	# sysctlstr: string sysctls of any length (kern.bergamota_log_prev)
+	xcrun -sdk iphoneos clang -arch arm64e -mios-version-min=18.0 -O2 -Wall "$here/sysctlstr.c" -o "$out18/sysctlstr"
+	codesign -s - -f --entitlements "$here/entitlements.plist" "$out18/sysctlstr"
+	python3 -I "$pacstrip" --sign "$out18/sysctlstr"
 	# test harness: Auto-Lock (ManagedConfiguration maxInactivity, "never") and SpringBoard's lock state (notify key)
 	b18 autolock autolock.m autolock.entitlements
 	xcrun -sdk iphoneos clang -arch arm64e -mios-version-min=18.0 -O2 -Wall "$here/lockstate.c" -o "$out18/lockstate"
