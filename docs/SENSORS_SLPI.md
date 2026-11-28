@@ -559,3 +559,123 @@ This repo: `research/xnu-local/dxb/xnu/bsd/dev/beryllium_wlan.c`, `bergamota_a63
 `docs/WIFI_IOS26.md` (:232, :363, :674, :738-739, :1176), `docs/DISPLAY_HW.md` (:98-125), `NOTES.md` (2026-11-28 sensors
 entry); the SMEM partition table with `0<->3` at 0x15f000/0x30000 is from `../ios-beryllium/logs/usb-20261126-122550.txt`
 (lines 3330-3343).
+
+---------------------------------------------------------------------------------------------------------------------
+
+## 11. Implemented: patch 1137 (stages 1 and 2 of section 7), NOT run on the phone
+
+`xnu/patches-11215/1137-beryllium-slpi-stage1.patch` (on top of 1136), code in `bsd/dev/beryllium_wlan.c` (a new `sl_*`
+section before `beryllium_wlan_init`, so the static FAT/SMEM/QMP/SCM helpers are reachable) and `bsd/dev/bergamota_rpmh.c`.
+Built with `tools/xnu-local-build.sh --remake 15.3`, no errors; the image is
+`research/ios18/kernel/kernel.development.bergamota-1137` (gitignored). Compile-checked only, never booted. No GLINK/QRTR, and
+the `ipc` struct of the Wi-Fi stack is untouched.
+
+Changes to existing code (the only ones): `ms_smem_alloc(item, size)` is now a wrapper of
+`ms_smem_alloc_p(host_a, host_b, item, size)` (modem call sites unchanged); `bergamota_rpmh_arc_vote()` allows `lcx.lvl` and
+`lmx.lvl` and, like `mss.lvl`, allows voting them off (cx/mx are still refused).
+
+### Boot-args (all inert by default)
+
+| Arg | Meaning |
+|-----|---------|
+| `bergamotaslpi=0/1/2` | 0 = nothing (no log line, no mapping). 1 = inventory. 2 = power + PAS boot. Needs `bergamotawlan=0` (shares `wl_fatbuf`/`wl_dirbuf` and `ms.*` with the Wi-Fi stage; refused with a log line otherwise). Higher values are refused. |
+| `bergamotaslpidelay=S` | seconds before the stage starts (default 45) |
+| `bergamotaslpipeek=0` | stage 1 only: skip reading the carve-out (default 1 = read 8 words) |
+| `bergamotaslpipas=1` | stage 2: INIT_IMAGE + MEM_SETUP + the copy into 0x96b00000 (first SCM PAS call, first write there) |
+| `bergamotaslpiauth=1` | stage 2: AUTH_AND_RESET, the only step that releases the DSP; needs `pas=1` |
+| `bergamotaslpiwait=S` | seconds to wait for "ready" (default 10, max 60) |
+| `bergamotaslpihold=S` | seconds to watch SMP2P after ready (default 20), then stop it |
+| `bergamotaslpikeep=1` | leave the SLPI running after the hold (no stop, no unvote) |
+| `bergamotaslpistop=N` | stop cleanly before step N of stage 2 (teardown runs) |
+
+### Stage 1 (`bergamotaslpi=1`): log lines to expect (prefix `BERGAMOTA SLPI:`)
+
+```
+stage 1 starts in 45 s
+stage 1: read-only inventory (no SCM, no vote, no write)
+modem:image/slpi.b00 <n> bytes ... (one per file: slpi.mdt, slpi.bNN, slpir.jsn, slpius.jsn)
+<n> slpi* files in modem:image/, <m> bNN segment files, <k> KiB in total      (or "(NONE: the SLPI firmware is not in this partition)")
+slpi.mdt <n> bytes, ELF32 machine <n>, entry 0x..., <n> program headers
+ ph<i> type .. off .. paddr .. filesz .. memsz .. flags ..[ HASH| (not loaded)]   (every header)
+<n> loadable segments span 0x..0x.. (<n> KiB), RELOCATABLE|fixed address, FITS|DOES NOT FIT the carve-out 0x96b00000+0x1400000
+image/slpi.bNN <n> bytes ok  ... / <n> segment files checked, <k> KiB, <b> bad
+mdt verdict: loadable into the carve-out | NOT loadable (see above)
+apps<->slpi partition at +0x15f000 size 0x30000: magic 0x54525024 hosts 0<->3 size ... free-uncached 0x20 free-cached ...
+ no items (SLPI cold, nothing allocated yet)          (or "item N: bytes at +0x...")
+smp2p item 481 absent (SLPI cold)                       (or the item header + entries)
+crash reason item 424 absent
+cmd-db lcx.lvl address 0x... (errno 0)   / cmd-db lmx.lvl ...
+reading the first bytes of the carve-out 0x96b00000 (read-only)
+carve-out +0: xxxxxxxx x8
+stage 1 finished
+```
+
+Hang risk of stage 1: only the carve-out read, which is the last access, logged and flushed one second before it. Everything
+else is FAT/SMEM/cmd-db reads that `bergamotawlan=3` already does. `bergamotaslpipeek=0` removes it.
+
+### Stage 2 (`bergamotaslpi=2`): log lines to expect
+
+Always (no sub-bit): steps 1-6, then undone.
+```
+stage 2: power + PAS 12 boot (pas=0 auth=0 keep=0 stop=0 wait=10 s hold=20 s)
+step 1: map SMEM, TCSR mutex, AOSS QMP, APCS doorbells
+step 2: slpi.mdt, segments and metadata from the modem partition (read-only)
+   ... the stage-1 mdt lines, "segment files checked ... 0 bad", "metadata A + B = C bytes (hash ...)"
+step 3: SCM availability (read-only)
+SCM PAS INIT_IMAGE|MEM_SETUP|AUTH_AND_RESET|SHUTDOWN available: status=0 result=1 ; SCM PAS IS_SUPPORTED ... completed=1 status=0 result=1
+PAS id 12 supported
+step 4: AOSS QMP open + load_state slpi on
+QMP magic 0x4d41494c version 1 ...  /  QMP "{class: image, res: load_state, name: slpi, val: on}" consumed     (these two lines carry the prefix "BERGAMOTA MSS:", the existing helper's)
+step 5: RPMh ARC votes lcx/lmx to the top level
+BERGAMOTA RPMH: lcx.lvl ARC 0x.....: N levels, vote hlvl N-1 ... ; same for lmx.lvl
+step 6: SMP2P outbound item 430 ... + doorbell 26
+smp2p item 430 ready at +0x...: version 1, pid 0->3, entry master-kernel, doorbell bit 26
+stopping before PAS (add bergamotaslpipas=1)
+teardown done              (votes off, load_state off, smp2p entries cleared)
+stage 2 finished
+```
+With `bergamotaslpipas=1`, after step 6:
+```
+step 7: PAS 12 INIT_IMAGE (metadata) and MEM_SETUP
+metadata <n> bytes at PA 0x...
+SCM PAS INIT_IMAGE ... completed=1 status=0 result=0
+SCM PAS MEM_SETUP ... completed=1 status=0 result=0
+step 8: copy the segments into the carve-out (first write there), unmap
+segment <i>: mapping 0x...+0x...   /   segment <i> slpi.bNN paddr .. file .. mem .. -> carve-out +0x... (<n> ms)   (each segment)
+carve-out unmapped, <n> KiB loaded
+image loaded, DSP NOT released (add bergamotaslpiauth=1)
+SCM PAS SHUTDOWN ... completed=1 status=0 result=0          (from teardown)
+teardown done
+```
+With `bergamotaslpiauth=1` as well:
+```
+step 9: PAS 12 AUTH_AND_RESET: releases the SLPI
+SCM PAS AUTH_AND_RESET ... completed=1 status=0 result=0
+signed image authenticated, waiting up to 10 s for ready
+smp2p item 481 appeared after <n> ms        + item header and entries (version, pid 3->0, entries)
+smp2p negotiated: version 1, features 0x1
+smp2p in[0] "slave-kernel" = 0x2 (<n> ms)
+SLPI READY after <n> ms
+(hold: in[0] changes: 0x6 = handover (bit 2); on a crash 0x1 = fatal and  crash reason: "..." from SMEM item 424)
+hold over: ready=1 handover=? fatal=0
+stop request (master-kernel bit 0) / smp2p in[0] "slave-kernel" = 0x.. / stop-ack / stop-ack received
+SCM PAS SHUTDOWN ... status=0 ; teardown done
+```
+Failure signatures: `AUTH_AND_RESET failed` (TZ rejected the image; teardown shuts down), `NOT ready in time` + whether item 481
+ever appeared + crash reason, `fatal error before ready`. A silent phone with the last line `step N` names the step that hung
+(every step flushes the log and waits 500 ms first).
+
+### What can hang or reset (stage 2), and what guards it
+
+1. Step 8, the first write into 0x96b00000..0x97f00000, gated by `pas=1`. Known precedent: the MBA carve-out next to it froze
+   boots 32-35 because of a hidden `ml_io_unmap` panic on a permanent mapping. This code uses `ml_io_map_unmappable` per
+   segment and unmaps it again right after the copy. Keep panics visible: never run with `bergamotafb_noconsole=1`.
+2. Step 9, `AUTH_AND_RESET`, gated by `auth=1`: releases a signed Hexagon core. After it TZ/XPU owns the carve-out, and no
+   mapping of it exists. An XPU violation or a rail/TLMM problem would be an instant reset, not a log line. User present.
+3. Steps 4-5 (QMP, lcx/lmx at the top level) are new only in the resource names; QMP and ARC votes are the proven modem path.
+   If `lcx.lvl`/`lmx.lvl` are not in cmd-db the vote fails with an errno and the stage tears down.
+4. Step 6 is the first SMEM write into the apps<->slpi partition (hwlock path proven for apps<->modem).
+5. `keep=1` leaves a running SLPI without GLINK servicing; its FIFOs are not set up yet, so it will idle waiting for
+   a peer. A kernel restart by the watchdog (`bergamotawdt`) with it running is the unknown (the modem path always stops it).
+6. The 10 s default wait is twice what Linux uses; the XO clock vote Linux makes is deliberately not made [G].
+7. Not tested: no host harness exists for the new code (the FAT/mdt parsing is the modem's, unchanged in behaviour).

@@ -1,0 +1,907 @@
+1137: SLPI (sensor DSP) bring-up, stages 1 and 2, boot-arg bergamotaslpi=N (0 = off, no log line, no mapping). docs/SENSORS_SLPI.md.
+N=1: read-only inventory with "BERGAMOTA SLPI:" lines (modem:image/slpi* names and sizes, slpi.mdt header vs the carve-out
+0x96b00000+0x1400000, SMEM apps<->slpi partition, SMP2P item 481, cmd-db lcx/lmx, first bytes of the carve-out). N=2: AOSS QMP
+load_state slpi, RPMh lcx/lmx votes, SMP2P item 430 + doorbell 26 (always), PAS 12 INIT_IMAGE/MEM_SETUP + segment copy only with
+bergamotaslpipas=1, AUTH_AND_RESET + watch SMP2P 481 "ready" only with bergamotaslpiauth=1. Needs bergamotawlan=0. No GLINK/QRTR.
+ms_smem_alloc() becomes a wrapper of ms_smem_alloc_p(host_a, host_b, ...); bergamota_rpmh_arc_vote() accepts lcx.lvl/lmx.lvl.
+
+--- a/bsd/dev/beryllium_wlan.c
++++ b/bsd/dev/beryllium_wlan.c
+@@ -1870,12 +1870,12 @@
+  * Returns the data offset in SMEM, 0 on failure. This is the first write into shared SMEM.
+  */
+ static uint32_t
+-ms_smem_alloc(uint32_t item, uint32_t size)
++ms_smem_alloc_p(uint32_t host_a, uint32_t host_b, uint32_t item, uint32_t size)
+ {
+ 	uint32_t off, psize, data = 0, free_u = 0, free_c = 0, pos = 0, have = 0;
+ 	enum { A_BAD, A_EXISTS, A_SMALL, A_NEW, A_FULL } res = A_BAD;
+-	if (!ms_smem_part(0, 1, &off, &psize)) {
+-		printf("BERGAMOTA MSS: no apps<->modem SMEM partition\n");
++	if (!ms_smem_part(host_a, host_b, &off, &psize)) {
++		printf("BERGAMOTA MSS: no apps<->%s SMEM partition\n", host_b == 1 ? "modem" : "slpi");
+ 		return 0;
+ 	}
+ 	if (!ms_smem_lock()) {
+@@ -1944,6 +1944,12 @@
+ 	return data;
+ }
+ 
++static uint32_t
++ms_smem_alloc(uint32_t item, uint32_t size)
++{
++	return ms_smem_alloc_p(0, 1, item, size);
++}
++
+ /* qcom_smp2p_kick(): apcs ipc doorbell, sdm845 apss_shared +12, channel 14 for the modem */
+ static void
+ ms_smp2p_kick(void)
+@@ -9530,12 +9536,837 @@
+ 		wl_inventory();
+ 	} else if (wl.stage == 4 || wl.stage == 5) {
+ 		wl_mss();
++	}
++out:
++	(void)thread_terminate(current_thread());
++	thread_block(THREAD_CONTINUE_NULL);
++}
++
++/*
++ * ---- SLPI (sensor DSP) stages 1-2, boot-arg bergamotaslpi=N (0 = off, no log line, no mapping), docs/SENSORS_SLPI.md.
++ *   1  read-only inventory: modem:image/slpi* (names, sizes), slpi.mdt header vs the carve-out, SMEM apps<->slpi
++ *      partition and SMP2P item 481, cmd-db lcx/lmx, first bytes of the carve-out (bergamotaslpipeek=0 skips them).
++ *      No SCM call, no vote, no write.
++ *   2  the SLPI power-up and PAS boot, each hazard behind its own sub-bit:
++ *        (bergamotaslpi=2)          SCM availability probe (read-only), AOSS QMP load_state slpi, RPMh lcx/lmx
++ *                                   votes, SMP2P outbound item 430 + doorbell 26; then undone
++ *        + bergamotaslpipas=1       PAS 12 INIT_IMAGE, MEM_SETUP and the copy of the segments into 0x96b00000
++ *                                   (first write there), then SHUTDOWN
++ *        + bergamotaslpiauth=1      AUTH_AND_RESET: the only step that releases the DSP; waits for the SMP2P
++ *                                   "ready" bit (bergamotaslpiwait s, default 10), then watches bergamotaslpihold s
++ *                                   (default 20), then stops it (unless bergamotaslpikeep=1)
++ *      bergamotaslpistop=N stops cleanly before step N. No GLINK/QRTR here (needs the edge refactor).
++ * Needs bergamotawlan=0: it shares the FAT buffers and the modem statics with the Wi-Fi stage.
++ */
++#define SL_PA                   0x96b00000ull   /* beryllium slpi_mem */
++#define SL_SIZE                 0x01400000u
++#define SL_PAS_ID               12u
++#define SL_HOST                 3u              /* smem remote pid of smp2p-slpi / glink dsps */
++#define SL_SMP2P_IN_ITEM        481u            /* smp2p-slpi qcom,smem = <481>, <430> */
++#define SL_SMP2P_OUT_ITEM       430u
++#define SL_SMP2P_DOORBELL       26u             /* smp2p-slpi mboxes = <&apss_shared 26> */
++#define SL_CRASH_ITEM           424u            /* sdm845_slpi_resource_init crash_reason_smem */
++#define SL_META_MAX             0x40000u
++#define SL_MDT_MAX              0x40000u
++#define SL_SCM_64               0x40000000u
++#define SL_SCM_SIP              0x02000000u
++
++static const char *const sl_arc_res[2] = { "lcx.lvl", "lmx.lvl" };
++
++static struct {
++	struct wl_fat fat;
++	uint8_t *mdt, *meta;
++	uint32_t mdt_len, meta_len;
++	uint32_t nload, hash_idx, lo, hi;
++	bool reloc;
++	uint32_t out;                   /* SMEM offset of our outbound SMP2P item (430), 0 = none */
++	bool nego, ssr_ack, seen, ready, fatal, handover, stop_ack;
++	bool qmp_on, arc[2], pas_init, pas_auth;
++	uint32_t last[8];
++	uint64_t t0;
++	unsigned stop_at, wait_s, hold_s;
++	int pas, auth, keep, peek;
++} sl;
++
++static void
++sl_phdr(uint32_t i, struct elf32_phdr *ph)
++{
++	struct elf32_ehdr eh;
++	memcpy(&eh, sl.mdt, sizeof(eh));
++	memcpy(ph, sl.mdt + eh.e_phoff + (uint64_t)i * sizeof(*ph), sizeof(*ph));
++}
++
++static bool
++sl_step(unsigned n, const char *what)
++{
++	printf("BERGAMOTA SLPI: step %u: %s\n", n, what);
++	bergamota_log_sync();
++	wl_sleep(500);
++	if (sl.stop_at && n >= sl.stop_at) {
++		printf("BERGAMOTA SLPI: stopping before step %u (bergamotaslpistop=%u)\n", n, sl.stop_at);
++		bergamota_log_sync();
++		return false;
++	}
++	return true;
++}
++
++/* slpi.mdt into sl.mdt and its program headers summarised into sl.* (read-only) */
++static bool
++sl_mdt_load(bool verbose)
++{
++	uint32_t cl, size;
++	if (fat_mount(&sl.fat, "modem") || fat_open(&sl.fat, "image/slpi.mdt", &cl, &size)) {
++		printf("BERGAMOTA SLPI: modem:image/slpi.mdt not found\n");
++		return false;
++	}
++	if (size < sizeof(struct elf32_ehdr) || size > SL_MDT_MAX) {
++		printf("BERGAMOTA SLPI: slpi.mdt size %u not accepted\n", size);
++		return false;
++	}
++	if (sl.mdt == NULL) {
++		sl.mdt = kalloc_data(SL_MDT_MAX, Z_WAITOK | Z_ZERO);
++	}
++	if (sl.mdt == NULL || fat_read_chain(&sl.fat, cl, 0, sl.mdt, size)) {
++		printf("BERGAMOTA SLPI: slpi.mdt read failed\n");
++		return false;
++	}
++	sl.mdt_len = size;
++	struct elf32_ehdr eh;
++	memcpy(&eh, sl.mdt, sizeof(eh));
++	if (memcmp(eh.e_ident, "\x7f" "ELF", 4) != 0 || eh.e_ident[4] != 1 || eh.e_phentsize != sizeof(struct elf32_phdr) ||
++	    eh.e_phnum < 2 || (uint64_t)eh.e_phoff + (uint64_t)eh.e_phnum * sizeof(struct elf32_phdr) > size) {
++		printf("BERGAMOTA SLPI: slpi.mdt is not a 32-bit ELF with program headers\n");
++		return false;
++	}
++	printf("BERGAMOTA SLPI: slpi.mdt %u bytes, ELF32 machine %u, entry %#x, %u program headers\n", size, eh.e_machine,
++	    eh.e_entry, eh.e_phnum);
++	sl.nload = 0;
++	sl.hash_idx = ~0u;
++	sl.lo = ~0u;
++	sl.hi = 0;
++	sl.reloc = false;
++	for (uint32_t i = 0; i < eh.e_phnum; i++) {
++		struct elf32_phdr ph;
++		sl_phdr(i, &ph);
++		bool hash = (ph.p_flags & MDT_TYPE_MASK) == MDT_TYPE_HASH;
++		bool load = ph.p_type == 1 && ph.p_memsz != 0 && !hash;
++		if (hash && sl.hash_idx == ~0u) {
++			sl.hash_idx = i;
++		}
++		if (load) {
++			sl.nload++;
++			sl.lo = MIN(sl.lo, ph.p_paddr);
++			sl.hi = MAX(sl.hi, ph.p_paddr + ph.p_memsz);
++			sl.reloc |= (ph.p_flags & MDT_RELOCATABLE) != 0;
++		}
++		if (verbose) {
++			printf("BERGAMOTA SLPI:  ph%u type %u off %#x paddr %#x filesz %#x memsz %#x flags %#x%s%s\n", i, ph.p_type,
++			    ph.p_offset, ph.p_paddr, ph.p_filesz, ph.p_memsz, ph.p_flags, hash ? " HASH" : "",
++			    load ? "" : (hash ? "" : " (not loaded)"));
++		}
++	}
++	if (sl.nload == 0 || sl.hash_idx == ~0u) {
++		printf("BERGAMOTA SLPI: slpi.mdt has %u loadable segments, hash ph%d\n", sl.nload, (int)sl.hash_idx);
++		return false;
++	}
++	uint64_t extent = round_page_64(sl.hi) - (uint64_t)sl.lo;
++	bool fits = sl.reloc ? extent <= SL_SIZE :
++	    ((uint64_t)sl.lo >= SL_PA && (uint64_t)sl.hi <= SL_PA + SL_SIZE);
++	printf("BERGAMOTA SLPI: %u loadable segments span %#x..%#x (%llu KiB), %s, %s the carve-out %#llx+%#x\n", sl.nload,
++	    sl.lo, sl.hi, extent >> 10, sl.reloc ? "RELOCATABLE" : "fixed address", fits ? "FITS" : "DOES NOT FIT", SL_PA,
++	    SL_SIZE);
++	return fits;
++}
++
++/* segment file for program header i, and whether it is a separate file at all */
++static int
++sl_seg_open(uint32_t i, uint32_t *cl, uint32_t *size, char path[24])
++{
++	snprintf(path, 24, "image/slpi.b%02u", i);
++	return fat_open(&sl.fat, path, cl, size);
++}
++
++/* every segment's data exists (inside the .mdt or as slpi.bNN with the right size): read-only */
++static bool
++sl_segments_check(bool verbose)
++{
++	struct elf32_ehdr eh;
++	memcpy(&eh, sl.mdt, sizeof(eh));
++	unsigned bad = 0, files = 0;
++	uint64_t bytes = 0;
++	for (uint32_t i = 0; i < eh.e_phnum; i++) {
++		struct elf32_phdr ph;
++		sl_phdr(i, &ph);
++		if (ph.p_filesz == 0 || (ph.p_type != 1 && i != sl.hash_idx)) {
++			continue;
++		}
++		if (ph.p_offset < sl.mdt_len) {
++			continue;               /* inside slpi.mdt */
++		}
++		uint32_t cl, size;
++		char path[24];
++		int err = sl_seg_open(i, &cl, &size, path);
++		files++;
++		bytes += size;
++		if (err || size != ph.p_filesz) {
++			bad++;
++			printf("BERGAMOTA SLPI: %s %s (want %u bytes, have %u)\n", path, err ? "MISSING" : "WRONG SIZE", ph.p_filesz,
++			    err ? 0 : size);
++		} else if (verbose) {
++			printf("BERGAMOTA SLPI: %s %u bytes ok\n", path, size);
++		}
++	}
++	printf("BERGAMOTA SLPI: %u segment files checked, %llu KiB, %u bad\n", files, bytes >> 10, bad);
++	return bad == 0;
++}
++
++static void
++sl_dump_item(uint32_t it, uint32_t sz)
++{
++	printf("BERGAMOTA SLPI: smp2p item %u at +%#x (%u bytes): magic %#x version %u features %#x pid %u->%u entries %u/%u "
++	    "flags %#x\n", SL_SMP2P_IN_ITEM, it, sz, smem_u32(it), smem_u32(it + 4) & 0xff, smem_u32(it + 4) >> 8,
++	    smem_u32(it + 8) & 0xffff, smem_u32(it + 8) >> 16, smem_u32(it + 12) >> 16, smem_u32(it + 12) & 0xffff,
++	    smem_u32(it + 16));
++	uint32_t valid = MIN(smem_u32(it + 12) >> 16, 16u);
++	for (uint32_t k = 0; k < valid && 20 + (k + 1) * 20 <= sz; k++) {
++		char name[17];
++		for (uint32_t c = 0; c < 16; c += 4) {
++			uint32_t w = smem_u32(it + 20 + k * 20 + c);
++			memcpy(name + c, &w, 4);
++		}
++		name[16] = 0;
++		printf("BERGAMOTA SLPI:  entry %u \"%s\" = %#x\n", k, name, smem_u32(it + 20 + k * 20 + 16));
++	}
++}
++
++/* stage 1 */
++static void
++sl_inventory(void)
++{
++	printf("BERGAMOTA SLPI: stage 1: read-only inventory (no SCM, no vote, no write)\n");
++	bergamota_log_sync();
++	/* 1. the modem partition's image directory */
++	uint32_t dcl = 0, dsz = 0, nent = 0;
++	if (fat_mount(&sl.fat, "modem") || fat_open(&sl.fat, "image", &dcl, &dsz) || fat_dir_load(&sl.fat, dcl, &nent)) {
++		printf("BERGAMOTA SLPI: modem:image/ not readable\n");
++	} else {
++		unsigned n = 0, bfiles = 0;
++		uint64_t total = 0;
++		for (uint32_t i = 0; i < nent; i++) {
++			const uint8_t *e = wl_dirbuf + (uint64_t)i * 32;
++			if (e[0] == 0) {
++				break;
++			}
++			if (e[0] == 0xe5 || (e[11] & 0x0f) == 0x0f || (e[11] & 0x18) || (e[0] | 32) != 's' || (e[1] | 32) != 'l' ||
++			    (e[2] | 32) != 'p' || (e[3] | 32) != 'i') {
++				continue;
++			}
++			char nm[13];
++			unsigned o = 0;
++			for (unsigned k = 0; k < 8 && e[k] != ' '; k++) {
++				nm[o++] = (char)e[k];
++			}
++			if (e[8] != ' ') {
++				nm[o++] = '.';
++				for (unsigned k = 8; k < 11 && e[k] != ' '; k++) {
++					nm[o++] = (char)e[k];
++				}
++			}
++			nm[o] = 0;
++			uint32_t sz = le32(e + 28);
++			printf("BERGAMOTA SLPI: modem:image/%s %u bytes\n", nm, sz);
++			n++;
++			total += sz;
++			bfiles += (e[8] | 32) == 'b';
++		}
++		printf("BERGAMOTA SLPI: %u slpi* files in modem:image/, %u bNN segment files, %llu KiB in total%s\n", n, bfiles,
++		    total >> 10, n ? "" : " (NONE: the SLPI firmware is not in this partition)");
++	}
++	/* 2. the .mdt */
++	bool fits = sl_mdt_load(true);
++	if (sl.mdt_len) {
++		(void)sl_segments_check(true);
++	}
++	printf("BERGAMOTA SLPI: mdt verdict: %s\n", fits ? "loadable into the carve-out" : "NOT loadable (see above)");
++	bergamota_log_sync();
++	/* 3. SMEM */
++	wl.smem = wl.smem ? wl.smem : ml_io_map(WL_SMEM_PA, WL_SMEM_SIZE);
++	if (!wl.smem) {
++		printf("BERGAMOTA SLPI: SMEM mapping failed\n");
++		return;
++	}
++	uint32_t off, psize;
++	if (!ms_smem_part(0, SL_HOST, &off, &psize)) {
++		printf("BERGAMOTA SLPI: no apps<->slpi SMEM partition (hosts 0<->%u)\n", SL_HOST);
++	} else {
++		printf("BERGAMOTA SLPI: apps<->slpi partition at +%#x size %#x: magic %#x hosts %u<->%u size %#x free-uncached %#x "
++		    "free-cached %#x\n", off, psize, smem_u32(off), smem_u32(off + 4) & 0xffff, smem_u32(off + 4) >> 16,
++		    smem_u32(off + 8), smem_u32(off + 12), smem_u32(off + 16));
++		uint32_t free_u = MIN(smem_u32(off + 12), psize), pos = off + 32;
++		unsigned items = 0;
++		while (pos + 16 <= off + free_u && items < 16) {
++			uint32_t w0 = smem_u32(pos), sz = smem_u32(pos + 4), w2 = smem_u32(pos + 8);
++			if ((w0 & 0xffff) != 0xa5a5 || sz > psize) {
++				printf("BERGAMOTA SLPI:  item walk stops at +%#x (word0 %#x)\n", pos - off, w0);
++				break;
++			}
++			printf("BERGAMOTA SLPI:  item %u: %u bytes at +%#x\n", w0 >> 16, sz - (w2 & 0xffff), pos + 16 + (w2 >> 16));
++			pos += 16 + (w2 >> 16) + sz;
++			items++;
++		}
++		if (items == 0) {
++			printf("BERGAMOTA SLPI:  no items (SLPI cold, nothing allocated yet)\n");
++		}
++		uint32_t sz = 0, it = ms_smem_item(0, SL_HOST, SL_SMP2P_IN_ITEM, &sz);
++		if (it && sz >= 20 && smem_u32(it) == SMP2P_MAGIC) {
++			sl_dump_item(it, sz);
++		} else {
++			printf("BERGAMOTA SLPI: smp2p item %u absent (SLPI cold)\n", SL_SMP2P_IN_ITEM);
++		}
++		uint32_t g = ms_smem_item(0xfffe, 0xfffe, SL_CRASH_ITEM, &sz);
++		printf("BERGAMOTA SLPI: crash reason item %u %s\n", SL_CRASH_ITEM, g ? "PRESENT" : "absent");
++	}
++	/* 4. cmd-db (read-only) */
++	for (unsigned i = 0; i < 2; i++) {
++		uint32_t addr = 0;
++		int err = bergamota_rpmh_lookup(sl_arc_res[i], &addr);
++		printf("BERGAMOTA SLPI: cmd-db %s %s %#x (errno %d)\n", sl_arc_res[i], err ? "lookup failed" : "address", addr, err);
++	}
++	bergamota_log_sync();
++	/* 5. the carve-out, read-only, last: it is the one access here that could meet a protected range */
++	if (!sl.peek) {
++		printf("BERGAMOTA SLPI: carve-out read skipped (bergamotaslpipeek=0)\n");
++		return;
++	}
++	printf("BERGAMOTA SLPI: reading the first bytes of the carve-out %#llx (read-only)\n", SL_PA);
++	bergamota_log_sync();
++	wl_sleep(1000);
++	vm_offset_t va = ml_io_map_unmappable(SL_PA, PAGE_SIZE, VM_WIMG_WCOMB);
++	if (!va) {
++		printf("BERGAMOTA SLPI: carve-out mapping failed\n");
++		return;
++	}
++	uint32_t w[8];
++	for (unsigned i = 0; i < 8; i++) {
++		w[i] = *(volatile uint32_t *)(va + 4 * i);
++	}
++	ml_io_unmap(va, PAGE_SIZE);
++	printf("BERGAMOTA SLPI: carve-out +0: %08x %08x %08x %08x %08x %08x %08x %08x\n", w[0], w[1], w[2], w[3], w[4], w[5],
++	    w[6], w[7]);
++	bergamota_log_sync();
++}
++
++/* ---- stage 2 */
++static void
++sl_kick(void)
++{
++	__asm__ volatile ("dsb sy" ::: "memory");
++	wl_wr(ms.ipc, 12, 1u << SL_SMP2P_DOORBELL);
++}
++
++static bool
++sl_pas(const char *name, uint32_t cmd, uint32_t arginfo, uint64_t a1, uint64_t a2, uint64_t *result)
++{
++	struct ms_scm r;
++	const struct ms_scm in = { { SL_SCM_64 | SL_SCM_SIP | 0x0200u | cmd, arginfo, SL_PAS_ID, a1, a2, 0, 0 } };
++	printf("BERGAMOTA SLPI: SCM PAS %s fn=%#llx info=%#x args=%llu/%#llx/%#llx\n", name, in.a[0], arginfo, in.a[2], a1, a2);
++	bergamota_log_sync();
++	__asm__ volatile ("dsb sy" ::: "memory");
++	bool done = ms_scm_call(&in, &r);
++	__asm__ volatile ("dsb sy" ::: "memory");
++	printf("BERGAMOTA SLPI: SCM PAS %s completed=%u status=%d result=%d\n", name, done, (int32_t)r.a[0], (int32_t)r.a[1]);
++	bergamota_log_sync();
++	if (result) {
++		*result = r.a[1];
++	}
++	return done && (int32_t)r.a[0] == 0;
++}
++
++static void
++sl_scm_probe(void)
++{
++	static const struct { const char *name; uint32_t cmd; } q[] = {
++		{ "INIT_IMAGE", 1 }, { "MEM_SETUP", 2 }, { "AUTH_AND_RESET", 5 }, { "SHUTDOWN", 6 }, { "IS_SUPPORTED", 7 },
++	};
++	for (unsigned i = 0; i < sizeof(q) / sizeof(q[0]); i++) {
++		struct ms_scm r;
++		const struct ms_scm in = { { SL_SCM_64 | SL_SCM_SIP | 0x0601u, 1, SL_SCM_SIP | 0x0200u | q[i].cmd, 0, 0, 0, 0 } };
++		if (ms_scm_call(&in, &r)) {
++			printf("BERGAMOTA SLPI: SCM PAS %s available: status=%d result=%llu\n", q[i].name, (int32_t)r.a[0], r.a[1]);
++		}
++	}
++	uint64_t sup = 0;
++	bool ok = sl_pas("IS_SUPPORTED", 7, 1, 0, 0, &sup);
++	printf("BERGAMOTA SLPI: PAS id %u %s\n", SL_PAS_ID, ok && sup == 1 ? "supported" : "NOT reported supported");
++}
++
++/* sdm845 smp2p-slpi: item 430 outbound with one entry, "master-kernel" (bit 0 = stop) */
++static bool
++sl_smp2p_out_setup(void)
++{
++	uint32_t d = ms_smem_alloc_p(0, SL_HOST, SL_SMP2P_OUT_ITEM, SMP2P_ITEM_SIZE);
++	if (!d) {
++		return false;
++	}
++	for (uint32_t k = 0; k < SMP2P_ITEM_SIZE; k += 4) {
++		wl_wr(wl.smem, d + k, 0);
++	}
++	wl_wr(wl.smem, d + 0, SMP2P_MAGIC);
++	wl_wr(wl.smem, d + 4, SMP2P_FEATURE_SSR_ACK << 8);
++	wl_wr(wl.smem, d + 8, 0u | (SL_HOST << 16));            /* local pid 0, remote pid 3 */
++	wl_wr(wl.smem, d + 12, SMP2P_MAX_ENTRY);
++	wl_wr(wl.smem, d + 4, (SMP2P_FEATURE_SSR_ACK << 8) | 1u);
++	sl_kick();
++	ms_smp2p_add_entry(d, "master-kernel");
++	sl_kick();
++	sl.out = d;
++	printf("BERGAMOTA SLPI: smp2p item %u ready at +%#x: version 1, pid 0->%u, entry master-kernel, doorbell bit %u\n",
++	    SL_SMP2P_OUT_ITEM, d, SL_HOST, SL_SMP2P_DOORBELL);
++	return true;
++}
++
++static void
++sl_crash_reason(void)
++{
++	uint32_t sz = 0, it = ms_smem_item(0xfffe, 0xfffe, SL_CRASH_ITEM, &sz);
++	if (!it || !sz) {
++		printf("BERGAMOTA SLPI: no crash reason in SMEM (item %u)\n", SL_CRASH_ITEM);
++		return;
++	}
++	char msg[129];
++	uint32_t n = MIN(sz, 128u);
++	for (uint32_t k = 0; k < n; k += 4) {
++		uint32_t w = smem_u32(it + k);
++		memcpy(msg + k, &w, MIN(4u, n - k));
++	}
++	msg[n] = 0;
++	printf("BERGAMOTA SLPI: crash reason: \"%s\"\n", msg);
++}
++
++/* qcom_smp2p negotiation + SSR ack (as ms_smp2p_service), then one poll of the SLPI's entries */
++static void
++sl_poll(void)
++{
++	uint32_t sz = 0, it = ms_smem_item(0, SL_HOST, SL_SMP2P_IN_ITEM, &sz);
++	if (!it || sz < 20 || smem_u32(it) != SMP2P_MAGIC) {
++		return;
++	}
++	if (!sl.seen) {
++		sl.seen = true;
++		printf("BERGAMOTA SLPI: smp2p item %u appeared after %llu ms\n", SL_SMP2P_IN_ITEM, ms_now_ms() - sl.t0);
++		sl_dump_item(it, sz);
++	}
++	if (sl.out) {
++		uint32_t in1 = smem_u32(it + 4), out1 = smem_u32(sl.out + 4);
++		if (!sl.nego && (in1 & 0xff) == (out1 & 0xff)) {
++			uint32_t feat = (out1 >> 8) & (in1 >> 8);
++			wl_wr(wl.smem, sl.out + 4, (feat << 8) | (out1 & 0xff));
++			sl.nego = true;
++			printf("BERGAMOTA SLPI: smp2p negotiated: version %u, features %#x\n", out1 & 0xff, feat);
++		}
++		if (sl.nego && ((smem_u32(sl.out + 4) >> 8) & SMP2P_FEATURE_SSR_ACK)) {
++			bool restart = (smem_u32(it + 16) & 1u) != 0;
++			if (restart != sl.ssr_ack) {
++				sl.ssr_ack = !sl.ssr_ack;
++				uint32_t f = smem_u32(sl.out + 16) & ~2u;
++				wl_wr(wl.smem, sl.out + 16, f | (sl.ssr_ack ? 2u : 0));
++				sl_kick();
++				printf("BERGAMOTA SLPI: smp2p restart-done %d acknowledged\n", restart);
++			}
++		}
++	}
++	uint32_t valid = MIN(smem_u32(it + 12) >> 16, 8u);
++	for (uint32_t k = 0; k < valid && 20 + (k + 1) * 20 <= sz; k++) {
++		uint32_t e = it + 20 + k * 20;
++		char name[17];
++		for (uint32_t c = 0; c < 16; c += 4) {
++			uint32_t w = smem_u32(e + c);
++			memcpy(name + c, &w, 4);
++		}
++		name[16] = 0;
++		uint32_t v = smem_u32(e + 16);
++		if (v == sl.last[k]) {
++			continue;
++		}
++		sl.last[k] = v;
++		printf("BERGAMOTA SLPI: smp2p in[%u] \"%s\" = %#x (%llu ms)\n", k, name, v, ms_now_ms() - sl.t0);
++		if (strcmp(name, "slave-kernel") == 0) {
++			if ((v & 2u) && !sl.ready) {
++				sl.ready = true;
++				printf("BERGAMOTA SLPI: SLPI READY after %llu ms\n", ms_now_ms() - sl.t0);
++			}
++			if ((v & 4u) && !sl.handover) {
++				sl.handover = true;
++				printf("BERGAMOTA SLPI: handover (proxy votes may be dropped)\n");
++			}
++			if ((v & 8u) && !sl.stop_ack) {
++				sl.stop_ack = true;
++				printf("BERGAMOTA SLPI: stop-ack\n");
++			}
++			if ((v & 1u) && !sl.fatal) {
++				sl.fatal = true;
++				printf("BERGAMOTA SLPI: SLPI reported a fatal error\n");
++				sl_crash_reason();
++			}
++		}
++		bergamota_log_sync();
++	}
++}
++
++/* qcom_mdt_read_metadata(): ELF header segment + hash segment */
++static bool
++sl_meta_build(void)
++{
++	struct elf32_phdr ph0, hp;
++	sl_phdr(0, &ph0);
++	sl_phdr(sl.hash_idx, &hp);
++	if (ph0.p_type == 1) {
++		printf("BERGAMOTA SLPI: program header 0 is loadable (no ELF header segment)\n");
++		return false;
++	}
++	uint32_t ehdr_size = ph0.p_filesz, hash_size = hp.p_filesz;
++	if (ehdr_size > sl.mdt_len || hash_size == 0 || (uint64_t)ehdr_size + hash_size > SL_META_MAX) {
++		printf("BERGAMOTA SLPI: metadata %u + %u bytes not accepted\n", ehdr_size, hash_size);
++		return false;
++	}
++	sl.meta_len = ehdr_size + hash_size;
++	sl.meta = kalloc_data(sl.meta_len, Z_WAITOK | Z_ZERO);
++	if (sl.meta == NULL) {
++		return false;
++	}
++	memcpy(sl.meta, sl.mdt, ehdr_size);
++	const char *from;
++	if (ehdr_size + hash_size == sl.mdt_len) {
++		memcpy(sl.meta + ehdr_size, sl.mdt + ehdr_size, hash_size);
++		from = "packed after the ELF header";
++	} else if ((uint64_t)hp.p_offset + hash_size <= sl.mdt_len) {
++		memcpy(sl.meta + ehdr_size, sl.mdt + hp.p_offset, hash_size);
++		from = "its own segment inside slpi.mdt";
++	} else {
++		char path[24];
++		uint32_t cl, size;
++		if (sl_seg_open(sl.hash_idx, &cl, &size, path) || size != hash_size ||
++		    fat_read_chain(&sl.fat, cl, 0, sl.meta + ehdr_size, hash_size)) {
++			printf("BERGAMOTA SLPI: hash segment %u: %s missing or truncated\n", sl.hash_idx, path);
++			return false;
++		}
++		from = "its own .bNN file";
++	}
++	printf("BERGAMOTA SLPI: metadata %u + %u = %u bytes (hash %s)\n", ehdr_size, hash_size, sl.meta_len, from);
++	return true;
++}
++
++/* qcom_mdt_load's loop: one write-combined window per segment, unmapped again before anything else happens */
++static bool
++sl_copy_segments(void)
++{
++	struct elf32_ehdr eh;
++	memcpy(&eh, sl.mdt, sizeof(eh));
++	uint64_t reloc = sl.reloc ? sl.lo : SL_PA;
++	const uint32_t chunk_size = 0x100000u;
++	uint8_t *chunk = kalloc_data(chunk_size, Z_WAITOK);
++	if (chunk == NULL) {
++		return false;
++	}
++	bool ok = false;
++	uint32_t total = 0;
++	uint64_t t0 = ms_now_ms();
++	for (uint32_t i = 0; i < eh.e_phnum; i++) {
++		struct elf32_phdr ph;
++		sl_phdr(i, &ph);
++		if (!(ph.p_type == 1 && (ph.p_flags & MDT_TYPE_MASK) != MDT_TYPE_HASH && ph.p_memsz != 0)) {
++			continue;
++		}
++		int64_t off = (int64_t)ph.p_paddr - (int64_t)reloc;
++		if (off < 0 || (uint64_t)off + ph.p_memsz > SL_SIZE || ph.p_filesz > ph.p_memsz) {
++			printf("BERGAMOTA SLPI: segment %u paddr %#x memsz %#x filesz %#x outside the carve-out\n", i, ph.p_paddr,
++			    ph.p_memsz, ph.p_filesz);
++			goto done;
++		}
++		uint64_t pa = SL_PA + (uint64_t)off;
++		uint64_t base = trunc_page_64(pa), len = round_page_64(pa + ph.p_memsz) - base;
++		printf("BERGAMOTA SLPI: segment %u: mapping %#llx+%#llx\n", i, base, len);
++		bergamota_log_sync();
++		vm_offset_t va = ml_io_map_unmappable(base, len, VM_WIMG_WCOMB);
++		if (!va) {
++			printf("BERGAMOTA SLPI: segment %u: mapping failed\n", i);
++			goto done;
++		}
++		uint8_t *ptr = (uint8_t *)(va + (pa - base));
++		char path[24] = "slpi.mdt";
++		bool seg_ok = true;
++		if (ph.p_filesz && ph.p_offset < sl.mdt_len) {
++			if ((uint64_t)ph.p_offset + ph.p_filesz > sl.mdt_len) {
++				seg_ok = false;
++			} else {
++				memcpy(ptr, sl.mdt + ph.p_offset, ph.p_filesz);
++			}
++		} else if (ph.p_filesz) {
++			uint32_t scl = 0, ssize = 0;
++			if (sl_seg_open(i, &scl, &ssize, path) || ssize != ph.p_filesz) {
++				seg_ok = false;
++			}
++			for (uint32_t o = 0; seg_ok && o < ph.p_filesz; o += chunk_size) {
++				uint32_t n = MIN(chunk_size, ph.p_filesz - o);
++				if (fat_read_chain(&sl.fat, scl, o, chunk, n)) {
++					seg_ok = false;
++					break;
++				}
++				memcpy(ptr + o, chunk, n);
++			}
++		}
++		if (seg_ok && ph.p_memsz > ph.p_filesz) {
++			ms_zero_nc(ptr + ph.p_filesz, ph.p_memsz - ph.p_filesz);
++		}
++		__asm__ volatile ("dsb sy" ::: "memory");
++		ml_io_unmap(va, len);           /* no kernel mapping may exist once TZ owns the region */
++		if (!seg_ok) {
++			printf("BERGAMOTA SLPI: failed to load segment %u from %s (missing or truncated)\n", i, path);
++			goto done;
++		}
++		total += ph.p_memsz;
++		printf("BERGAMOTA SLPI: segment %u %s paddr %#x file %#x mem %#x -> carve-out +%#llx (%llu ms)\n", i, path,
++		    ph.p_paddr, ph.p_filesz, ph.p_memsz, (uint64_t)off, ms_now_ms() - t0);
++		bergamota_log_sync();
++	}
++	printf("BERGAMOTA SLPI: carve-out unmapped, %u KiB loaded\n", total >> 10);
++	ok = true;
++done:
++	kfree_data(chunk, chunk_size);
++	return ok;
++}
++
++/* qcom_q6v5_request_stop(), PAS shutdown, then the proxy resources, in reverse order of the start */
++static void
++sl_teardown(void)
++{
++	if (sl.pas_auth) {
++		if (sl.ready && !sl.fatal && sl.out) {
++			printf("BERGAMOTA SLPI: stop request (master-kernel bit 0)\n");
++			wl_wr(wl.smem, sl.out + 20 + 16, 1u);
++			sl_kick();
++			for (unsigned t = 0; t < 50 && !sl.stop_ack; t++) {
++				sl_poll();
++				wl_sleep(100);
++			}
++			printf("BERGAMOTA SLPI: stop-ack %s\n", sl.stop_ack ? "received" : "NOT received in 5 s");
++			wl_wr(wl.smem, sl.out + 20 + 16, 0u);
++			sl_kick();
++		}
++		if (sl_pas("SHUTDOWN", 6, 1, 0, 0, NULL)) {
++			sl.pas_auth = false;
++		} else {
++			printf("BERGAMOTA SLPI: PAS shutdown FAILED: the DSP may still run; votes are left in place\n");
++			return;
++		}
++	} else if (sl.pas_init) {
++		(void)sl_pas("SHUTDOWN", 6, 1, 0, 0, NULL);
++		sl.pas_init = false;
+ 	}
++	for (int i = 1; i >= 0; i--) {
++		if (sl.arc[i]) {
++			(void)bergamota_rpmh_arc_vote(sl_arc_res[i], false);
++			sl.arc[i] = false;
++		}
++	}
++	if (sl.qmp_on) {
++		(void)ms_qmp_send("{class: image, res: load_state, name: slpi, val: off}");
++		sl.qmp_on = false;
++	}
++	if (sl.out) {
++		wl_wr(wl.smem, sl.out + 12, SMP2P_MAX_ENTRY);   /* smp2p unwind: valid_entries = 0 */
++		sl.out = 0;
++	}
++	printf("BERGAMOTA SLPI: teardown done\n");
++	bergamota_log_sync();
++}
++
++/* stage 2 */
++static void
++sl_boot(void)
++{
++	printf("BERGAMOTA SLPI: stage 2: power + PAS 12 boot (pas=%d auth=%d keep=%d stop=%u wait=%u s hold=%u s)\n", sl.pas,
++	    sl.auth, sl.keep, sl.stop_at, sl.wait_s, sl.hold_s);
++	bergamota_log_sync();
++	if (!sl_step(1, "map SMEM, TCSR mutex, AOSS QMP, APCS doorbells")) {
++		return;
++	}
++	wl.smem = wl.smem ? wl.smem : ml_io_map(WL_SMEM_PA, WL_SMEM_SIZE);
++	wl.mutex = wl.mutex ? wl.mutex : ml_io_map(WL_MUTEX_PA, 0x4000);
++	ms.qmp = ml_io_map(MSS_QMP_PA, 0x1000);
++	ms.ipc = ml_io_map(MSS_APSS_SHARED_PA, 0x1000);
++	if (!wl.smem || !wl.mutex || !ms.qmp || !ms.ipc) {
++		printf("BERGAMOTA SLPI: MMIO mapping failed\n");
++		return;
++	}
++	if (!sl_step(2, "slpi.mdt, segments and metadata from the modem partition (read-only)")) {
++		return;
++	}
++	if (!sl_mdt_load(false) || !sl_segments_check(false) || !sl_meta_build()) {
++		printf("BERGAMOTA SLPI: firmware not usable: nothing was touched\n");
++		return;
++	}
++	if (!sl_step(3, "SCM availability (read-only)")) {
++		return;
++	}
++	sl_scm_probe();
++	if (!sl_step(4, "AOSS QMP open + load_state slpi on")) {
++		return;
++	}
++	if (!ms_qmp_open() || !ms_qmp_send("{class: image, res: load_state, name: slpi, val: on}")) {
++		goto out;
++	}
++	sl.qmp_on = true;
++	if (!sl_step(5, "RPMh ARC votes lcx/lmx to the top level")) {
++		goto out;
++	}
++	for (int i = 0; i < 2; i++) {
++		if (bergamota_rpmh_arc_vote(sl_arc_res[i], true) != 0) {
++			goto out;
++		}
++		sl.arc[i] = true;
++	}
++	if (!sl_step(6, "SMP2P outbound item 430 in the apps<->slpi partition + doorbell 26")) {
++		goto out;
++	}
++	if (!sl_smp2p_out_setup()) {
++		goto out;
++	}
++	if (!sl.pas) {
++		printf("BERGAMOTA SLPI: stopping before PAS (add bergamotaslpipas=1)\n");
++		goto out;
++	}
++	if (!sl_step(7, "PAS 12 INIT_IMAGE (metadata) and MEM_SETUP")) {
++		goto out;
++	}
++	uint64_t meta_pa;
++	void *meta = ms_dma_alloc(sl.meta_len, &meta_pa);
++	if (!meta) {
++		printf("BERGAMOTA SLPI: metadata allocation failed\n");
++		goto out;
++	}
++	memcpy(meta, sl.meta, sl.meta_len);
++	bergamota_dma_sync_va(meta, round_page(sl.meta_len));
++	printf("BERGAMOTA SLPI: metadata %u bytes at PA %#llx\n", sl.meta_len, meta_pa);
++	sl.pas_init = true;                     /* teardown must SHUTDOWN from here on */
++	if (!sl_pas("INIT_IMAGE", 1, 0x82, meta_pa, 0, NULL)) {
++		goto out;
++	}
++	uint64_t mem_size = round_page_64(sl.hi) - sl.lo;       /* qcom_mdt_load: max_addr - min_addr */
++	if (!sl_pas("MEM_SETUP", 2, 3, SL_PA, mem_size, NULL)) {
++		goto out;
++	}
++	if (!sl_step(8, "copy the segments into the carve-out (first write there), unmap")) {
++		goto out;
++	}
++	if (!sl_copy_segments()) {
++		goto out;
++	}
++	if (!sl.auth) {
++		printf("BERGAMOTA SLPI: image loaded, DSP NOT released (add bergamotaslpiauth=1)\n");
++		goto out;
++	}
++	if (!sl_step(9, "PAS 12 AUTH_AND_RESET: releases the SLPI")) {
++		goto out;
++	}
++	memset(sl.last, 0xff, sizeof(sl.last));
++	sl.t0 = ms_now_ms();
++	sl.pas_auth = true;                     /* even if it fails: teardown asks TZ to shut it down */
++	if (!sl_pas("AUTH_AND_RESET", 5, 1, 0, 0, NULL)) {
++		printf("BERGAMOTA SLPI: AUTH_AND_RESET failed\n");
++		goto out;
++	}
++	sl.t0 = ms_now_ms();
++	printf("BERGAMOTA SLPI: signed image authenticated, waiting up to %u s for ready\n", sl.wait_s);
++	bergamota_log_sync();
++	for (unsigned t = 0; t < sl.wait_s * 10 && !sl.ready && !sl.fatal; t++) {
++		sl_poll();
++		wl_sleep(100);
++	}
++	if (!sl.ready) {
++		printf("BERGAMOTA SLPI: %s\n", sl.fatal ? "fatal error before ready" : "NOT ready in time");
++		if (!sl.fatal) {
++			printf("BERGAMOTA SLPI: smp2p item 481 %s\n", sl.seen ? "appeared (see above)" : "never appeared");
++			sl_crash_reason();
++		}
++		goto out;
++	}
++	for (unsigned t = 0; t < sl.hold_s * 10 && !sl.fatal; t++) {
++		sl_poll();
++		wl_sleep(100);
++	}
++	printf("BERGAMOTA SLPI: hold over: ready=%d handover=%d fatal=%d\n", sl.ready, sl.handover, sl.fatal);
++	if (sl.keep && !sl.fatal) {
++		printf("BERGAMOTA SLPI: bergamotaslpikeep=1: leaving the SLPI running\n");
++		bergamota_log_sync();
++		return;
++	}
+ out:
++	sl_teardown();
++}
++
++static void
++sl_thread(void *arg, wait_result_t w)
++{
++	(void)w;
++	unsigned stage = (unsigned)(uintptr_t)arg, delay_s = 45;
++	(void)PE_parse_boot_argn("bergamotaslpidelay", &delay_s, sizeof(delay_s));
++	sl.pas = 0;
++	sl.auth = 0;
++	sl.keep = 0;
++	sl.peek = 1;
++	sl.wait_s = 10;
++	sl.hold_s = 20;
++	(void)PE_parse_boot_argn("bergamotaslpipas", &sl.pas, sizeof(sl.pas));
++	(void)PE_parse_boot_argn("bergamotaslpiauth", &sl.auth, sizeof(sl.auth));
++	(void)PE_parse_boot_argn("bergamotaslpikeep", &sl.keep, sizeof(sl.keep));
++	(void)PE_parse_boot_argn("bergamotaslpipeek", &sl.peek, sizeof(sl.peek));
++	(void)PE_parse_boot_argn("bergamotaslpiwait", &sl.wait_s, sizeof(sl.wait_s));
++	(void)PE_parse_boot_argn("bergamotaslpihold", &sl.hold_s, sizeof(sl.hold_s));
++	(void)PE_parse_boot_argn("bergamotaslpistop", &sl.stop_at, sizeof(sl.stop_at));
++	if (sl.auth && !sl.pas) {
++		printf("BERGAMOTA SLPI: bergamotaslpiauth=1 needs bergamotaslpipas=1: auth ignored\n");
++		sl.auth = 0;
++	}
++	sl.wait_s = MIN(sl.wait_s, 60u);
++	sl.hold_s = MIN(sl.hold_s, 600u);
++	printf("BERGAMOTA SLPI: stage %u starts in %u s\n", stage, delay_s);
++	wl_sleep(delay_s * 1000u);
++	if (stage == 1) {
++		sl_inventory();
++	} else {
++		sl_boot();
++	}
++	printf("BERGAMOTA SLPI: stage %u finished\n", stage);
++	bergamota_log_sync();
+ 	(void)thread_terminate(current_thread());
+ 	thread_block(THREAD_CONTINUE_NULL);
+ }
+ 
++static void
++bergamota_slpi_start(unsigned wlan_stage)
++{
++	unsigned stage = 0;
++	thread_t thread;
++	(void)PE_parse_boot_argn("bergamotaslpi", &stage, sizeof(stage));
++	if (stage == 0) {
++		return;                 /* off by default: no log line, no mapping */
++	}
++	if (stage > 2) {
++		printf("BERGAMOTA SLPI: stage %u does not exist yet (1 = inventory, 2 = power + PAS boot): not run\n", stage);
++		return;
++	}
++	if (wlan_stage != 0) {
++		printf("BERGAMOTA SLPI: needs bergamotawlan=0 (shares the FAT buffers and the modem statics): not run\n");
++		return;
++	}
++	if (kernel_thread_start(sl_thread, (void *)(uintptr_t)stage, &thread) == KERN_SUCCESS) {
++		thread_deallocate(thread);
++	} else {
++		printf("BERGAMOTA SLPI: kernel_thread_start failed\n");
++	}
++}
++
+ void
+ beryllium_wlan_init(void)
+ {
+@@ -9546,6 +10377,7 @@
+ 		return;
+ 	}
+ 	(void)PE_parse_boot_argn("bergamotawlan", &stage, sizeof(stage));
++	bergamota_slpi_start(stage);    /* bergamotaslpi=N, off by default */
+ 	if (stage == 0) {
+ 		return;                 /* off by default: no log line, no mapping */
+ 	}
+--- a/bsd/dev/bergamota_rpmh.c
++++ b/bsd/dev/bergamota_rpmh.c
+@@ -524,7 +524,7 @@
+ int
+ bergamota_rpmh_arc_vote(const char *res, bool max)
+ {
+-	static const char *const allowed[] = { "cx.lvl", "mx.lvl", "mss.lvl" };
++	static const char *const allowed[] = { "cx.lvl", "mx.lvl", "mss.lvl", "lcx.lvl", "lmx.lvl" };
+ 	unsigned i;
+ 	if (!bergamota_board_beryllium() || !res) {
+ 		return EINVAL;
+@@ -570,9 +570,9 @@
+ 		 * Never an off vote for cx/mx: an apps-DRV vote replaces ABL's vote through this DRV, and
+ 		 * CX/MX feed the display, UFS and memory (Linux clamps to the top level before sync_state;
+ 		 * an ldoa7 off vote panicked boot 0116hw). Only mss.lvl, which nothing else on the AP uses,
+-		 * is voted back to 0.
++		 * is voted back to 0. Same for lcx/lmx (SLPI-only domains, bergamotaslpi=2).
+ 		 */
+-		if (!max && strcmp(res, "mss.lvl")) {
++		if (!max && strcmp(res, "mss.lvl") && strcmp(res, "lcx.lvl") && strcmp(res, "lmx.lvl")) {
+ 			printf("BERGAMOTA RPMH: %s off vote refused (kept at the top level)\n", res);
+ 			error = 0;
+ 			goto out;
