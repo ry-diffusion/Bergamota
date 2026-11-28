@@ -679,3 +679,75 @@ ever appeared + crash reason, `fatal error before ready`. A silent phone with th
    a peer. A kernel restart by the watchdog (`bergamotawdt`) with it running is the unknown (the modem path always stops it).
 6. The 10 s default wait is twice what Linux uses; the XO clock vote Linux makes is deliberately not made [G].
 7. Not tested: no host harness exists for the new code (the FAT/mdt parsing is the modem's, unchanged in behaviour).
+
+---------------------------------------------------------------------------------------------------------------------
+
+## 12. Implemented: 1141 (GLINK edge context) and 1142 (stage 3), NOT run on the phone
+
+### 1141, `1141-beryllium-glink-edge-context.patch`
+
+The transport members of the global `ipc` (descriptor/FIFO offsets, features, version/open state, remote id, intents, TX queue,
+QRTR node, open time, packet counters) moved into `struct glink_edge`; `ge_modem` is the modem's, `ge` points at the edge the
+`ipc_*` functions work on. Per edge: `host` (SMEM partition 0<->host, modem 1, slpi 3), `doorbell` (12 / 24), `name` (log text) and
+`rx_cb` (the QRTR packet handler; the modem's is `ipc_qrtr_rx`). The tail of `ms_ipc_setup` became `ge_setup()`. The modem state that is
+not transport (rmtfs window, TFTP/pd-mapper/WLFW/WMI flags, notes) stays in `ipc`.
+
+How the modem path was checked as unchanged (no phone, no test harness exists for this code, so this is an argument plus a script):
+1. 134 sites changed by one regex, `ipc.<member>` to `ge-><member>` over exactly the 22 moved members. Reverting that rename with the
+   inverse regex and diffing against the pre-patch file leaves only: the struct split, the four new fields, `ge_setup()` (the
+   moved tail of `ms_ipc_setup`, with `0, 1` replaced by `0, ge->host`), the modem edge initialisation (`host 1`, `doorbell
+   GLINK_DOORBELL`, `name "modem"`, `rx_cb ipc_qrtr_rx`), the doorbell expression `1u << ge->doorbell`, and seven log lines where the
+   literal word "modem" became `%s` with "modem", which print identically. Everything was read in that diff.
+2. `ge` is initialised to `&ge_modem` and only the SLPI stage ever points it elsewhere; with `bergamotawlan` on, the SLPI stages are
+   refused, so during Wi-Fi `ge == &ge_modem` for the whole run.
+3. Moving `features = GLINK_FEATURE_REUSE; node = 0` from before the rmtfs setup into `ge_setup()` is the only reordering: nothing
+   reads them in between (an early return there never reached the transport).
+4. Built with `--remake 15.3`, no new warnings. It has NOT been booted: Wi-Fi must still be regression-tested on the phone before relying
+   on it (boot with `bergamotawlan=5`, join, 17 MB transfer) as with any change here.
+
+Coexistence with `bergamotawlan`: **not safe, still refused.** `ge` is one pointer, `wl.*`/`ms.*`/`wl_fatbuf` are shared, and the
+SLPI thread would flip `ge` under the Wi-Fi service thread. Making it safe needs the edge passed as a parameter through the ~40
+transport and QRTR functions, plus a lock around the SMEM allocator; not done.
+
+### 1142, `1142-beryllium-slpi-stage3.patch`: `bergamotaslpi=3`
+
+Implies stage 2 + `pas=1` + `auth=1` (cannot be lowered by the sub-bit args), so it releases the DSP. Run it only after stage 2 and a
+`pas=1` run succeeded. After `SLPI READY`: step 10 brings up the edge, then the loop services it for `bergamotaslpihold` seconds (default
+60 for stage 3; `bergamotaslpikeep=1` services it until a fatal error and leaves the SLPI running), then the stage-2 teardown (stop
+request, stop-ack, PAS SHUTDOWN, votes off). Short boot-args: `bergamotaslpi=3` alone is enough (about 15 bytes), optionally
+`bergamotaslpihold=90`.
+
+Log lines to expect after `SLPI READY after N ms` (`BERGAMOTA IPC:` lines come from the shared transport):
+```
+BERGAMOTA SLPI: step 10: GLINK edge to the SLPI: descriptor + TX FIFO in apps<->slpi, VERSION, doorbell 24
+BERGAMOTA MSS: SMEM item 478 allocated at +0x... (32 bytes) ...      (the old helper's prefix; also item 479, 16384 bytes)
+BERGAMOTA IPC: glink up: descriptor +0x..., TX FIFO +0x... (16384 bytes), version 1 features 0x1 sent
+BERGAMOTA SLPI: servicing the edge for the hold time
+BERGAMOTA IPC: slpi's GLINK FIFO (item 480) at +0x..., N bytes
+BERGAMOTA IPC: glink version 1 features 0x.. from the slpi -> ack with 0x..
+BERGAMOTA IPC: glink version-ack 1 features 0x..
+BERGAMOTA IPC: glink: slpi opens "IPCRTR" (its id N)
+BERGAMOTA IPC: glink IPCRTR open both ways; advertising 5 x 1024-byte intents
+BERGAMOTA SLPI: qrtr: hello from node N
+BERGAMOTA SLPI: qrtr: hello sent to node N, pd-mapper announced as service 0x40 instance field 0x101 at 1:0x4002
+BERGAMOTA SLPI: qrtr: slpi offers service 43 (0x2b) version 2 instance 22 at N:0x..      (ssctl, 0x16 = 22)
+BERGAMOTA SLPI: qrtr: slpi offers service 66 (0x42) version 1 instance 90 at N:0x..      (servreg notifier)
+BERGAMOTA IPC: pd-mapper: ... (pdm_rx lines) when it asks for msm/slpi/root_pd, msm/slpi/sensor_pd
+BERGAMOTA SLPI: qrtr: slpi offers service 400 (0x190) version V instance I at N:0x..
+BERGAMOTA SLPI: *** SEE (SSC) service 0x190 is UP at node N port 0x.., version V instance I ***
+BERGAMOTA IPC: glink: slpi opens "fastrpcglink-apps-dsp" (its id N)       (logged, not answered: no FastRPC yet)
+BERGAMOTA SLPI: qrtr: lookup of service ... by N:0x..                       (what the SLPI asks of us)
+BERGAMOTA SLPI: qrtr: N bytes from N:0x.. to port 0x.. (no server here) + payload hex   (anything else it addresses to us)
+BERGAMOTA SLPI: edge summary after 60 s: glink versioned, IPCRTR open, qrtr hello seen (node N), P packets in, Q out,
+    S services offered, L lookups, D data packets, SSC 0x190 UP|not seen
+BERGAMOTA SLPI:  service ... (one line per service)
+```
+How to read the outcomes: the `0x190` banner present means SEE comes up without FastRPC (the registry then decides what is listable);
+absent while other services appear means the sensor PD waits on the FastRPC listener, and the `fastrpcglink-apps-dsp` open plus any
+lookups/data lines are what it asked for. No GLINK version-ack / no `opens "IPCRTR"` means the SLPI did not take the edge
+(wrong items/partition/doorbell); `item 480` never appearing says the same.
+
+Risks, beyond stage 2's: (1) first GLINK doorbell 24 and SMEM items 478/479 in 0<->3 (the allocator and hwlock are the modem-proven
+ones); (2) the SLPI waits for a peer that never answers its other channels (it may time out and reset itself or crash: the fatal
+bit and SMEM 424 are logged); (3) teardown while its channels are open: no GLINK close is sent (the modem path does the same);
+(4) `keep=1` services the edge in the thread forever. A silent phone: the last `step N` line, as before.

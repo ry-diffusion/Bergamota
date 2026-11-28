@@ -1,0 +1,308 @@
+1142: SLPI stage 3, bergamotaslpi=3 (= stage 2 with pas=1 auth=1, the sub-bits cannot lower them): after "SLPI READY" bring up the SLPI's
+GLINK edge on the 1141 transport (remote pid 3, doorbell bit 24, SMEM items 478/479/480 in apps<->slpi), open IPCRTR, QRTR hello, and
+log every NEW_SERVER (service/version/instance/node:port, with a banner for SEE 0x190), lookups, unknown data packets (hex) and the
+SLPI's other GLINK channel opens. Answers only HELLO, pd-mapper (0x40) lookups and GET_DOMAIN_LIST. No FastRPC. Hold: bergamotaslpihold
+(default 60 for stage 3); bergamotaslpikeep=1 keeps servicing the edge until a fatal error. Requires 1137, 1141.
+
+--- a/bsd/dev/beryllium_wlan.c
++++ b/bsd/dev/beryllium_wlan.c
+@@ -9616,6 +9616,7 @@
+ 	uint64_t t0;
+ 	unsigned stop_at, wait_s, hold_s;
+ 	int pas, auth, keep, peek;
++	unsigned stage;
+ } sl;
+ 
+ static void
+@@ -10214,12 +10215,233 @@
+ 	bergamota_log_sync();
+ }
+ 
+-/* stage 2 */
++/*
++ * ---- stage 3 (bergamotaslpi=3 = stage 2 with pas=1 auth=1): after "SLPI READY" bring up the SLPI's GLINK edge (remote pid
++ * 3, doorbell bit 24, SMEM items 478/479 ours and 480 theirs in the apps<->slpi partition) on the shared ipc_* transport
++ * (1141), open IPCRTR, QRTR hello, and log what the SLPI announces and asks for. Answers: HELLO (ours back + the pd-mapper,
++ * QRTR service 0x40), the pd-mapper's GET_DOMAIN_LIST (pdm_rx, unchanged), NEW_LOOKUP of 0x40. Everything else is only
++ * logged. No FastRPC: the SLPI's other channels (e.g. fastrpcglink-apps-dsp) are logged by the transport but not opened.
++ */
++#define SL_Q_NEW_LOOKUP         10u
++#define SL_Q_DEL_LOOKUP         11u
++#define SL_SSC_SERVICE          0x190u
++#define SL_SVC_MAX              48u
++
++static struct glink_edge ge_slpi;
++static struct {
++	struct {
++		uint32_t svc, ver, inst, node, port;
++	} s[SL_SVC_MAX];
++	unsigned n, lookups, data, ctrl;
++	bool hello, announced, ssc;
++	uint32_t node;
++} sle;
++
++static void
++sl_qrtr_announce(void)
++{
++	uint32_t hello[5] = { Q_HELLO, 0, 0, 0, 0 };
++	uint32_t psrv[5] = { Q_NEW_SERVER, PDM_SERVICE, PDM_INSTANCE, QRTR_NODE_LOCAL, QRTR_PDM_PORT };
++	bool a = ipc_qrtr_send(Q_HELLO, QRTR_PORT_CTRL, ge->node, QRTR_PORT_CTRL, hello, sizeof(hello));
++	bool b = ipc_qrtr_send(Q_NEW_SERVER, QRTR_PORT_CTRL, ge->node, QRTR_PORT_CTRL, psrv, sizeof(psrv));
++	sle.announced = true;
++	printf("BERGAMOTA SLPI: qrtr: hello %s to node %u, pd-mapper announced as service %#x instance field %#x at %u:%#x %s\n",
++	    a ? "sent" : "FAILED", ge->node, PDM_SERVICE, PDM_INSTANCE, QRTR_NODE_LOCAL, QRTR_PDM_PORT, b ? "" : "(FAILED)");
++}
++
++static void
++sl_hex(const char *what, const uint8_t *p, uint32_t n)
++{
++	char line[3 * 24 + 1];
++	uint32_t o = 0;
++	for (uint32_t i = 0; i < MIN(n, 24u); i++) {
++		o += (uint32_t)snprintf(line + o, sizeof(line) - o, "%02x ", p[i]);
++	}
++	line[o] = 0;
++	printf("BERGAMOTA SLPI: %s (%u bytes): %s\n", what, n, line);
++}
++
++/* one complete QRTR packet from the SLPI (header parsing as ipc_qrtr_rx) */
++static void
++sl_qrtr_rx(const uint8_t *p, uint32_t len)
++{
++	uint32_t h[8], type, snode, sport, confirm, size = 0, dnode, dport, hdrlen;
++	if (len < 16) {
++		return;
++	}
++	if (p[0] == 3) {
++		uint16_t a[4];
++		memcpy(&size, p + 4, 4);
++		memcpy(a, p + 8, 8);
++		type = p[1];
++		confirm = p[2] & 1u;
++		hdrlen = 16u + p[3];
++		snode = a[0];
++		sport = a[1] == 0xffffu ? QRTR_PORT_CTRL : a[1];
++		dnode = a[2];
++		dport = a[3] == 0xffffu ? QRTR_PORT_CTRL : a[3];
++	} else {
++		if (len < 32) {
++			return;
++		}
++		memcpy(h, p, 32);
++		type = h[1];
++		snode = h[2];
++		sport = h[3];
++		confirm = h[4];
++		size = h[5];
++		dnode = h[6];
++		dport = h[7];
++		hdrlen = 32;
++	}
++	if ((p[0] != 1 && p[0] != 3) || size > len || hdrlen + ((size + 3u) & ~3u) > len) {
++		printf("BERGAMOTA SLPI: qrtr: version %u packet of %u bytes (size %u) dropped\n", p[0], len, size);
++		return;
++	}
++	const uint8_t *pl = p + hdrlen;
++	ge->node = snode;
++	switch (type) {
++	case Q_HELLO:
++		printf("BERGAMOTA SLPI: qrtr: hello from node %u\n", snode);
++		sle.hello = true;
++		sle.node = snode;
++		sl_qrtr_announce();
++		break;
++	case Q_NEW_SERVER:
++	case Q_DEL_SERVER:
++		if (size >= 20) {
++			uint32_t s[5];
++			memcpy(s, pl, 20);
++			bool up = type == Q_NEW_SERVER;
++			printf("BERGAMOTA SLPI: qrtr: slpi %s service %u (%#x) version %u instance %u at %u:%#x\n",
++			    up ? "offers" : "removes", s[1], s[1], s[2] & 0xff, s[2] >> 8, s[3], s[4]);
++			if (up && sle.n < SL_SVC_MAX) {
++				sle.s[sle.n].svc = s[1];
++				sle.s[sle.n].ver = s[2] & 0xff;
++				sle.s[sle.n].inst = s[2] >> 8;
++				sle.s[sle.n].node = s[3];
++				sle.s[sle.n].port = s[4];
++				sle.n++;
++			}
++			if (s[1] == SL_SSC_SERVICE) {
++				sle.ssc = up;
++				printf("BERGAMOTA SLPI: *** SEE (SSC) service 0x190 %s at node %u port %#x, version %u instance %u ***\n",
++				    up ? "is UP" : "went away", s[3], s[4], s[2] & 0xff, s[2] >> 8);
++			}
++		}
++		break;
++	case SL_Q_NEW_LOOKUP:
++		if (size >= 20) {
++			uint32_t s[5];
++			memcpy(s, pl, 20);
++			sle.lookups++;
++			printf("BERGAMOTA SLPI: qrtr: lookup of service %u (%#x) instance %u by %u:%#x\n", s[1], s[1], s[2], snode, sport);
++			if (s[1] == PDM_SERVICE || s[1] == 0) {
++				uint32_t psrv[5] = { Q_NEW_SERVER, PDM_SERVICE, PDM_INSTANCE, QRTR_NODE_LOCAL, QRTR_PDM_PORT };
++				(void)ipc_qrtr_send(Q_NEW_SERVER, QRTR_PORT_CTRL, snode, sport, psrv, sizeof(psrv));
++			}
++		}
++		break;
++	case Q_DATA:
++		sle.data++;
++		if (dport == QRTR_PDM_PORT) {
++			pdm_rx(snode, sport, pl, size);
++		} else {
++			printf("BERGAMOTA SLPI: qrtr: %u bytes from %u:%#x to port %#x (no server here)\n", size, snode, sport, dport);
++			sl_hex("payload", pl, size);
++		}
++		if (confirm) {
++			uint32_t r[5] = { Q_RESUME_TX, dnode, dport, 0, 0 };
++			(void)ipc_qrtr_send(Q_RESUME_TX, dport, snode, sport, r, sizeof(r));
++		}
++		break;
++	case Q_RESUME_TX:
++	case SL_Q_DEL_LOOKUP:
++		break;
++	case Q_BYE:
++		printf("BERGAMOTA SLPI: qrtr: bye from node %u\n", snode);
++		break;
++	default:
++		sle.ctrl++;
++		printf("BERGAMOTA SLPI: qrtr: control %u from %u:%#x (%u bytes)\n", type, snode, sport, size);
++		break;
++	}
++}
++
+ static void
++sl_edge_free(void)
++{
++	while (ge_slpi.txq_n) {
++		ge_slpi.txq_n--;
++		kfree_data(ge_slpi.txq[ge_slpi.txq_n].data, ge_slpi.txq[ge_slpi.txq_n].len);
++	}
++	for (unsigned k = 0; k < IPC_MAX_INTENTS; k++) {
++		if (ge_slpi.li[k].buf) {
++			kfree_data(ge_slpi.li[k].buf, ge_slpi.li[k].size);
++			ge_slpi.li[k].buf = NULL;
++		}
++	}
++	ge = &ge_modem;
++}
++
++/* after READY: the edge loop, hold_s seconds (forever with bergamotaslpikeep=1), SMP2P still watched every 100 ms */
++static void
++sl_edge_run(void)
++{
++	bool forever = sl.keep != 0;
++	memset(&sle, 0, sizeof(sle));
++	memset(&ge_slpi, 0, sizeof(ge_slpi));
++	ge_slpi.name = "slpi";
++	ge_slpi.host = SL_HOST;
++	ge_slpi.doorbell = 24;                  /* sdm845 glink-edge dsps: mboxes = <&apss_shared 24> */
++	ge_slpi.rx_cb = sl_qrtr_rx;
++	ge = &ge_slpi;
++	if (!sl_step(10, "GLINK edge to the SLPI: descriptor + TX FIFO in apps<->slpi, VERSION, doorbell 24")) {
++		ge = &ge_modem;
++		return;
++	}
++	if (!ge_setup()) {
++		printf("BERGAMOTA SLPI: glink edge setup failed\n");
++		sl_edge_free();
++		return;
++	}
++	uint64_t t0 = ms_now_ms(), next = t0;
++	uint64_t end = forever ? UINT64_MAX : t0 + (uint64_t)sl.hold_s * 1000;
++	printf("BERGAMOTA SLPI: servicing the edge for %s\n", forever ? "ever (bergamotaslpikeep=1)" : "the hold time");
++	bergamota_log_sync();
++	while (ms_now_ms() < end && !sl.fatal) {
++		ipc_rx_poll();
++		ipc_flush();
++		if (ge->open_acked && !sle.announced && ms_now_ms() > ge->open_ms + 3000) {
++			printf("BERGAMOTA SLPI: qrtr: no hello from the slpi 3 s after IPCRTR opened: sending ours\n");
++			sl_qrtr_announce();
++		}
++		if (ms_now_ms() >= next) {
++			next = ms_now_ms() + 100;
++			sl_poll();
++		}
++		wl_sleep(1);
++	}
++	printf("BERGAMOTA SLPI: edge summary after %llu s: glink %s, IPCRTR %s, qrtr hello %s (node %u), %u packets in, %u out, "
++	    "%u services offered, %u lookups, %u data packets, SSC 0x190 %s\n", (ms_now_ms() - t0) / 1000,
++	    ge->version_acked ? "versioned" : "no version-ack", ge->open_acked ? "open" : "NOT open", sle.hello ? "seen" : "not seen",
++	    sle.node, ge->rx_pkts, ge->tx_pkts, sle.n, sle.lookups, sle.data, sle.ssc ? "UP" : "not seen");
++	for (unsigned i = 0; i < sle.n; i++) {
++		printf("BERGAMOTA SLPI:  service %u (%#x) version %u instance %u at %u:%#x\n", sle.s[i].svc, sle.s[i].svc,
++		    sle.s[i].ver, sle.s[i].inst, sle.s[i].node, sle.s[i].port);
++	}
++	bergamota_log_sync();
++	if (!(sl.keep && !sl.fatal)) {
++		sl_edge_free();
++	}
++}
++
++/* stage 2 (and 3) */
++static void
+ sl_boot(void)
+ {
+-	printf("BERGAMOTA SLPI: stage 2: power + PAS 12 boot (pas=%d auth=%d keep=%d stop=%u wait=%u s hold=%u s)\n", sl.pas,
+-	    sl.auth, sl.keep, sl.stop_at, sl.wait_s, sl.hold_s);
++	printf("BERGAMOTA SLPI: stage %u: power + PAS 12 boot (pas=%d auth=%d keep=%d stop=%u wait=%u s hold=%u s)\n", sl.stage,
++	    sl.pas, sl.auth, sl.keep, sl.stop_at, sl.wait_s, sl.hold_s);
+ 	bergamota_log_sync();
+ 	if (!sl_step(1, "map SMEM, TCSR mutex, AOSS QMP, APCS doorbells")) {
+ 		return;
+@@ -10324,9 +10546,13 @@
+ 		}
+ 		goto out;
+ 	}
+-	for (unsigned t = 0; t < sl.hold_s * 10 && !sl.fatal; t++) {
+-		sl_poll();
+-		wl_sleep(100);
++	if (sl.stage == 3) {
++		sl_edge_run();
++	} else {
++		for (unsigned t = 0; t < sl.hold_s * 10 && !sl.fatal; t++) {
++			sl_poll();
++			wl_sleep(100);
++		}
+ 	}
+ 	printf("BERGAMOTA SLPI: hold over: ready=%d handover=%d fatal=%d\n", sl.ready, sl.handover, sl.fatal);
+ 	if (sl.keep && !sl.fatal) {
+@@ -10344,12 +10570,13 @@
+ 	(void)w;
+ 	unsigned stage = (unsigned)(uintptr_t)arg, delay_s = 45;
+ 	(void)PE_parse_boot_argn("bergamotaslpidelay", &delay_s, sizeof(delay_s));
+-	sl.pas = 0;
+-	sl.auth = 0;
++	sl.stage = stage;
++	sl.pas = stage == 3;            /* stage 3 = stage 2 + pas + auth + the GLINK edge */
++	sl.auth = stage == 3;
+ 	sl.keep = 0;
+ 	sl.peek = 1;
+ 	sl.wait_s = 10;
+-	sl.hold_s = 20;
++	sl.hold_s = stage == 3 ? 60 : 20;
+ 	(void)PE_parse_boot_argn("bergamotaslpipas", &sl.pas, sizeof(sl.pas));
+ 	(void)PE_parse_boot_argn("bergamotaslpiauth", &sl.auth, sizeof(sl.auth));
+ 	(void)PE_parse_boot_argn("bergamotaslpikeep", &sl.keep, sizeof(sl.keep));
+@@ -10357,6 +10584,9 @@
+ 	(void)PE_parse_boot_argn("bergamotaslpiwait", &sl.wait_s, sizeof(sl.wait_s));
+ 	(void)PE_parse_boot_argn("bergamotaslpihold", &sl.hold_s, sizeof(sl.hold_s));
+ 	(void)PE_parse_boot_argn("bergamotaslpistop", &sl.stop_at, sizeof(sl.stop_at));
++	if (stage == 3) {
++		sl.pas = sl.auth = 1;           /* the boot-args cannot lower them */
++	}
+ 	if (sl.auth && !sl.pas) {
+ 		printf("BERGAMOTA SLPI: bergamotaslpiauth=1 needs bergamotaslpipas=1: auth ignored\n");
+ 		sl.auth = 0;
+@@ -10385,8 +10615,8 @@
+ 	if (stage == 0) {
+ 		return;                 /* off by default: no log line, no mapping */
+ 	}
+-	if (stage > 2) {
+-		printf("BERGAMOTA SLPI: stage %u does not exist yet (1 = inventory, 2 = power + PAS boot): not run\n", stage);
++	if (stage > 3) {
++		printf("BERGAMOTA SLPI: stage %u does not exist yet (1 = inventory, 2 = power + PAS boot, 3 = + GLINK/QRTR): not run\n", stage);
+ 		return;
+ 	}
+ 	if (wlan_stage != 0) {
