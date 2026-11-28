@@ -1,0 +1,74 @@
+diff -ru a/bsd/dev/bergamota_a630.c b/bsd/dev/bergamota_a630.c
+--- a/bsd/dev/bergamota_a630.c	2026-11-27 23:11:02
++++ b/bsd/dev/bergamota_a630.c	2026-11-27 23:11:02
+@@ -313,6 +313,11 @@
+ static uint32_t a630_stamps;           /* bergamotagpustamps=1: CP timestamps around every submission (diagnostic; adds a WFI) */
+ static uint64_t gov_boost_until;        /* mach time until which the interactive boost floor holds */
+ static uint32_t a630_boost_level = 3;   /* bergamotagpuboost=N: floor while a client submits frequently (0 = off) */
++/* 1143: kern.bergamota_perf: 0 = low power (no boost floor; the load governor and the touch boost stay), 1 = full
++ * (a630_boost_full, and DDR at its top level the first time with bergamotaddrmax=2). Boots low unless bergamotaperf=1. */
++static uint32_t a630_boost_full = 3;
++static int a630_perf;
++static int a630_ddr_on_perf;
+ static uint32_t a630_hb_s;              /* bergamotagpuhb=SECONDS: heartbeat line with GPU + USB clock state */
+ static uint32_t a630_recover_max = 3;   /* bergamotagpurecover=N: resets after a fault/hang before "lost until reboot" */
+ static uint32_t a630_bw_linux;          /* bergamotagpubw=linux: the fixed Linux a630 BCM addresses instead of cmd-db's */
+@@ -3841,6 +3846,30 @@
+ SYSCTL_PROC(_kern, OID_AUTO, bergamota_gpu_extreme, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, 0, 0, bergamota_gpu_extreme_sysctl, "I",
+     "1: GPU levels up to 835 MHz (Extreme Performance Mode), 0: stock 710 MHz top");
+ 
++extern int bergamota_rpmh_ddr_max(void);
++static int
++a630_perf_sysctl SYSCTL_HANDLER_ARGS
++{
++#pragma unused(arg1, arg2)
++	int v = a630_perf, err = sysctl_handle_int(oidp, &v, 0, req);
++	if (err || req->newptr == USER_ADDR_NULL) {
++		return err;
++	}
++	if (v != 0 && v != 1) {
++		return EINVAL;
++	}
++	a630_perf = v;
++	a630_boost_level = v ? a630_boost_full : 0;
++	if (v && a630_ddr_on_perf) {
++		/* shortcut: DDR is never voted back down (an apps-DRV vote replaced ABL's, its level is unknown) */
++		a630_ddr_on_perf = 0;
++		printf("BERGAMOTA GPU: perf 1: DDR max vote errno=%d\n", bergamota_rpmh_ddr_max());
++	}
++	printf("BERGAMOTA GPU: perf %d (boost floor %u)\n", v, a630_boost_level);
++	return 0;
++}
++SYSCTL_PROC(_kern, OID_AUTO, bergamota_perf, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, 0, 0, a630_perf_sysctl, "I",
++    "1143: 0 low power (no GPU boost floor), 1 full performance (boost floor, DDR max once with bergamotaddrmax=2)");
+ SYSCTL_PROC(_kern, OID_AUTO, bergamota_gpu, CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, 0, 0, bergamota_gpu_sysctl, "A",
+     "Adreno 630 metrics: key=value line (docs/GPU_KERNEL.md)");
+ 
+@@ -4121,6 +4150,15 @@
+ 		if (PE_parse_boot_argn("bergamotagpuboost", &v, sizeof(v)) && v >= 0) {
+ 			a630_boost_level = (uint32_t)MIN(v, 7);
+ 		}
++		a630_boost_full = a630_boost_level;
++		v = 0;
++		(void)PE_parse_boot_argn("bergamotaperf", &v, sizeof(v));
++		a630_perf = v != 0;
++		if (!a630_perf) {
++			a630_boost_level = 0;
++		}
++		v = 0;
++		a630_ddr_on_perf = PE_parse_boot_argn("bergamotaddrmax", &v, sizeof(v)) && v == 2;
+ 		if (PE_parse_boot_argn("bergamotagpuinput", &v, sizeof(v)) && v >= 0) {
+ 			a630_input_level = (uint32_t)MIN(v, 7);
+ 		}
+diff -ru a/iokit/Kernel/arm/BergamotaAdreno.cpp b/iokit/Kernel/arm/BergamotaAdreno.cpp
+--- a/iokit/Kernel/arm/BergamotaAdreno.cpp	2026-11-27 23:11:02
++++ b/iokit/Kernel/arm/BergamotaAdreno.cpp	2026-11-27 23:11:02
+@@ -225,7 +225,7 @@
+ 			/* bergamotaddrmax=1: DDR and the memory NoC at their top level (kernel 1032); nothing else votes DDR,
+ 			 * and the App Library's glass passes are ~8 % faster with it */
+ 			uint32_t ddr = 0;
+-			if (PE_parse_boot_argn("bergamotaddrmax", &ddr, sizeof(ddr)) && ddr) {
++			if (PE_parse_boot_argn("bergamotaddrmax", &ddr, sizeof(ddr)) && ddr == 1) {   /* 1143: =2 votes at the first kern.bergamota_perf=1 */
+ 				int e = bergamota_rpmh_ddr_max();
+ 				IOLog("BERGAMOTA GPU: DDR max vote %s (%d)\n", e ? "failed" : "sent", e);
+ 			}
