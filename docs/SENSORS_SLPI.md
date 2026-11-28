@@ -956,3 +956,47 @@ redistribution, so I did not download them and did not bake any content into the
 directories above; (b) the user pulls `/vendor/etc/sensors` from the original Android over adb and we push it to the iOS root (the kernel could then
 read it with VFS or from an ADT property, as the GPU firmware travels); (c) the registry in persist, which is already complete.
 
+---------------------------------------------------------------------------------------------------------------------
+
+## 18. Boot 37 result and 1154: sensors together with Wi-Fi, NOT run on the phone
+
+Boot 37 (kernel 1152): the GPT `vendor` (LUN 4, 1024 MiB, ext4) was found and served, the registry sensor came up after 2004 ms, SUIDs for accel/gyro
+(BMI160), mag, proximity and light (tmd2725) were found and enabled, 49.9/49.9/20 Hz, 19894 indications in 180 s, clean teardown, and the bridge
+read real samples (face up).
+
+**1154 removes the "refuse with `bergamotawlan`" check.** What had to change, and how the modem path stays as it was:
+* **Edge as a parameter.** The transport functions (`ipc_kick`, `ipc_rx_avail/peek/advance`, `ipc_tx_avail`, `ipc_tx`, `ipc_tx_cmd`, `ipc_add_intent`,
+  `ipc_send_open`, `ipc_rx_poll`, `ipc_send_now`, `ipc_send`, `ipc_flush`, `ipc_qrtr_send`, `ge_setup`, `pdm_rx`) became `NAME_e(struct glink_edge *ge, ...)`; the
+  parameter is called `ge`, so every body is textually unchanged. The old names stay as one-line wrappers on the global `ge`, which now always points at
+  `ge_modem`: no existing modem call site changed. The SLPI code calls the `_e` forms with `&ge_slpi` (a scripted rewrite of the whole SLPI region; the
+  compiler checks that no `ge->` is left there). Reverting the rename mechanically and diffing against the pre-patch file outside the SLPI region leaves only:
+  the wrappers, the new locks, the FAT buffer pointers and two per-edge buffers (below).
+* **Per-edge buffers.** `ipc_tx`'s 8 KiB staging array and `ipc_qrtr_send`'s packet buffer were `static`; they are now fields of the edge.
+* **Locks.** `ms_smem_lock/unlock` take a local mutex around the TCSR hwlock (the hardware lock has one owner id for the whole AP, so two threads would
+  both "own" it); the AOSS QMP functions and the SCM assign buffer got a mutex each. The RPMh helper returns EBUSY when another thread is in it: the SLPI
+  retries (20 ms, up to 2 s).
+* **FAT.** `struct wl_fat` carries its two buffers (`fat_mount_buf`); `fat_mount()` passes the shared ones exactly as before; the SLPI mounts the `modem`
+  partition into 192 KiB of its own. (The ext4 reader always had per-mount buffers.)
+* **Start order.** With `bergamotawlan` on, the SLPI thread (after its own delay) waits until the modem has `MPSS READY` and IPCRTR open (limit 5 min),
+  then 3 s more, so the modem's QMP/ARC/SMEM start-up is over before the SLPI uses them; it never replaces the shared QMP/doorbell mappings and reuses an open
+  QMP link. If the modem never comes up it starts anyway (the locks cover the rest).
+* **Not shared, so nothing to protect:** the SLPI's SMP2P item, GLINK items, `sle`, `gx`, `fr`, `see`, the ext4 volumes, the 4 MiB FastRPC heap. UFS reads are serialised
+  by `bergamota_ufs_lock`.
+
+**Keep mode (`bergamotaslpikeep=1`) over hours.** Poll sleep 10 ms while streaming (2 ms during setup, 1 ms in the old test modes): 110 events/s
+need nothing faster and the FIFO holds 16 KiB. Stats lines every 10 s for the first minute, then every 5 minutes. If nobody has `/dev/bergamota-sensors`
+open for 5 s the sensors are disabled (`see: no reader ... sensors parked`) and enabled again when a reader returns, so a screen-off that stops the bridge does
+not keep the hub at 50 Hz. If the SLPI crashes (fatal bit, crash reason logged) and is shut down cleanly, keep mode restarts it, up to 3 times, 5 s apart
+(`keep mode: restart N of 3`); the dead SLPI's last `slave-kernel` value is remembered and ignored until the new one writes its own. Sleep: nothing here depends on the
+screen; the kernel threads and the SLPI run as long as the CPU does (the SLPI sends with `suspend_mode` 0 = wake-up). No system suspend exists on this port
+(untested: if it appears, the SLPI would need its `master-kernel`/wake handling).
+
+**Boot-args for the combined daily image** (Wi-Fi + sensors, keep mode): the daily set (`bergamotawlan=5 bergamota80211=3 ...`) plus
+`bergamotasensors=1 bergamotaslpisee=1 bergamotaslpikeep=1` (about 55 bytes, spills into the ADT with 1145 if the head is full). `bergamotaslpidelay`
+(default 45 s) is only the start of the wait. Expected extra log lines: `SLPI: Wi-Fi stage is on: waiting for the modem ...`, `modem up after N s: starting`, then
+the usual stage-3/FastRPC/SEE lines.
+
+Risks (untested): two threads now run QRTR/GLINK on different edges at once; the `ms_smem_mtx` is the new lock in the modem's allocator path; an RPMh
+or QMP access by the Wi-Fi stage at the very moment the SLPI starts is covered by the wait, not by proof. If Wi-Fi misbehaves with the sensors on,
+remove `bergamotaslpisee=1` (the modem path then runs exactly its old code plus the wrappers and the locks).
+
