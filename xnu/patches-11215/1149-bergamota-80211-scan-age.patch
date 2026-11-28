@@ -1,0 +1,84 @@
+diff -ru a/bsd/dev/bergamota_80211.c b/bsd/dev/bergamota_80211.c
+--- a/bsd/dev/bergamota_80211.c	2026-11-28 01:01:48
++++ b/bsd/dev/bergamota_80211.c	2026-11-28 01:01:48
+@@ -138,6 +138,7 @@
+ 	char            country[3];
+ 	thread_call_t   scan_done;
+ 	uint32_t        scan_next;      /* bergamota80211=2: index of the next synthetic result */
++	uint64_t        scan_ns;        /* uptime ns when the last scan completed: the 'heard' time of its results */
+ 	volatile SInt32 logged;         /* log lines used (budget 512) */
+ 	uint8_t         seen_get[IOC_MAX / 8];
+ 	uint8_t         seen_set[IOC_MAX / 8];
+@@ -185,10 +186,18 @@
+ 	}
+ }
+ 
++static uint64_t
++s8_now_ns(void)
++{
++	uint64_t ns;
++	absolutetime_to_nanoseconds(mach_absolute_time(), &ns);
++	return ns;
++}
++
+ static void
+ s8_scan_done(thread_call_param_t p0 __unused, thread_call_param_t p1 __unused)
+ {
+-	s8_post_event(M_SCAN_DONE, NULL, 0);
++	s8_post_event(M_SCAN_DONE, NULL, 0);     /* stage 1/2, or the cached list of stage 3: scan_ns stays */
+ }
+ 
+ /* Copy out a reply: at most req_len bytes, the rest of req_len zero-filled. */
+@@ -260,10 +269,28 @@
+ 	uint16_t flags;                 /* 136 */
+ 	uint16_t ie_len;                /* 138 */
+ 	uint8_t  ie[2048];              /* 140 */
++	uint8_t  pad2[68];
++	uint64_t timestamp;             /* 2256: ns, uptime clock, when the BSS was last heard (IO80211 -> dict TIMESTAMP) */
++	uint8_t  pad3[8];               /* 2272: the buffer IO80211 passes */
+ } __attribute__((packed));
+ static_assert(__builtin_offsetof(struct s8_scan_result, ssid_len) == 96, "scan result layout");
+ static_assert(__builtin_offsetof(struct s8_scan_result, ie_len) == 138, "scan result layout");
++static_assert(__builtin_offsetof(struct s8_scan_result, timestamp) == 2256, "scan result layout");
++static_assert(sizeof(struct s8_scan_result) == 2272, "scan result layout");
+ 
++/*
++ * IO80211 turns age (u32 @132, ms: wifid caches AGE = this + time since it stored the batch) and timestamp (u64 @2256,
++ * ns) into the scan dict's AGE and TIMESTAMP unchanged. shortcut: every cached BSS gets the age of the last scan's end
++ * even if it was last heard in an earlier one (the WLAN cache keeps a BSS for 3 scans); per-BSS times if that matters.
++ */
++static void
++s8_stamp(struct s8_scan_result *r)
++{
++	uint64_t now = s8_now_ns(), t = s8.scan_ns ? MIN(s8.scan_ns, now) : now;
++	r->age = (uint32_t)MIN((now - t) / NSEC_PER_MSEC, (uint64_t)UINT32_MAX);
++	r->timestamp = t;
++}
++
+ /* bergamota80211=2: one synthetic open network per scan, to exercise wifid's scan path and Settings */
+ static int
+ s8_fake_result(struct bergamota80211_req *req)
+@@ -310,6 +337,7 @@
+ 	*ie++ = 1;
+ 	*ie++ = 6;
+ 	r->ie_len = (uint16_t)(ie - r->ie);
++	s8_stamp(r);
+ 	s8.scan_next++;
+ 	err = s8_reply(req, r, sizeof(*r));
+ 	kfree_data(r, sizeof(*r));
+@@ -351,6 +379,7 @@
+ 	}
+ 	r->ie_len = MIN(b->ie_len, (uint16_t)sizeof(r->ie));
+ 	memcpy(r->ie, b->ie, r->ie_len);
++	s8_stamp(r);
+ }
+ 
+ /* bergamota80211=3: network s8.scan_next of the WLAN service's last scan, or the current one (CURRENT_NETWORK) */
+@@ -392,6 +421,7 @@
+ bergamota80211_scan_done(void)
+ {
+ 	if (s8.stage == 3) {
++		s8.scan_ns = s8_now_ns();
+ 		s8_post_event(M_SCAN_DONE, NULL, 0);
+ 	}
+ }
