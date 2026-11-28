@@ -112,6 +112,9 @@ main(int argc, char **argv)
 	CFMutableDictionaryRef svc = CFDictionaryCreateMutable(NULL, 0,
 	    &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
 	CFDictionarySetValue(svc, kSCPropInterfaceName, CFSTR("ue0"));
+	/* PrimaryRank Last: Wi-Fi wins the default route and DNS whenever it is up (the Mac does not route for the phone);
+	 * alone, ue0 is still primary. Without it DNS went to 1.1.1.1 scoped to ue0 and timed out (2026-11-28). */
+	CFDictionarySetValue(svc, CFSTR("PrimaryRank"), CFSTR("Last"));
 
 	Boolean ok = SCDynamicStoreSetValue(st, ksvc, svc) &&
 	    SCDynamicStoreSetValue(st, kv4, v4) &&
