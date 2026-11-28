@@ -1,0 +1,20 @@
+--- a/bsd/dev/bergamota_charger.c	2026-11-27 22:31:17
++++ b/bsd/dev/bergamota_charger.c	2026-11-27 22:31:30
+@@ -10,7 +10,7 @@
+  *                    kern.bergamota_charger (string, "bergamota_charger v1 key=value ...").
+  *   bergamotacharger=2   control, conservative: every 3 s, after APSD finished and
+  *                    nothing is hot/cold/faulted, sets
+- *                      DCP 2000 mA, CDP 1500 mA, HVDCP (QC2/QC3 result) 1500 mA
++ *                      DCP 2000 mA, CDP 1000 mA (1139), HVDCP (QC2/QC3 result) 1500 mA
+  *                      USBIN input current limit; SDP / float / OCP: untouched,
+  *                      the hardware limit stays (500 mA USB 2 / 900 mA USB 3);
+  *                      FCC (fast charge current) 2000 mA (the beryllium DTS has
+@@ -91,7 +91,7 @@
+ 
+ /* limits (mA); the DTS gives voltage-max-design 4.4 V only */
+ #define SC_ICL_DCP_MA           2000u
+-#define SC_ICL_CDP_MA           1500u
++#define SC_ICL_CDP_MA           1000u   /* 1139: a Mac port (CDP, Rp 1.5 A) sagged to 3.87 V at 1.5 A and AICL fell to 500 mA */
+ #define SC_ICL_HVDCP_MA         1500u
+ #define SC_ICL_OCP_MA           1800u   /* OCP treated as DCP, Rp not 3.0 A (downstream DCP_CURRENT_UA) */
+ #define SC_ICL_SDP_RP15_MA      1500u   /* 0244: SDP (a computer) with Type-C Rp 1.5 A */
