@@ -1,0 +1,124 @@
+1155: Sandbox stand-in answers sandbox_container_path_for_pid / _for_audit_token (op 4). It records the data container that xpcproxy
+passes in the "Sandbox" spawn attributes (posix_spawnattr_setmacpolicyinfo_np; sandbox_spawnattrs_setcontainer writes the path at +0x50)
+from mpo_cred_check_label_update_execve (returns 0: no transition), keyed by pid + unique id, last 128 launches. Before, op 4 returned
+ENOENT and PlugInKit aborted every sandboxed NSExtension at launch ("plugin has invalid sandbox or container", PlugInKit+0x1a798): the
+People widget's intents extension crashed every ~1.25 s (chronod retrying, ReportCrash busy), Spotlight index extensions too. Pairs with
+lsplug registering each sandboxed extension's data container in LaunchServices (otherwise xpcproxy has no container to pass).
+
+diff --git a/bsd/kern/bergamota_amfi.c b/bsd/kern/bergamota_amfi.c
+index 4a6742b..5050a56 100644
+--- a/bsd/kern/bergamota_amfi.c
++++ b/bsd/kern/bergamota_amfi.c
+@@ -386,6 +386,93 @@ bergamota_sandbox_container_expected(user_addr_t arg)
+ 	return error;
+ }
+ 
++/*
++ * Container paths. xpcproxy launches a sandboxed service (app extensions) with
++ * posix_spawnattr_setmacpolicyinfo_np("Sandbox", attrs) where libsystem_sandbox
++ * sandbox_spawnattrs_setcontainer() put the data container at attrs+0x50 (NUL
++ * terminated, < 1024 bytes; 18.7 disassembled). The real kext answers op 4,
++ * sandbox_container_path_for_pid/_for_audit_token (args {pid, pidversion or 0,
++ * buf, size, 0 or 1}), from that. Without it PlugInKit aborts every NSExtension
++ * ("plugin has invalid sandbox or container"): intents, share sheets, Spotlight
++ * indexers; chronod relaunched one every ~1.25 s. Keep the last 128 launches by
++ * unique pid; ENOENT ("not in a container") for anything else, as before.
++ */
++#define BERGAMOTA_SBX_OP_CONTAINER_PATH     4
++#define BERGAMOTA_SBX_ATTR_CONTAINER        0x50
++#define BERGAMOTA_SBX_CONTAINERS            128
++#define BERGAMOTA_SBX_CONTAINER_MAX         192
++
++static struct {
++	uint64_t uniqueid;
++	int pid;
++	char path[BERGAMOTA_SBX_CONTAINER_MAX];
++} bergamota_sandbox_containers[BERGAMOTA_SBX_CONTAINERS];
++static unsigned bergamota_sandbox_container_next;
++static LCK_GRP_DECLARE(bergamota_sandbox_lck_grp, "bergamota_sandbox");
++static LCK_MTX_DECLARE(bergamota_sandbox_lock, &bergamota_sandbox_lck_grp);
++
++static int
++bergamota_sandbox_exec_container(kauth_cred_t old __unused, struct vnode *vp __unused, off_t offset __unused,
++    struct vnode *scriptvp __unused, struct label *vnodelabel __unused, struct label *scriptvnodelabel __unused,
++    struct label *execlabel __unused, struct proc *p, void *attr, size_t attrlen)
++{
++	if (attr == NULL || p == NULL || attrlen <= BERGAMOTA_SBX_ATTR_CONTAINER) {
++		return 0;
++	}
++	const char *c = (const char *)attr + BERGAMOTA_SBX_ATTR_CONTAINER;
++	size_t n = strnlen(c, attrlen - BERGAMOTA_SBX_ATTR_CONTAINER);
++	if (n == 0 || n >= BERGAMOTA_SBX_CONTAINER_MAX || n == attrlen - BERGAMOTA_SBX_ATTR_CONTAINER || c[0] != '/') {
++		return 0;
++	}
++	uint64_t uid = proc_uniqueid(p);
++	lck_mtx_lock(&bergamota_sandbox_lock);
++	unsigned i;
++	for (i = 0; i < BERGAMOTA_SBX_CONTAINERS && bergamota_sandbox_containers[i].pid != proc_pid(p); i++) {
++	}
++	if (i == BERGAMOTA_SBX_CONTAINERS) {
++		i = bergamota_sandbox_container_next++ % BERGAMOTA_SBX_CONTAINERS;
++	}
++	bergamota_sandbox_containers[i].uniqueid = uid;
++	bergamota_sandbox_containers[i].pid = proc_pid(p);
++	memcpy(bergamota_sandbox_containers[i].path, c, n + 1);
++	lck_mtx_unlock(&bergamota_sandbox_lock);
++	return 0;               /* no label transition */
++}
++
++static int
++bergamota_sandbox_container_path(user_addr_t arg)
++{
++	uint64_t a[5];
++	char path[BERGAMOTA_SBX_CONTAINER_MAX];
++	int error = copyin(arg, a, sizeof(a));
++	if (error) {
++		return error;
++	}
++	proc_t p = proc_find((int)a[0]);
++	if (p == PROC_NULL) {
++		return ESRCH;
++	}
++	uint64_t uid = proc_uniqueid(p);
++	proc_rele(p);
++	path[0] = 0;
++	lck_mtx_lock(&bergamota_sandbox_lock);
++	for (unsigned i = 0; i < BERGAMOTA_SBX_CONTAINERS; i++) {
++		if (bergamota_sandbox_containers[i].uniqueid == uid && bergamota_sandbox_containers[i].pid == (int)a[0]) {
++			strlcpy(path, bergamota_sandbox_containers[i].path, sizeof(path));
++			break;
++		}
++	}
++	lck_mtx_unlock(&bergamota_sandbox_lock);
++	size_t n = strlen(path);
++	if (n == 0) {
++		return ENOENT;
++	}
++	if (a[2] == 0 || a[3] <= n) {
++		return ERANGE;
++	}
++	return copyout(path, (user_addr_t)a[2], n + 1);
++}
++
+ static int
+ bergamota_sandbox_syscall(struct proc *p, int call, user_addr_t arg)
+ {
+@@ -402,8 +489,8 @@ bergamota_sandbox_syscall(struct proc *p, int call, user_addr_t arg)
+ 		return bergamota_sandbox_extension_consume(arg);
+ 	case BERGAMOTA_SBX_OP_CONTAINER_EXPECTED:
+ 		return bergamota_sandbox_container_expected(arg);
+-	case 4:         /* container path (audit token / pid): "not in a container" */
+-		return ENOENT;
++	case BERGAMOTA_SBX_OP_CONTAINER_PATH:
++		return bergamota_sandbox_container_path(arg);
+ 	default:
+ 		return 0;
+ 	}
+@@ -494,6 +581,7 @@ bergamota_sandbox_priv_grant(kauth_cred_t cred __unused, int priv)
+ static const struct mac_policy_ops bergamota_sandbox_mac_ops = {
+ 	.mpo_policy_syscall = bergamota_sandbox_syscall,
+ 	.mpo_priv_grant = bergamota_sandbox_priv_grant,
++	.mpo_cred_check_label_update_execve = bergamota_sandbox_exec_container,
+ };
+ 
+ static struct mac_policy_conf bergamota_sandbox_mac_conf = {

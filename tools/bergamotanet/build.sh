@@ -104,7 +104,7 @@ if [ "${IOS18:-1}" = 1 ]; then
 	b18 bergamotaiconstyle bergamotaiconstyle.m iconstyle.entitlements -framework UIKit
 	b18 bergamotaopen bergamotaopen.m uicache.entitlements
 	# iOS 26: the apps' embedded extensions (widgets, controls) into LaunchServices, run by the first-boot job; lsa lists them
-	b18 lsplug lsplug.m lsplug.ents
+	b18 lsplug lsplug.m lsplug.ents -framework Security
 	b18 lsa lsa.m lsplug.ents
 	# bergamotaclock: save/restore the wall clock across boots (no RTC), run by two launchd jobs (root_tweaks18.bergamotaclock)
 	xcrun -sdk iphoneos clang -arch arm64e -mios-version-min=18.0 -O2 -Wall -DBUILD_TIME="$(date +%s)" "$here/bergamotaclock.c" -o "$out18/bergamotaclock"
