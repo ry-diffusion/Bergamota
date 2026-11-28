@@ -1,0 +1,131 @@
+1140: SLPI stage 1: fix the cmd-db lookup of lcx.lvl/lmx.lvl and dump the cmd-db. bergamota_rpmh_lookup() matches VRM (regulator)
+entries only, so an ARC resource failed with "invalid VRM entry", errno 22, although it exists. New read-only
+bergamota_rpmh_lookup_arc(res, &addr, &levels) and bergamota_rpmh_dump() (every entry name, type and address, four per line);
+stage 1 (bergamotaslpi=1) dumps the cmd-db and then looks lcx/lmx up as ARC. Applies on top of 1137.
+
+--- a/bsd/dev/beryllium_wlan.c
++++ b/bsd/dev/beryllium_wlan.c
+@@ -70,6 +70,8 @@
+ extern int bergamota_smmu_fault_status(uint32_t *fsr, uint64_t *far, uint32_t *fsynr0, uint32_t *gfsr);
+ extern int bergamota_rpmh_rfclk_enable(const char *res);
+ extern int bergamota_rpmh_lookup(const char *res, uint32_t *address);
++extern int bergamota_rpmh_lookup_arc(const char *res, uint32_t *address, unsigned *levels);
++extern void bergamota_rpmh_dump(void);
+ void beryllium_wlan_init(void);
+ /* bsd/dev/beryllium_bt_hci.c: the kernel control the iOS userland talks to */
+ struct bt_hci_ops {
+@@ -9827,10 +9829,13 @@
+ 		printf("BERGAMOTA SLPI: crash reason item %u %s\n", SL_CRASH_ITEM, g ? "PRESENT" : "absent");
+ 	}
+ 	/* 4. cmd-db (read-only) */
++	bergamota_rpmh_dump();
+ 	for (unsigned i = 0; i < 2; i++) {
+ 		uint32_t addr = 0;
+-		int err = bergamota_rpmh_lookup(sl_arc_res[i], &addr);
+-		printf("BERGAMOTA SLPI: cmd-db %s %s %#x (errno %d)\n", sl_arc_res[i], err ? "lookup failed" : "address", addr, err);
++		unsigned levels = 0;
++		int err = bergamota_rpmh_lookup_arc(sl_arc_res[i], &addr, &levels);
++		printf("BERGAMOTA SLPI: cmd-db %s %s %#x, %u levels (errno %d)\n", sl_arc_res[i], err ? "lookup failed" : "ARC address",
++		    addr, levels, err);
+ 	}
+ 	bergamota_log_sync();
+ 	/* 5. the carve-out, read-only, last: it is the one access here that could meet a protected range */
+--- a/bsd/dev/bergamota_rpmh.c
++++ b/bsd/dev/bergamota_rpmh.c
+@@ -16,6 +16,8 @@
+ int bergamota_rpmh_vreg_enable(const char *res, unsigned mv);
+ int bergamota_rpmh_vreg_set(const char *res, unsigned mv, bool enable);
+ int bergamota_rpmh_arc_vote(const char *res, bool max);
++int bergamota_rpmh_lookup_arc(const char *res, uint32_t *address, unsigned *levels);
++void bergamota_rpmh_dump(void);
+ int bergamota_rpmh_ddr_max(void);
+ int bergamota_rpmh_rfclk_enable(const char *res);
+ 
+@@ -436,9 +438,87 @@
+ 	error = rh_map();
+ 	if (!error) {
+ 		error = rh_lookup(res, address);
++	}
++	__atomic_store_n(&rh_lock, 0, __ATOMIC_RELEASE);
++	return error;
++}
++
++/*
++ * 1140: bergamota_rpmh_lookup() above matches VRM (regulator) entries only, so an ARC name such as lcx.lvl failed with
++ * "invalid VRM entry" (EINVAL) although the entry exists. Read-only, like it: the ARC lookup with the level count.
++ */
++int
++bergamota_rpmh_lookup_arc(const char *res, uint32_t *address, unsigned *levels)
++{
++	uint32_t aux = 0, aux_len = 0;
++	int error = EBUSY;
++	if (__atomic_exchange_n(&rh_lock, 1, __ATOMIC_ACQUIRE)) {
++		return error;
++	}
++	error = rh_map();
++	if (!error) {
++		error = rh_lookup_slave(res, RH_ARC, address, &aux, &aux_len);
+ 	}
++	if (!error && levels) {
++		*levels = aux_len / 2;
++	}
+ 	__atomic_store_n(&rh_lock, 0, __ATOMIC_RELEASE);
+ 	return error;
++}
++
++/* Read-only: print every cmd-db entry (name, type, address), four per line so the console keeps them. */
++void
++bergamota_rpmh_dump(void)
++{
++	static const char *const kind[] = { "?", "?", "?", "ARC", "VRM", "BCM" };
++	if (__atomic_exchange_n(&rh_lock, 1, __ATOMIC_ACQUIRE)) {
++		return;
++	}
++	if (rh_map()) {
++		printf("BERGAMOTA RPMH: cmd-db dump: no cmd-db\n");
++		goto out;
++	}
++	unsigned total = 0;
++	for (unsigned i = 0; i < 8; ++i) {
++		uint32_t h = 8u + 16u * i;
++		unsigned slave = rh_db16(h);
++		if (!slave) {
++			break;
++		}
++		uint32_t entries = RH_DB_HEADER + rh_db16(h + 2);
++		unsigned count = rh_db16(h + 6);
++		if (slave > 5 || (entries & 3u) || !rh_range(entries, count * RH_DB_ENTRY)) {
++			printf("BERGAMOTA RPMH: cmd-db dump: malformed slave header %u\n", i);
++			break;
++		}
++		printf("BERGAMOTA RPMH: cmd-db slave %u (%s): %u entries\n", slave, kind[slave], count);
++		char line[160];
++		unsigned n = 0, len = 0;
++		for (unsigned j = 0; j < count; ++j) {
++			uint32_t e = entries + RH_DB_ENTRY * j;
++			char name[9];
++			for (unsigned k = 0; k < 8; k += 4) {
++				uint32_t w = rh_read(rh_db, e + k);
++				memcpy(name + k, &w, 4);
++			}
++			name[8] = 0;
++			for (unsigned k = 0; k < 8; ++k) {
++				if (name[k] != 0 && (name[k] < 0x20 || name[k] > 0x7e)) {
++					name[k] = '?';
++				}
++			}
++			len += snprintf(line + len, sizeof(line) - len, " %s@%#x", name, rh_read(rh_db, e + 16));
++			total++;
++			if (++n == 4 || j + 1 == count) {
++				printf("BERGAMOTA RPMH: cmd-db:%s\n", line);
++				n = 0;
++				len = 0;
++			}
++		}
++	}
++	printf("BERGAMOTA RPMH: cmd-db dump: %u entries\n", total);
++out:
++	__atomic_store_n(&rh_lock, 0, __ATOMIC_RELEASE);
+ }
+ 
+ int
