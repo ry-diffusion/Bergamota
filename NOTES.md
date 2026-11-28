@@ -2,6 +2,9 @@
 
 ## Agent handoff / active work (2026-10-15, latest)
 
+### >>> 2026-11-28 ~12:45Z: Mac cleanup (user asked)
+* Deleted: `research/ios18/ios18-root-full.simg`, `research/ios18/ipsw/iPhone11,8_18.7.8_22H352_Restore.ipsw`, the empty sparse `research/ios18/ios18-root-full.img`, and `ios-beryllium-ios18/research/ios18/ios18-root-full-crimson-20261126.simg`. **No iOS 18 root image or IPSW is left on the Mac**: re-flashing userdata needs the IPSW downloaded again (user OK first) and the root rebuilt. The live root is on the phone's userdata. Kept: `research/ios18/dsc` (shared cache), kernels, boot images.
+
 ### >>> 2026-11-28 11:40-12:10Z: BOOT 42 FLASHED = boot 40 + extension containers by signing ID (kernel 1157 + bergamotasbx); boot 40's fix had NOT worked
 * **Correction (observed):** on boot 40 after ~3.5 h, SelectPerson_iOS was crashing again every ~2 s (pids 52986 -> 52995 -> 53074 -> 53078, `CRASH ... sig 6`). `/var/root/sbxpath PID` (scratchpad `sbxpath.c`: sandbox_container_path_for_pid) returned ENOENT for every running sandboxed extension (StocksWidget, FitnessWidget, PassbookWidgets...): 1155 had never recorded anything. The quiet 30-40 s windows on boot 40 were chronod backing off, not a fix.
 * **Why (observed, debug kernel 1156, not kept):** the "Sandbox" spawn attrs do arrive (0x450 bytes, profile name length 6 = "plugin" at +8) but the container length at +0xc is 0 and +0x50 is empty. RunningBoard leaves `_SandboxContainer` out for `_MultipleInstances` extensions (`-[RBContainerManager containerRequiredForServiceDict:]` = no _SandboxContainer && no _MultipleInstances); its overlay path did not supply one either. The container_query RunningBoard would use works when replayed with its entitlements (scratchpad `cmq.c`: class 4 returns the right PluginKitPlugin path), so containermanagerd is fine.
