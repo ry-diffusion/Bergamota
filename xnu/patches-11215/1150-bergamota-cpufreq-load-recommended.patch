@@ -1,0 +1,29 @@
+--- a/bsd/dev/bergamota_cpufreq.c	2026-11-28 01:22:18
++++ b/bsd/dev/bergamota_cpufreq.c	2026-11-28 01:22:18
+@@ -168,6 +168,9 @@
+ static bool cf_started;
+ static int cf_mode = MODE_OFF;
+ static unsigned cf_ncpus;
++/* 1150: CPUs the scheduler may use (bergamotacores): a derecommended CPU banks no idle time, so it read as 100 % busy
++ * and pinned its cluster at the top clock (A55 at 1.77 GHz on an idle, locked phone) */
++static uint64_t cf_rec_mask = ~0ULL;
+ static unsigned cf_log_secs = 10;
+ static int cf_force;
+ static int cf_boost = 1;      /* 0247: on by default (bergamotacpufreq_little_boost=0 turns it off) */
+@@ -353,7 +356,7 @@
+ 	uint32_t worst = 0;
+ 	for (unsigned k = 0; k < d->ncpu && d->first_cpu + k < cf_ncpus; k++) {
+ 		uint64_t idle = bergamota_processor_idle_time((int)(d->first_cpu + k));
+-		if (idle == ~0ULL) {
++		if (idle == ~0ULL || !(cf_rec_mask & (1ULL << (d->first_cpu + k)))) {
+ 			continue;
+ 		}
+ 		uint64_t didle = idle - d->prev_idle[k];
+@@ -573,6 +576,7 @@
+ 			cores |= 1;
+ 		}
+ 		sched_perfcontrol_update_recommended_cores_reason(cores, REASON_CLPC_USER, 0);
++		cf_rec_mask = cores;
+ 		printf("BERGAMOTA CPUFREQ: recommended cores 0x%llx (bergamotacores)\n", cores);
+ 	}
+ 	if (cf_mode == MODE_OFF) {
