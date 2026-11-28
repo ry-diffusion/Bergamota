@@ -29,11 +29,11 @@ class TestCrimsonArm(unittest.TestCase):
         return mercury, sorted(os.listdir(tmp)) if os.path.isdir(tmp) else []
 
     def test_default_arms_mercury_only(self):
-        self.assertEqual(self.run_crimson(None), (True, ['crimson.app.com.apple.MercuryPoster', 'crimson.arm']))
+        self.assertEqual(self.run_crimson(None), (True, ['crimson.app.com.apple.MercuryPoster', 'crimson.app.com.apple.iconservicesagent', 'crimson.arm']))
 
     def test_all_adds_springboard_and_backboardd(self):
         self.assertEqual(self.run_crimson('all'), (True, sorted(
-            ['crimson-bb.arm', 'crimson-bb.direct', 'crimson-bb.on', 'crimson.app.com.apple.MercuryPoster',
+            ['crimson-bb.arm', 'crimson-bb.direct', 'crimson-bb.on', 'crimson.app.com.apple.MercuryPoster', 'crimson.app.com.apple.iconservicesagent',
              'crimson.app.com.apple.springboard', 'crimson.arm'] + list(rt.CRIMSON_BB_TUNING))))
 
     def test_zero_installs_inert(self):

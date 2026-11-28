@@ -911,12 +911,17 @@ def sensorbridge(root):
 CRIMSON_LIB_DIR = '/usr/local/lib/crimson'
 CRIMSON_INJECT = CRIMSON_LIB_DIR + '/crimson-inject.dylib'
 CRIMSON_LIBS = ('crimson-inject.dylib', 'libdrm.2.dylib', 'libturnip.dylib', 'libcrimson.dylib')
+# iconservicesagent has 64 bytes of load-command slack: the full inject path needs 72, so it links this symlink (shipped below)
+CRIMSON_INJECT_SHORT = CRIMSON_LIB_DIR + '/inject.dylib'
 MERCURY_BIN = 'System/Library/ExtensionKit/Extensions/MercuryPosterExtension.appex/MercuryPosterExtension'
+ICONSERVICES_BIN = 'System/Library/CoreServices/iconservicesagent'
 # (binary, switch file armed by default, switch file armed with RENEGADE_CRIMSON_ARM=all)
 CRIMSON_TARGETS = (
     (MERCURY_BIN, 'crimson.app.com.apple.MercuryPoster', None),
     ('System/Library/CoreServices/SpringBoard.app/SpringBoard', None, 'crimson.app.com.apple.springboard'),
     ('usr/libexec/backboardd', None, ('crimson-bb.on', 'crimson-bb.arm', 'crimson-bb.direct')),   # .direct: no bgl-launch on iOS 18
+    # CoreUI draws IconServices graphic icons (Settings rows) through CoreImage, which has no context without a Metal device
+    (ICONSERVICES_BIN, 'crimson.app.com.apple.iconservicesagent', None),
 )
 
 
@@ -928,15 +933,15 @@ def crimson_dir():
     return sib if os.path.isdir(sib) else os.path.join(REPO, 'research/crimson')
 
 
-def crimson_link(root, rel):
-    """Link the inject into one binary of the image; True when it links it (already or now)."""
+def crimson_link(root, rel, dylib=CRIMSON_INJECT):
+    """Link the inject (or its short-path symlink) into one binary of the image; True when it links it (already or now)."""
     import subprocess, tempfile
     import pacstrip
     binp = os.path.join(root, rel)
     if not os.path.exists(binp):
         print('crimson: no', rel, 'in the image: skipped')
         return False
-    if macho_has_dylib(binp, CRIMSON_INJECT):
+    if macho_has_dylib(binp, dylib):
         return True
     mode = os.stat(binp).st_mode & 0o7777
     tmpd = tempfile.mkdtemp(prefix='renegade-crimson-')
@@ -945,7 +950,7 @@ def crimson_link(root, rel):
         shutil.copyfile(binp, tmp)
         os.chmod(tmp, 0o755)
         ents, ident = entitlements_of(tmp), pacstrip.cs_identity(tmp)
-        r = subprocess.run([sys.executable, '-I', ADDLC, tmp, CRIMSON_INJECT], capture_output=True, text=True)
+        r = subprocess.run([sys.executable, '-I', ADDLC, tmp, dylib], capture_output=True, text=True)
         if r.returncode != 0:
             # shortcut: iOS 18's SpringBoard has 16 bytes of load-command slack; needs exec-time injection to get it
             why = (r.stderr.strip().splitlines() or ['addlc failed'])[-1]
@@ -955,12 +960,12 @@ def crimson_link(root, rel):
         pacstrip.sign(tmp)
         if entitlements_of(tmp) != ents or pacstrip.cs_identity(tmp)[:2] != ident[:2]:
             sys.exit('crimson: entitlements or identifier changed by the re-sign: %s left alone' % rel)
-        if not macho_has_dylib(tmp, CRIMSON_INJECT):
+        if not macho_has_dylib(tmp, dylib):
             sys.exit('crimson: LC_LOAD_DYLIB missing after addlc.py in ' + rel)
         install_file(tmp, binp, mode)
     finally:
         shutil.rmtree(tmpd, ignore_errors=True)
-    print('crimson: %s links %s (re-signed ad hoc as %s, %d entitlements kept)' % (rel, CRIMSON_INJECT, ident[0], len(ents or {})))
+    print('crimson: %s links %s (re-signed ad hoc as %s, %d entitlements kept)' % (rel, dylib, ident[0], len(ents or {})))
     return True
 
 
@@ -1018,11 +1023,15 @@ def crimson(root):
             install_file(tmpl, os.path.join(root, CRIMSON_LIB_DIR.lstrip('/'), n), 0o755)
         finally:
             shutil.rmtree(sd, ignore_errors=True)
+    short = os.path.join(root, CRIMSON_INJECT_SHORT.lstrip('/'))
+    os.makedirs(os.path.dirname(short), exist_ok=True)
+    if not os.path.lexists(short):
+        os.symlink('crimson-inject.dylib', short)
     print('crimson: dylibs installed in', CRIMSON_LIB_DIR, 'from', src)
     arm = os.environ.get('RENEGADE_CRIMSON_ARM', '1')
     mercury = False
     for rel, default_switch, all_switch in CRIMSON_TARGETS:
-        if not crimson_link(root, rel) and not (rel.endswith('/SpringBoard') and crimson_sblaunch(root)):
+        if not crimson_link(root, rel, CRIMSON_INJECT_SHORT if rel == ICONSERVICES_BIN else CRIMSON_INJECT) and not (rel.endswith('/SpringBoard') and crimson_sblaunch(root)):
             continue
         extra = (all_switch if isinstance(all_switch, tuple) else (all_switch,)) if arm == 'all' else ()
         for sw in (default_switch,) + extra:
