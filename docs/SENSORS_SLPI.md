@@ -781,3 +781,38 @@ Decision (confidence: medium-high, not proven):
 * Expectation for the 1146 boot: the DSP may now send something on the fastrpc channel (logged as hex); the dog very probably still
   fires at about 40 s, because no listener serves files. If it does NOT fire, the open-ack was the whole story. Either result narrows it.
 
+---------------------------------------------------------------------------------------------------------------------
+
+## 14. Implemented: 1147 (read-only ext4 reader + data-file inventory), NOT run on the phone
+
+New kernel file `bsd/dev/bergamota_ext4.c` (+ `.h`, added to `bsd/conf/files`), source of truth in `tools/ext4test/`, which also holds the
+host test (`tools/ext4test/run.sh`, needs Homebrew e2fsprogs for `mke2fs -d`). **Verified on the Mac**: 365 files, including a 5.3 MB
+file (double-indirect on ext2), a sparse file, 300 files in one directory, htree directories, fast/slow symlinks (absolute and
+relative), compared byte for byte, on four images (ext4 4K extents+64bit+flex_bg, ext4 1K 32-bit, ext2 2K, ext2 4K), plus an
+liblp-style `super` with one `vendor` extent (lp_find + lp_read) mounted and compared. 0 differences. The kernel build compiles it
+(`ARM64_BOARD_CONFIG_BERGAMOTA`), but the partition reads on the phone are untested.
+
+Reader: ext2/3/4, 1-64 KiB blocks, extents and block maps, 64bit, flex_bg, sparse, linear scan of htree directories, symlinks.
+Refused (EOPNOTSUPP, logged): meta_bg, inline_data and encrypted inodes. Journal and checksums are ignored (a dirty journal is
+printed as `JOURNAL NEEDS RECOVERY`). Read-only by construction: the only device primitive is `read`.
+
+Partitions are found by name through `bergamota_ufs_read_part()` (the call the modem/FAT code uses): `persist`, `dsp`, and
+`vendor`, which is a logical partition inside `super`: `lp_find` parses the liblp geometry (offset 4096) and metadata (12288),
+looks for `vendor`, `vendor_a`, `vendor_b` and maps its linear extents (512-byte sectors). A vendor that is erofs instead of ext4 shows
+up as `not a readable ext4 (errno 6)`.
+
+`bergamotaslpi=1` now also prints (prefix `BERGAMOTA SLPI:`, step "4b" before the carve-out read; `bergamotaslpifs=0` skips it):
+```
+data files (read-only): persist, vendor (in super), dsp
+persist: ext4 block 4096, N groups, inode 256, incompat 0x.., label "persist"[, JOURNAL NEEDS RECOVERY]
+persist:/ N entries ...             then names:size, three per line
+persist:/sensors/ N entries ... and below it registry/ and what is inside, three levels
+persist:/sensors/registry/registry: directory | errno 2        (the path hexagonrpcd maps; also file1, file2)
+super: logical partition vendor, N extents, first sector S, M MiB
+vendor: ext4 block 4096 ...
+vendor:/etc/sensors/ ... config/ (the JSONs with sizes), vendor:/etc/sensors/sns_reg_config: file, N bytes
+dsp: ext4 ...  dsp:/ (adsp/ cdsp/ sdsp/ ...)  dsp:/sdsp/ (the SLPI user-PD libraries with sizes)
+```
+Failure lines: `super: no vendor logical partition (errno N)` (geometry missing or another name), `vendor: not a readable ext4 (errno N)`
+(erofs is errno 6 ENXIO), `persist: ... errno 95` (EOPNOTSUPP: an unsupported feature). If vendor is not ext4 the config JSONs must come
+from elsewhere (OrangeFox `adb pull`, section 8).
