@@ -1,0 +1,915 @@
+1148: SLPI stage 3: in-kernel FastRPC client, the equivalent of `hexagonrpcd -d sdsp -s`, gated by bergamotaslpifrpc=1 (with bergamotaslpi=3).
+On the fastrpcglink-apps-dsp channel (1146): INIT_ATTACH_SNS, remotectl open/register/close of adsp_default_listener, adsp_listener
+init2, then the next2 loop serving the DSP's reverse calls: apps_std fopen_with_env/fread/fseek/fclose/stat/opendir/readdir/closedir
+from the read-only ext4 volumes of 1147 (vendor etc/sensors, persist sensors/registry, dsp sdsp; synthetic /sys/devices/soc0 files),
+remotectl open for apps_std/apps_mem; writes and apps_mem map requests are refused with AEE_EUNSUPPORTED and logged. The payloads live in
+a 4 MiB heap at 0xe1000000 hyp-assigned HLOS+SSC_Q6 (returned to HLOS at teardown). Every call is logged. Requires 1137, 1141, 1142, 1146, 1147.
+
+--- a/bsd/dev/beryllium_wlan.c
++++ b/bsd/dev/beryllium_wlan.c
+@@ -9626,7 +9626,7 @@
+ 	uint32_t last[8];
+ 	uint64_t t0;
+ 	unsigned stop_at, wait_s, hold_s;
+-	int pas, auth, keep, peek, fs;
++	int pas, auth, keep, peek, fs, frpc;
+ 	unsigned stage;
+ } sl;
+ 
+@@ -10935,9 +10935,852 @@
+ 	}
+ 	default:
+ 		return 0;
++	}
++}
++
++/*
++ * ---- 1148: FastRPC client for the SLPI's sensors PD, the in-kernel equivalent of `hexagonrpcd -d sdsp -s`
++ * (docs/SENSORS_SLPI.md sections 5.3 and 13). Gate: bergamotaslpifrpc=1 with bergamotaslpi=3. Sequence, each step an invoke
++ * over the "fastrpcglink-apps-dsp" channel (1146): INIT_ATTACH_SNS (handle 1, pd 2), remotectl open "adsp_default_listener"
++ * (handle 0), its register (method 0), remotectl close, adsp_listener init2 (handle 3, method 3), then forever adsp_listener
++ * next2 (method 4): the DSP hands us one reverse call per return (apps_std file calls, apps_mem), we answer it in the
++ * next call. Messages are Linux drivers/misc/fastrpc.c's: struct fastrpc_msg (40 bytes) out, {ctx, retval} back, the
++ * argument buffers in one physically contiguous payload inside a heap that is hyp-assigned to the SLPI (Linux assigns its
++ * fastrpc_mem region at probe). Files are read-only from the ext4 volumes (1147); nothing is ever written to a partition.
++ * Single outstanding invoke, polled from the stage-3 loop (fr_poll). Everything is logged: that log is also how we learn
++ * which files sensor_process asks for.
++ */
++#define FR_HEAP_PA      0xe1000000ull   /* low-bank RAM outside xnu (wlan pool ends at 0xe0d00000); [G] free, see the doc */
++#define FR_HEAP_SIZE    0x00400000u
++#define FR_PAY_MAX      0x00100000u     /* payload area at the start of the heap: one invoke at a time */
++#define FR_PG           4096u           /* Linux PAGE_SIZE: the DSP's page list uses 4 KiB */
++#define FR_CLIENT_ID    1
++#define FR_PD_SENSORS   2u
++#define FR_MAXARGS      8u
++#define SCM_VMID_SSC_Q6 5u
++
++#define AEE_EFAILED 1u
++#define AEE_ENOMEMORY 2u
++#define AEE_EBADPARM 14u
++#define AEE_EUNSUPPORTED 20u
++
++enum { FRS_IDLE, FRS_ATTACH, FRS_OPEN, FRS_REG, FRS_CLOSE, FRS_INIT2, FRS_NEXT, FRS_DEAD };
++
++struct fr_arg {
++	void *p;
++	uint32_t n;
++};
++
++#define FR_FILES        16u
++static struct fr_file {
++	bool used, dir, ram;
++	struct e4_inode in;
++	struct sl_vol *vol;
++	uint64_t pos;
++	uint32_t dent;                  /* next directory entry for readdir */
++	const char *ram_data;
++	uint32_t ram_len;
++} fr_files[FR_FILES];
++
++static struct {
++	bool on, assigned;
++	unsigned state;
++	vm_offset_t va;
++	uint32_t seq, ctxn;
++	bool pending;
++	uint64_t ctx;
++	unsigned nin, nout;
++	struct fr_arg outs[FR_MAXARGS];
++	int32_t retval;
++	bool done;
++	uint32_t pay_len;
++	uint32_t listener_h;
++	uint32_t next_ctx, next_res;
++	uint8_t in[4096];               /* the DSP's next2 request buffer (copied out of the payload) */
++	uint32_t prim_out[4];
++	uint8_t res[0x20000];           /* encoded results of the previous reverse call */
++	uint32_t res_len;
++	unsigned calls, errors;
++	uint8_t names[64];
++	struct sl_vol vols[3];          /* persist, vendor, dsp */
++	bool vol_ok[3], vol_tried[3];
++} fr;
++
++static inline uint32_t
++fr_al(uint32_t v, uint32_t a)
++{
++	return (v + a - 1) & ~(a - 1);
++}
++
++/* build the invoke payload (fastrpc_get_args layout) at the heap start and send the 40-byte message */
++static bool
++fr_send(uint32_t handle, uint32_t sc, bool kernel, const struct fr_arg *a, unsigned nin, unsigned nout)
++{
++	struct gx_chan *c = &gx[GX_FASTRPC];
++	unsigned n = nin + nout;
++	if (fr.pending || n > FR_MAXARGS || !c->acked) {
++		return false;
++	}
++	uint32_t meta = (16u + 8u + 16u) * n + 8u * 16u + 4u * 64u + 4u;
++	uint32_t cur = fr_al(meta, 128);
++	uint8_t *base = (uint8_t *)fr.va;
++	uint64_t pa = FR_HEAP_PA;
++	for (unsigned i = 0; i < n; i++) {
++		cur = fr_al(cur, 128) + (a[i].n ? a[i].n : 0);
++	}
++	if (cur + 128 > FR_PAY_MAX) {
++		printf("BERGAMOTA SLPI: fastrpc: payload of %u bytes does not fit\n", cur);
++		return false;
++	}
++	bzero(base, fr_al(cur, FR_PG));
++	uint8_t *rpra = base, *list = base + 16u * n, *pages = list + 8u * n;
++	uint32_t pos = fr_al(meta, 128);
++	for (unsigned i = 0; i < n; i++) {
++		uint64_t pv = 0, len = a[i].n, pgaddr = 0, pgsize = 0;
++		if (len) {
++			pos = fr_al(pos, 128);
++			pv = (uint64_t)(uintptr_t)(base + pos);
++			pgaddr = (pa + pos) & ~(uint64_t)(FR_PG - 1);
++			pgsize = (((pv + len - 1) >> 12) - (pv >> 12) + 1) * FR_PG;
++			if (i < nin && a[i].p) {
++				memcpy(base + pos, a[i].p, len);
++			}
++			pos += (uint32_t)len;
++		}
++		memcpy(rpra + 16 * i, &pv, 8);
++		memcpy(rpra + 16 * i + 8, &len, 8);
++		uint32_t num = len ? 1 : 0, idx = i;
++		memcpy(list + 8 * i, &num, 4);
++		memcpy(list + 8 * i + 4, &idx, 4);
++		memcpy(pages + 16 * i, &pgaddr, 8);
++		memcpy(pages + 16 * i + 8, &pgsize, 8);
++	}
++	fr.nin = nin;
++	fr.nout = nout;
++	for (unsigned i = 0; i < nout; i++) {
++		fr.outs[i] = a[nin + i];
++	}
++	fr.pay_len = pos;
++	fr.seq++;
++	fr.ctxn = 1 + (fr.ctxn % 200);
++	fr.ctx = ((uint64_t)fr.seq << 16) | ((uint64_t)fr.ctxn << 8) | FR_PD_SENSORS;
++	struct {
++		int32_t client_id, tid;
++		uint64_t ctx;
++		uint32_t handle, sc;
++		uint64_t addr, size;
++	} __attribute__((packed)) m = { kernel ? 0 : FR_CLIENT_ID, 1, fr.ctx, handle, sc, pa, fr_al(pos, FR_PG) };
++	__asm__ volatile ("dsb sy" ::: "memory");
++	fr.pending = true;
++	fr.done = false;
++	if (!gx_send(c, &m, (uint32_t)sizeof(m))) {
++		fr.pending = false;
++		return false;
++	}
++	return true;
++}
++
++/* the DSP's answer: copy the output buffers back (put_args) */
++static void
++fr_rx(struct gx_chan *c, const uint8_t *p, uint32_t len)
++{
++	(void)c;
++	if (len < 12) {
++		sl_hex("fastrpc short message", p, len);
++		return;
++	}
++	uint64_t ctx;
++	int32_t rv;
++	memcpy(&ctx, p, 8);
++	memcpy(&rv, p + 8, 4);
++	if (ctx == 0xabcdabcdull) {
++		printf("BERGAMOTA SLPI: fastrpc: PD exit notification from the DSP\n");
++		return;
++	}
++	if (!fr.pending || ctx != fr.ctx) {
++		printf("BERGAMOTA SLPI: fastrpc: response for ctx %#llx, expected %#llx (pending %d): dropped\n", ctx, fr.ctx,
++		    fr.pending);
++		return;
++	}
++	const uint8_t *base = (const uint8_t *)fr.va;
++	uint32_t n = fr.nin + fr.nout;
++	for (unsigned i = 0; i < fr.nout; i++) {
++		uint64_t pv, l;
++		memcpy(&pv, base + 16 * (fr.nin + i), 8);
++		memcpy(&l, base + 16 * (fr.nin + i) + 8, 8);
++		uint64_t off = pv - (uint64_t)(uintptr_t)base;
++		if (fr.outs[i].p && fr.outs[i].n && l && off < FR_PAY_MAX) {
++			memcpy(fr.outs[i].p, base + off, MIN((uint64_t)fr.outs[i].n, l));
++		}
++	}
++	(void)n;
++	fr.retval = rv;
++	fr.pending = false;
++	fr.done = true;
++}
++
++/* ---- path resolution: the SLPI's view of the filesystem (hexagonrpcd rpcd_builder.c) -> our volumes */
++static const struct { const char *name, *data; } fr_socinfo[] = {
++	{ "hw_platform", "60\n" }, { "platform_subtype", "0\n" }, { "platform_subtype_id", "0\n" },
++	{ "platform_version", "1638400\n" }, { "revision", "2.1\n" }, { "soc_id", "321\n" },
++};
++
++static bool
++fr_prefix(const char **p, const char *pre)
++{
++	size_t n = strlen(pre);
++	if (strncmp(*p, pre, n) == 0 && ((*p)[n] == '/' || (*p)[n] == 0)) {
++		*p += n;
++		return true;
++	}
++	return false;
++}
++
++/* vol index 0 persist, 1 vendor, 2 dsp; rest = path inside it; -1 unknown, -2 synthetic socinfo (rest = file name) */
++static int
++fr_map_path(const char *path, char *rest, size_t max)
++{
++	const char *p = path;
++	while (*p == '/') {
++		p++;
++	}
++	int vol = -1;
++	const char *sub = "";
++	char tmp[200];
++	if (fr_prefix(&p, "mnt") && *p == '/' ) {
++		p++;
++		if (fr_prefix(&p, "vendor") && *p == '/') {
++			p++;
++		}
++	}
++	if (fr_prefix(&p, "persist")) {
++		vol = 0;
++		sub = p;
++	} else if (fr_prefix(&p, "system") && *p == '/' && (p++, fr_prefix(&p, "vendor"))) {
++		vol = 1;
++		sub = p;
++	} else if (fr_prefix(&p, "vendor")) {
++		vol = 1;
++		sub = p;
++	} else if (fr_prefix(&p, "usr")) {
++		const char *q = p;
++		if (*q == '/' && (q++, fr_prefix(&q, "lib")) && *q == '/' && (q++, fr_prefix(&q, "qcom")) && *q == '/' &&
++		    (q++, fr_prefix(&q, "adsp"))) {
++			vol = 2;
++			snprintf(tmp, sizeof(tmp), "/sdsp%s", q);
++			sub = tmp;
++		}
++	} else if (fr_prefix(&p, "sys")) {
++		const char *q = p;
++		if (*q == '/' && (q++, fr_prefix(&q, "devices")) && *q == '/' && (q++, fr_prefix(&q, "soc0"))) {
++			vol = -2;
++			sub = *q == '/' ? q + 1 : q;
++		}
++	}
++	if (vol == -1) {
++		return -1;
++	}
++	snprintf(rest, max, "%s", vol == -2 ? sub : (*sub ? sub : "/"));
++	return vol;
++}
++
++static const char *const fr_volname[3] = { "persist", "vendor", "dsp" };
++
++static struct sl_vol *
++fr_vol(int i)
++{
++	if (!fr.vol_tried[i]) {
++		fr.vol_tried[i] = true;
++		fr.vol_ok[i] = sl_vol_open(&fr.vols[i], fr_volname[i]) == 0;
++	}
++	return fr.vol_ok[i] ? &fr.vols[i] : NULL;
++}
++
++static int
++fr_alloc_fd(void)
++{
++	for (unsigned i = 1; i < FR_FILES; i++) {
++		if (!fr_files[i].used) {
++			memset(&fr_files[i], 0, sizeof(fr_files[i]));
++			fr_files[i].used = true;
++			return (int)i;
++		}
++	}
++	return -1;
++}
++
++/* path (absolute, or relative to `env` dir already folded in) -> a new fd; 0 = ok, else an AEE code */
++static uint32_t
++fr_open(const char *path, bool want_dir, uint32_t *fd_out)
++{
++	char rest[200];
++	int v = fr_map_path(path, rest, sizeof(rest));
++	if (v == -1) {
++		return AEE_EFAILED;
++	}
++	int fd = fr_alloc_fd();
++	if (fd < 0) {
++		return AEE_ENOMEMORY;
++	}
++	struct fr_file *f = &fr_files[fd];
++	if (v == -2) {
++		for (unsigned i = 0; i < sizeof(fr_socinfo) / sizeof(fr_socinfo[0]); i++) {
++			if (!strcmp(rest, fr_socinfo[i].name) && !want_dir) {
++				f->ram = true;
++				f->ram_data = fr_socinfo[i].data;
++				f->ram_len = (uint32_t)strlen(fr_socinfo[i].data);
++				*fd_out = (uint32_t)fd;
++				return 0;
++			}
++		}
++		fr_files[fd].used = false;
++		return AEE_EFAILED;
++	}
++	struct sl_vol *vol = fr_vol(v);
++	if (!vol || e4_lookup(&vol->fs, rest, &f->in) != 0) {
++		f->used = false;
++		return AEE_EFAILED;
++	}
++	f->vol = vol;
++	f->dir = (f->in.mode & 0xf000) == 0x4000;
++	if (f->dir != want_dir && want_dir) {
++		f->used = false;
++		return AEE_EFAILED;
++	}
++	*fd_out = (uint32_t)fd;
++	return 0;
++}
++
++/* readdir: the n-th entry's name (skipping . and ..), via the shared entry table */
++static int
++fr_dirent(struct fr_file *f, uint32_t n, char *name, unsigned max)
++{
++	unsigned cnt = 0;
++	if (e4_readdir(&f->vol->fs, &f->in, sl_ls_cb, &cnt) != 0) {
++		return -1;
++	}
++	if (n >= MIN(cnt, SL_LS_MAX)) {
++		name[0] = 0;
++		return 0;
++	}
++	strlcpy(name, sl_ents[n].name, max);
++	return 1;
++}
++
++/* ---- one reverse call from the DSP: decoded buffers in, encoded results out (iobuffer.c rules) */
++struct fr_buf {
++	const uint8_t *p;
++	uint32_t n;
++};
++
++static uint32_t
++fr_u32(const struct fr_buf *b, unsigned off)
++{
++	uint32_t v = 0;
++	if (b->n >= off + 4) {
++		memcpy(&v, b->p + off, 4);
++	}
++	return v;
++}
++
++/* returned[] is written as (u32 size, pad to 8, data) per buffer, 8-aligned data like outbufs_encode() */
++static uint32_t
++fr_put(uint32_t off, const void *data, uint32_t n)
++{
++	uint32_t o = off;
++	if (o + 4 + 8 + n > sizeof(fr.res)) {
++		return o;
++	}
++	memcpy(fr.res + o, &n, 4);
++	o += 4;
++	if (n) {
++		if (o & 7) {
++			bzero(fr.res + o, 8 - (o & 7));
++			o += 8 - (o & 7);
++		}
++		if (data) {
++			memcpy(fr.res + o, data, n);
++		} else {
++			bzero(fr.res + o, n);
++		}
++		o += n;
++	}
++	return o;
++}
++
++static const char *
++fr_str(const struct fr_buf *b)
++{
++	return b->n && b->p[b->n - 1] == 0 ? (const char *)b->p : NULL;
++}
++
++static uint32_t
++fr_serve(uint32_t handle, uint32_t sc, const struct fr_buf *in, unsigned nin)
++{
++	uint32_t nout = (sc >> 8) & 0xff, method = (sc >> 24) & 0x1f, w = 0;   /* w: byte offset of the first prim word */
++	uint32_t res = 0, o = 0;
++	fr.res_len = 0;
++	if (method == 31 && nin && in[0].n >= 4) {
++		method = fr_u32(&in[0], 0);
++		w = 4;
++	}
++	fr.calls++;
++	const struct fr_buf *p0 = nin ? &in[0] : NULL;
++	if (handle == 0) {                                      /* remotectl */
++		if (method == 0 && nin >= 2) {
++			const char *nm = fr_str(&in[1]);
++			uint32_t errlen = fr_u32(p0, 4), h = 0, err = 0;
++			if (nm && !strcmp(nm, "apps_std")) {
++				h = 1;
++			} else if (nm && !strcmp(nm, "apps_mem")) {
++				h = 2;
++			} else if (nm && !strcmp(nm, "remotectl")) {
++				h = 0;
++			} else {
++				err = (uint32_t)-5;
++				res = (uint32_t)-5;
++			}
++			printf("BERGAMOTA SLPI: fastrpc: remotectl open \"%s\" -> handle %u %s\n", nm ? nm : "?", h, err ? "NOT FOUND" : "");
++			uint32_t pr[2] = { h, err };
++			o = fr_put(o, pr, 8);
++			o = fr_put(o, NULL, MIN(errlen, 256u));
++		} else if (method == 1) {
++			uint32_t errlen = fr_u32(p0, 4), z = 0;
++			o = fr_put(o, &z, 4);
++			o = fr_put(o, NULL, MIN(errlen, 256u));
++		} else {
++			res = AEE_EUNSUPPORTED;
++		}
++	} else if (handle == 1) {                               /* apps_std */
++		switch (method) {
++		case 19: {                                      /* fopen_with_env(env, delim, name, mode) */
++			const char *env = nin >= 5 ? fr_str(&in[1]) : NULL, *name = nin >= 5 ? fr_str(&in[3]) : NULL,
++			    *mode = nin >= 5 ? fr_str(&in[4]) : NULL;
++			uint32_t fd = 0;
++			if (!env || !name || !mode) {
++				res = AEE_EBADPARM;
++			} else if (mode[0] == 'w' || mode[0] == 'a' || strchr(mode, '+')) {
++				res = AEE_EUNSUPPORTED;
++			} else {
++				char full[220];
++				if (name[0] != '/') {
++					snprintf(full, sizeof(full), "%s%s", !strcmp(env, "ADSP_LIBRARY_PATH") ? "/usr/lib/qcom/adsp/" :
++					    "/vendor/etc/acdbdata/", name);
++				} else {
++					strlcpy(full, name, sizeof(full));
++				}
++				res = fr_open(full, false, &fd);
++				printf("BERGAMOTA SLPI: fastrpc: fopen(env %s, \"%s\", \"%s\") -> %s fd %u%s\n", env, name, mode,
++				    res ? "FAILED" : "ok", fd, res ? "" : (fr_files[fd].ram ? " (synthetic)" : ""));
++			}
++			o = fr_put(o, &fd, 4);
++			break;
++		}
++		case 3: {                                       /* fclose */
++			uint32_t fd = fr_u32(p0, w);
++			if (fd && fd < FR_FILES && fr_files[fd].used) {
++				fr_files[fd].used = false;
++			} else {
++				res = AEE_EFAILED;
++			}
++			break;
++		}
++		case 4: {                                       /* fread(fd, len) -> written, eof, data */
++			uint32_t fd = fr_u32(p0, 0), want = fr_u32(p0, 4), got = 0;
++			if (!fd || fd >= FR_FILES || !fr_files[fd].used || fr_files[fd].dir || want > 0x10000u) {
++				res = AEE_EFAILED;
++				want = 0;
++			} else {
++				struct fr_file *f = &fr_files[fd];
++				static uint8_t rb[0x10000];
++				if (f->ram) {
++					got = f->pos < f->ram_len ? MIN(want, f->ram_len - (uint32_t)f->pos) : 0;
++					memcpy(rb, f->ram_data + f->pos, got);
++				} else {
++					uint64_t g = 0;
++					if (e4_read(&f->vol->fs, &f->in, f->pos, rb, want, &g) != 0) {
++						res = AEE_EFAILED;
++					}
++					got = (uint32_t)g;
++				}
++				f->pos += got;
++				static unsigned reads;
++				if (reads++ < 40) {
++					printf("BERGAMOTA SLPI: fastrpc: fread(fd %u, %u) -> %u\n", fd, want, got);
++				}
++				uint32_t po[2] = { got, got < want };
++				o = fr_put(o, po, 8);
++				o = fr_put(o, rb, want);
++				break;
++			}
++			uint32_t po[2] = { 0, 1 };
++			o = fr_put(o, po, 8);
++			o = fr_put(o, NULL, want);
++			break;
++		}
++		case 9: {                                       /* fseek(fd, pos, whence 0/1/2) */
++			uint32_t fd = fr_u32(p0, 0), pos = fr_u32(p0, 4), wh = fr_u32(p0, 8);
++			if (!fd || fd >= FR_FILES || !fr_files[fd].used) {
++				res = AEE_EFAILED;
++				break;
++			}
++			struct fr_file *f = &fr_files[fd];
++			uint64_t size = f->ram ? f->ram_len : f->in.size;
++			int64_t np = wh == 0 ? (int64_t)pos : wh == 1 ? (int64_t)f->pos + (int32_t)pos : (int64_t)size + (int32_t)pos;
++			if (np < 0) {
++				res = AEE_EFAILED;
++			} else {
++				f->pos = (uint64_t)np;
++			}
++			break;
++		}
++		case 2:                                         /* fflush */
++			break;
++		case 26: {                                      /* opendir */
++			const char *path = nin >= 2 ? fr_str(&in[1]) : NULL;
++			uint32_t fd = 0;
++			uint64_t h;
++			res = path ? fr_open(path, true, &fd) : AEE_EBADPARM;
++			printf("BERGAMOTA SLPI: fastrpc: opendir(\"%s\") -> %s\n", path ? path : "?", res ? "FAILED" : "ok");
++			h = fd;
++			o = fr_put(o, &h, 8);
++			break;
++		}
++		case 27: {                                      /* closedir */
++			uint32_t fd = fr_u32(p0, 0);
++			if (fd && fd < FR_FILES && fr_files[fd].used) {
++				fr_files[fd].used = false;
++			} else {
++				res = AEE_EFAILED;
++			}
++			break;
++		}
++		case 28: {                                      /* readdir -> {inode, name[256], is_eof} */
++			uint32_t fd = fr_u32(p0, 0);
++			uint8_t rd[264];
++			bzero(rd, sizeof(rd));
++			if (!fd || fd >= FR_FILES || !fr_files[fd].used || !fr_files[fd].dir || fr_files[fd].ram) {
++				res = AEE_EFAILED;
++			} else {
++				char nm[40];
++				int r = fr_dirent(&fr_files[fd], fr_files[fd].dent, nm, sizeof(nm));
++				if (r < 0) {
++					res = AEE_EFAILED;
++				} else if (r == 0) {
++					uint32_t eof = 1;
++					memcpy(rd + 260, &eof, 4);
++				} else {
++					fr_files[fd].dent++;
++					strlcpy((char *)rd + 4, nm, 255);
++				}
++			}
++			o = fr_put(o, rd, 264);
++			break;
++		}
++		case 31: {                                      /* stat(path) -> 96 bytes */
++			const char *path = nin >= 2 ? fr_str(&in[1]) : NULL;
++			uint8_t st[96];
++			bzero(st, sizeof(st));
++			uint32_t fd = 0;
++			if (!path) {
++				res = AEE_EBADPARM;
++			} else {
++				char full[220];
++				if (path[0] != '/') {
++					snprintf(full, sizeof(full), "/usr/lib/qcom/adsp/%s", path);
++				} else {
++					strlcpy(full, path, sizeof(full));
++				}
++				res = fr_open(full, false, &fd);
++				if (res != 0) {
++					res = fr_open(full, true, &fd);
++				}
++				if (!res) {
++					struct fr_file *f = &fr_files[fd];
++					uint32_t mode = f->ram ? 0100444u : f->dir ? 040555u : 0100444u, nl = 1;
++					uint64_t size = f->ram ? f->ram_len : f->in.size, ino = f->ram ? 1 : f->in.ino;
++					memcpy(st + 16, &ino, 8);
++					memcpy(st + 24, &mode, 4);
++					memcpy(st + 28, &nl, 4);
++					memcpy(st + 40, &size, 8);
++					f->used = false;
++				}
++				static unsigned stats;
++				if (stats++ < 40) {
++					printf("BERGAMOTA SLPI: fastrpc: stat(\"%s\") -> %s\n", path, res ? "FAILED" : "ok");
++				}
++			}
++			o = fr_put(o, st, 96);
++			break;
++		}
++		default:
++			printf("BERGAMOTA SLPI: fastrpc: apps_std method %u (sc %#x) not supported\n", method, sc);
++			res = AEE_EUNSUPPORTED;
++			break;
++		}
++	} else if (handle == 2) {                               /* apps_mem */
++		printf("BERGAMOTA SLPI: fastrpc: apps_mem method %u (sc %#x, %u in bytes) not supported\n", method, sc,
++		    p0 ? p0->n : 0);
++		if (p0) {
++			sl_hex("apps_mem request", p0->p, p0->n);
++		}
++		res = AEE_EUNSUPPORTED;
++		if (method == 2) {
++			o = fr_put(o, NULL, 16);
++		}
++	} else {
++		printf("BERGAMOTA SLPI: fastrpc: call on unknown handle %u method %u (sc %#x)\n", handle, method, sc);
++		res = AEE_EUNSUPPORTED;
++	}
++	/* the DSP expects exactly nout buffers back: pad with empty ones when the method wrote fewer */
++	uint32_t have = 0;
++	for (uint32_t k = 0; k < o;) {
++		uint32_t n;
++		memcpy(&n, fr.res + k, 4);
++		k += 4;
++		if (n) {
++			k = (k + 7u) & ~7u;
++		}
++		k += n;
++		have++;
++	}
++	for (; have < nout; have++) {
++		o = fr_put(o, NULL, 0);
++	}
++	fr.res_len = o;
++	if (res) {
++		fr.errors++;
++	}
++	return res;
++}
++
++/* decode the next2 inbuf (iobuffer.c: u32 size, then data at an 8-aligned offset) and serve the call */
++static uint32_t
++fr_dispatch(uint32_t handle, uint32_t sc, uint32_t inlen)
++{
++	unsigned nin = (sc >> 16) & 0xff;
++	struct fr_buf b[16];
++	uint32_t pos = 0;
++	if (nin > 16) {
++		return AEE_EBADPARM;
++	}
++	for (unsigned i = 0; i < nin; i++) {
++		if (pos + 4 > inlen) {
++			return AEE_EBADPARM;
++		}
++		uint32_t n;
++		memcpy(&n, fr.in + pos, 4);
++		pos += 4;
++		if (n) {
++			pos = (pos + 7u) & ~7u;
++		}
++		if (pos + n > inlen) {
++			return AEE_EBADPARM;
++		}
++		b[i].p = fr.in + pos;
++		b[i].n = n;
++		pos += n;
++	}
++	return fr_serve(handle, sc, b, nin);
++}
++
++static void
++fr_call_next2(void)
++{
++	/* prim_in {ret ctx, ret result, outbufs_len, inbufs size}; inbufs[prim_in, results]; outbufs[prim_out(16), request(4096)] */
++	static uint32_t prim_in[4];
++	prim_in[0] = fr.next_ctx;
++	prim_in[1] = fr.next_res;
++	prim_in[2] = fr.res_len;
++	prim_in[3] = sizeof(fr.in);
++	struct fr_arg a[4] = { { prim_in, 16 }, { fr.res, fr.res_len }, { fr.prim_out, 16 }, { fr.in, sizeof(fr.in) } };
++	bzero(fr.prim_out, sizeof(fr.prim_out));
++	if (!fr_send(3, (4u << 24) | (2u << 16) | (2u << 8), false, a, 2, 2)) {
++		printf("BERGAMOTA SLPI: fastrpc: next2 not sent\n");
++		fr.state = FRS_DEAD;
++	}
++}
++
++static void
++fr_log_done(const char *what)
++{
++	printf("BERGAMOTA SLPI: fastrpc: %s -> retval %d\n", what, fr.retval);
++	bergamota_log_sync();
++}
++
++/* the state machine, polled from the stage-3 loop */
++static uint32_t fr_po[2];
++
++static void
++fr_poll(void)
++{
++	static uint32_t w[8], err[256];
++	static char nm[24] = "adsp_default_listener";
++	if (!fr.on || fr.state == FRS_DEAD || !gx[GX_FASTRPC].acked || fr.pending) {
++		return;
++	}
++	gx[GX_FASTRPC].rx = fr_rx;
++	switch (fr.state) {
++	case FRS_IDLE: {
++		w[0] = FR_CLIENT_ID;
++		struct fr_arg a[1] = { { w, 4 } };
++		printf("BERGAMOTA SLPI: fastrpc: INIT_ATTACH_SNS (handle 1, pd 2)\n");
++		fr.state = FRS_ATTACH;
++		if (!fr_send(1, (0u << 24) | (1u << 16), true, a, 1, 0)) {
++			fr.state = FRS_IDLE;
++		}
++		break;
++	}
++	case FRS_ATTACH: {
++		if (!fr.done) {
++			return;
++		}
++		fr_log_done("attach");
++		if (fr.retval) {
++			fr.state = FRS_DEAD;
++			return;
++		}
++		/* remotectl open: prim_in {namelen, errlen}, name; prim_out {handle, dlerr}, err string */
++		w[0] = (uint32_t)strlen(nm) + 1;
++		w[1] = sizeof(err);
++		bzero(err, sizeof(err));
++		struct fr_arg a[4] = { { w, 8 }, { nm, w[0] }, { fr_po, 8 }, { err, sizeof(err) } };
++		fr.state = FRS_OPEN;
++		(void)fr_send(0, (0u << 24) | (2u << 16) | (2u << 8), false, a, 2, 2);
++		break;
++	}
++	case FRS_OPEN: {
++		if (!fr.done) {
++			return;
++		}
++		fr_log_done("remotectl open adsp_default_listener");
++		fr.listener_h = fr_po[0];
++		if (fr.retval || fr_po[1]) {
++			printf("BERGAMOTA SLPI: fastrpc: listener interface not opened (dlerr %u): \"%.60s\"\n", fr_po[1],
++			    (const char *)err);
++			fr.state = FRS_DEAD;
++			return;
++		}
++		printf("BERGAMOTA SLPI: fastrpc: adsp_default_listener = handle %u\n", fr.listener_h);
++		fr.state = FRS_REG;
++		(void)fr_send(fr.listener_h, 0, false, NULL, 0, 0);
++		break;
++	}
++	case FRS_REG: {
++		if (!fr.done) {
++			return;
++		}
++		fr_log_done("adsp_default_listener register");
++		/* remotectl close: prim_in {handle, errlen 0}; prim_out {dlerr}, empty err buffer */
++		w[0] = fr.listener_h;
++		w[1] = 0;
++		static uint32_t pc[1];
++		struct fr_arg a[3] = { { w, 8 }, { pc, 4 }, { NULL, 0 } };
++		fr.state = FRS_CLOSE;
++		(void)fr_send(0, (1u << 24) | (1u << 16) | (2u << 8), false, a, 1, 2);
++		break;
++	}
++	case FRS_CLOSE:
++		if (!fr.done) {
++			return;
++		}
++		fr_log_done("remotectl close");
++		fr.state = FRS_INIT2;
++		(void)fr_send(3, (3u << 24), false, NULL, 0, 0);
++		break;
++	case FRS_INIT2:
++		if (!fr.done) {
++			return;
++		}
++		fr_log_done("adsp_listener init2");
++		if (fr.retval) {
++			fr.state = FRS_DEAD;
++			return;
++		}
++		fr.state = FRS_NEXT;
++		fr.next_ctx = 0;
++		fr.next_res = 0xffffffffu;
++		fr.res_len = 0;
++		printf("BERGAMOTA SLPI: fastrpc: listener running (next2 loop)\n");
++		fr_call_next2();
++		break;
++	case FRS_NEXT: {
++		if (!fr.done) {
++			return;
++		}
++		if (fr.retval) {
++			printf("BERGAMOTA SLPI: fastrpc: next2 failed, retval %d: listener stopped\n", fr.retval);
++			fr.state = FRS_DEAD;
++			return;
++		}
++		uint32_t ctx = fr.prim_out[0], handle = fr.prim_out[1], sc = fr.prim_out[2], inlen = fr.prim_out[3];
++		if (inlen > sizeof(fr.in)) {
++			printf("BERGAMOTA SLPI: fastrpc: request of %u bytes does not fit: listener stopped\n", inlen);
++			fr.state = FRS_DEAD;
++			return;
++		}
++		uint32_t r = fr_dispatch(handle, sc, inlen);
++		if (r) {
++			printf("BERGAMOTA SLPI: fastrpc: call %u handle %u sc %#x -> result %u (calls %u, errors %u)\n", ctx, handle, sc, r,
++			    fr.calls, fr.errors);
++		}
++		fr.next_ctx = ctx;
++		fr.next_res = r;
++		fr_call_next2();
++		break;
+ 	}
++	default:
++		break;
++	}
+ }
+ 
++/* heap: map, zero, hyp-assign to the SLPI (Linux fastrpc_init_reserved_mem); back to HLOS at teardown */
++static bool
++fr_init(void)
++{
++	memset(&fr, 0, sizeof(fr));
++	fr.va = ml_io_map_unmappable(FR_HEAP_PA, FR_HEAP_SIZE, VM_WIMG_WCOMB);
++	if (!fr.va) {
++		printf("BERGAMOTA SLPI: fastrpc: heap mapping failed\n");
++		return false;
++	}
++	bzero((void *)fr.va, FR_PAY_MAX);
++	uint32_t src = SCM_VMID_HLOS, dst[2] = { SCM_VMID_HLOS, SCM_VMID_SSC_Q6 }, perm[2] = { SCM_PERM_RWX, SCM_PERM_RWX };
++	if (!ms_assign_list("fastrpc heap", FR_HEAP_PA, FR_HEAP_SIZE, &src, 1, dst, perm, 2)) {
++		ml_io_unmap(fr.va, FR_HEAP_SIZE);
++		fr.va = 0;
++		return false;
++	}
++	fr.assigned = true;
++	fr.on = true;
++	printf("BERGAMOTA SLPI: fastrpc: heap %#llx+%#x assigned to HLOS + SSC_Q6, client id %d\n", FR_HEAP_PA, FR_HEAP_SIZE,
++	    FR_CLIENT_ID);
++	return true;
++}
++
++static void
++fr_release(void)
++{
++	for (unsigned i = 0; i < 3; i++) {
++		if (fr.vols[i].mounted) {
++			sl_vol_close(&fr.vols[i]);
++		}
++	}
++	if (fr.va) {
++		ml_io_unmap(fr.va, FR_HEAP_SIZE);
++		fr.va = 0;
++	}
++	if (fr.assigned) {
++		uint32_t src[2] = { SCM_VMID_HLOS, SCM_VMID_SSC_Q6 }, dst = SCM_VMID_HLOS, perm = SCM_PERM_RWX;
++		if (ms_assign_list("fastrpc heap back", FR_HEAP_PA, FR_HEAP_SIZE, src, 2, &dst, &perm, 1)) {
++			fr.assigned = false;
++		} else {
++			printf("BERGAMOTA SLPI: fastrpc heap NOT reclaimed: never touch it from the kernel\n");
++		}
++	}
++	fr.on = false;
++}
++
+ static void
+ sl_edge_free(void)
+ {
+@@ -10977,6 +11820,9 @@
+ 		printf("BERGAMOTA SLPI: glink edge setup failed\n");
+ 		sl_edge_free();
+ 		return;
++	}
++	if (sl.frpc) {
++		(void)fr_init();
+ 	}
+ 	uint64_t t0 = ms_now_ms(), next = t0;
+ 	uint64_t end = forever ? UINT64_MAX : t0 + (uint64_t)sl.hold_s * 1000;
+@@ -10986,6 +11832,7 @@
+ 		ipc_rx_poll();
+ 		ipc_flush();
+ 		gx_flush();
++		fr_poll();
+ 		if (ge->open_acked && !sle.announced && ms_now_ms() > ge->open_ms + 3000) {
+ 			printf("BERGAMOTA SLPI: qrtr: no hello from the slpi 3 s after IPCRTR opened: sending ours\n");
+ 			sl_qrtr_announce();
+@@ -11142,6 +11989,9 @@
+ 	}
+ out:
+ 	sl_teardown();
++	if (!sl.pas_auth) {
++		fr_release();
++	}
+ }
+ 
+ static void
+@@ -11156,6 +12006,7 @@
+ 	sl.keep = 0;
+ 	sl.peek = 1;
+ 	sl.fs = 1;
++	sl.frpc = 0;
+ 	sl.wait_s = 10;
+ 	sl.hold_s = stage == 3 ? 60 : 20;
+ 	(void)PE_parse_boot_argn("bergamotaslpipas", &sl.pas, sizeof(sl.pas));
+@@ -11163,6 +12014,7 @@
+ 	(void)PE_parse_boot_argn("bergamotaslpikeep", &sl.keep, sizeof(sl.keep));
+ 	(void)PE_parse_boot_argn("bergamotaslpipeek", &sl.peek, sizeof(sl.peek));
+ 	(void)PE_parse_boot_argn("bergamotaslpifs", &sl.fs, sizeof(sl.fs));
++	(void)PE_parse_boot_argn("bergamotaslpifrpc", &sl.frpc, sizeof(sl.frpc));
+ 	(void)PE_parse_boot_argn("bergamotaslpiwait", &sl.wait_s, sizeof(sl.wait_s));
+ 	(void)PE_parse_boot_argn("bergamotaslpihold", &sl.hold_s, sizeof(sl.hold_s));
+ 	(void)PE_parse_boot_argn("bergamotaslpistop", &sl.stop_at, sizeof(sl.stop_at));

@@ -816,3 +816,57 @@ dsp: ext4 ...  dsp:/ (adsp/ cdsp/ sdsp/ ...)  dsp:/sdsp/ (the SLPI user-PD libra
 Failure lines: `super: no vendor logical partition (errno N)` (geometry missing or another name), `vendor: not a readable ext4 (errno N)`
 (erofs is errno 6 ENXIO), `persist: ... errno 95` (EOPNOTSUPP: an unsupported feature). If vendor is not ext4 the config JSONs must come
 from elsewhere (OrangeFox `adb pull`, section 8).
+
+---------------------------------------------------------------------------------------------------------------------
+
+## 15. Implemented: 1148 (FastRPC client + file server for the sensors PD), NOT run on the phone
+
+`bergamotaslpi=3 bergamotaslpifrpc=1` (about 35 bytes; add `bergamotaslpihold=120` for a longer look). The code is a port of what
+`hexagonrpcd -d sdsp -s` does through Linux's fastrpc driver, written from drivers/misc/fastrpc.c and the hexagonrpc sources; it has
+never talked to a DSP. Treat the first run as a protocol experiment: it logs every call.
+
+What it does, in order (all on the `fastrpcglink-apps-dsp` channel acknowledged by 1146):
+1. Heap: the 4 MiB at `0xe1000000` (guess: free low-bank RAM, outside xnu and above the Wi-Fi pool that ends at 0xe0d00000) is mapped
+   write-combined and hyp-assigned HLOS -> {HLOS, SSC_Q6 (0x5)} RWX (Linux assigns {HLOS, MSS_MSA, SSC_Q6, ADSP_Q6}; the two extra VMIDs
+   look like copy-paste from the DT and `ms_assign_list` takes at most 3 destinations; widen if the SLPI faults). Returned to HLOS after PAS
+   SHUTDOWN. If the assign fails the client stays off.
+2. Each invoke is one 40-byte GLINK message `{client_id, tid, ctx, handle, sc, addr, size}` plus a payload at the heap start laid out as
+   fastrpc_get_args does (arg array `{pv, len}`, `{num, pgidx}` list, `{addr, size}` page list with 4 KiB pages, fdlist, crclist, poll
+   word, then 128-aligned inline buffers); the response is `{ctx, retval}`. ctx = seq << 16 | slot << 8 | pd (2 = sensors).
+3. INIT_ATTACH_SNS (handle 1, method 0, client id 1, pd 2); remotectl (handle 0) open "adsp_default_listener" (prim in
+   `{namelen, errlen}`, out `{handle, dlerr}` + error string); that handle's register (method 0); remotectl close; adsp_listener
+   (handle 3) init2 (method 3); then next2 (method 4) in a loop: in `{ret ctx, ret result, outbufs len, inbufs size}` + the previous
+   results, out `{ctx, handle, sc, inbufs len}` + a 4096-byte request buffer.
+4. A reverse call is decoded like hexagonrpcd's iobuffer.c (u32 size, data at 8-aligned offsets, `nin` buffers from sc) and served:
+   remotectl open of `apps_std` (handle 1) and `apps_mem` (handle 2); apps_std fopen_with_env (19), fread (4), fseek (9), fclose (3), fflush
+   (2), stat (31, method in the first word), opendir (26), readdir (28), closedir (27). Writes (modes w/a/+), mkdir, freopen and
+   apps_mem request_map64 are answered AEE_EUNSUPPORTED (20) and logged with the request bytes, like hexagonrpcd.
+5. The SLPI's paths map to volumes (hexagonrpcd rpcd_builder.c): `/vendor/etc/...` and `/system/vendor/...` -> vendor:`/etc/...`;
+   `/mnt/vendor/persist/...` and `/persist/...` -> persist:`/...`; `/usr/lib/qcom/adsp/...` and names relative to ADSP_LIBRARY_PATH ->
+   dsp:`/sdsp/...`; `/sys/devices/soc0/{hw_platform 60, platform_subtype 0, platform_subtype_id 0, platform_version 1638400, revision 2.1,
+   soc_id 321}` are synthetic (values of the sdm845-mainline beryllium package; the real values come from SMEM socinfo [G]). The volumes are
+   mounted on first use and closed at teardown.
+
+Log lines (prefix `BERGAMOTA SLPI:`), after `gx: fastrpcglink-apps-dsp open both ways`:
+```
+fastrpc: heap 0xe1000000+0x400000 assigned to HLOS + SSC_Q6, client id 1      (and the MSS hyp-assign lines)
+fastrpc: INIT_ATTACH_SNS (handle 1, pd 2)
+fastrpc: attach -> retval 0
+fastrpc: remotectl open adsp_default_listener ...  adsp_default_listener = handle N
+fastrpc: adsp_default_listener register -> retval 0 ; remotectl close -> retval 0 ; adsp_listener init2 -> retval 0
+fastrpc: listener running (next2 loop)
+fastrpc: remotectl open "apps_std" -> handle 1
+fastrpc: fopen(env ADSP_LIBRARY_PATH, "/mnt/vendor/persist/sensors/registry/...", "r") -> ok fd 1   (and every other path asked for)
+fastrpc: fread(fd 1, N) -> N       (first 40)       fastrpc: stat("...") -> ok|FAILED  (first 40)
+persist: ext4 ... / vendor: ext4 ... / dsp: ext4 ...     (volumes mounted on first use)
+```
+Outcomes to read: (a) no `attach -> retval 0` / `next2 failed`: the transport or the heap VMIDs are wrong (look for an SMMU/XPU
+fatal and for `gx ... data dropped`); (b) the loop runs and the files the SLPI wants are listed: the `fopen ... FAILED` lines are the
+missing pieces (path mapping or an absent file); (c) the dog (`USER-PD DOG ... stalled initialization`) no longer fires and a SUID
+lookup on service 0x190 returns `registry` (next step: the SEE client, section 4).
+
+Risks: the hyp-assign of 0xe1000000..0xe1400000 (a range that is not free would be an SCM error or worse; it is assigned back to
+HLOS at the end); a malformed payload can make the DSP fault (fatal bit, SMEM 424) but should not reset the SoC; the polled loop runs in
+the stage-3 thread for the whole hold (default 60 s; use `bergamotaslpihold`). The ext4 reads hold `bergamota_ufs_lock` per read, which
+the root filesystem shares; reads are small. Wi-Fi code is untouched (the SLPI stages still refuse to run with `bergamotawlan`).
+
