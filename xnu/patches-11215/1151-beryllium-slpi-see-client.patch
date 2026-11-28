@@ -1,0 +1,953 @@
+1151: SLPI SEE client, bergamotaslpisee=1 (implies bergamotaslpi=3 and bergamotaslpifrpc=1). After QRTR service 0x190 is up and the FastRPC listener runs
+(or failed, or 30 s passed): QMI Control requests with hand-coded protobuf over QRTR (our port 0x4101): SUID lookup of "registry" until the
+sensor_process answers, then accel/gyro/mag/proximity/ambient_light, attributes (available, rates, stream type), enable (accel/gyro 50 Hz, mag 20 Hz,
+proximity/light on change), indications 0x21/0x22 decoded (no floating point: integer float conversion) into struct bergamota_sensor_sample (accel
+counts of a 16 g range, gyro counts of 1/16400 deg/s, mag counts of 0.054 uT, lux, near/far) and bergamota_sensors_post(). Logs the first events, a
+10 s rate per sensor, and says plainly when the service gives no response (sensor_process stalled). With bergamotaslpikeep=1 it runs until a fatal
+error; otherwise the sensors are disabled at the end of the hold. Requires 1137-1148. Host test: tools/seetest/run.sh.
+
+--- a/bsd/dev/beryllium_wlan.c
++++ b/bsd/dev/beryllium_wlan.c
+@@ -9599,6 +9599,8 @@
+  *      bergamotaslpistop=N stops cleanly before step N. No GLINK/QRTR here (needs the edge refactor).
+  * Needs bergamotawlan=0: it shares the FAT buffers and the modem statics with the Wi-Fi stage.
+  */
++#include <sys/bergamota_sensors.h>
++
+ #define SL_PA                   0x96b00000ull   /* beryllium slpi_mem */
+ #define SL_SIZE                 0x01400000u
+ #define SL_PAS_ID               12u
+@@ -9626,7 +9628,7 @@
+ 	uint32_t last[8];
+ 	uint64_t t0;
+ 	unsigned stop_at, wait_s, hold_s;
+-	int pas, auth, keep, peek, fs, frpc;
++	int pas, auth, keep, peek, fs, frpc, see;
+ 	unsigned stage;
+ } sl;
+ 
+@@ -10484,6 +10486,13 @@
+ 	printf("BERGAMOTA SLPI: %s (%u bytes): %s\n", what, n, line);
+ }
+ 
++/* 1151: where service 0x190 announced itself, and its receiver */
++static struct {
++	uint32_t node, port;
++	uint64_t ms;
++} see_srv;
++static void see_rx(const uint8_t *p, uint32_t len);
++
+ /* one complete QRTR packet from the SLPI (header parsing as ipc_qrtr_rx) */
+ static void
+ sl_qrtr_rx(const uint8_t *p, uint32_t len)
+@@ -10548,6 +10557,11 @@
+ 			}
+ 			if (s[1] == SL_SSC_SERVICE) {
+ 				sle.ssc = up;
++				if (up) {
++					see_srv.node = s[3];
++					see_srv.port = s[4];
++					see_srv.ms = ms_now_ms();
++				}
+ 				printf("BERGAMOTA SLPI: *** SEE (SSC) service 0x190 %s at node %u port %#x, version %u instance %u ***\n",
+ 				    up ? "is UP" : "went away", s[3], s[4], s[2] & 0xff, s[2] >> 8);
+ 			}
+@@ -10569,6 +10583,8 @@
+ 		sle.data++;
+ 		if (dport == QRTR_PDM_PORT) {
+ 			pdm_rx(snode, sport, pl, size);
++		} else if (dport == 0x4101u) {
++			see_rx(pl, size);
+ 		} else {
+ 			printf("BERGAMOTA SLPI: qrtr: %u bytes from %u:%#x to port %#x (no server here)\n", size, snode, sport, dport);
+ 			sl_hex("payload", pl, size);
+@@ -11779,9 +11795,832 @@
+ 		}
+ 	}
+ 	fr.on = false;
++}
++
++/*
++ * ---- 1151: the SEE (Qualcomm sensor core) client, docs/SENSORS_SLPI.md section 4. Gate: bergamotaslpisee=1 (implies stage 3 and
++ * the FastRPC client). Once QRTR service 0x190 is up and the FastRPC listener runs (or failed, or 30 s passed): look up "registry"
++ * until the sensor_process answers, look up accel, gyro, mag, proximity, ambient_light by data type (SUID sensor 0xABAB..), read
++ * their attributes (available, sample rates, stream type), enable them (accel/gyro 50 Hz, mag 20 Hz continuous, proximity and
++ * light on change) and turn the events into struct bergamota_sensor_sample for bergamota_sensors_post(). Protobuf is hand-coded;
++ * no floating point in the kernel: floats are converted to millionths with integer arithmetic.
++ */
++#define SEE_PORT        0x4101u
++#define SEE_N           5u
++#define SEE_SUID        0xababababababababull
++
++static struct see_sensor {
++	const char *type;
++	uint32_t bt;                    /* BERGAMOTA_SENSOR_* */
++	uint32_t want_hz;               /* continuous sensors */
++	bool found, absent, attrs, enabled, continuous, available, have_stream;
++	uint64_t lo, hi;
++	uint32_t rates[8], nrates;      /* float32 bit patterns */
++	uint32_t pick;                  /* the chosen rate (bits) */
++	char name[24], vendor[24];
++	unsigned tries, empty;
++	uint64_t t_sent, t_enabled;
++	unsigned events, window, shown;
++} see_s[SEE_N] = {
++	{ "accel", BERGAMOTA_SENSOR_ACCEL, 50 },
++	{ "gyro", BERGAMOTA_SENSOR_GYRO, 50 },
++	{ "mag", BERGAMOTA_SENSOR_MAG, 20 },
++	{ "proximity", BERGAMOTA_SENSOR_PROXIMITY, 0 },
++	{ "ambient_light", BERGAMOTA_SENSOR_LIGHT, 0 },
++};
++
++enum { SEE_WAIT, SEE_REG, SEE_LOOKUP, SEE_ATTR, SEE_RUN, SEE_DEAD };
++static struct {
++	bool on, qmi_alive, warned_dead, warned_empty, reg_ok;
++	unsigned phase, cur;
++	uint16_t txn;
++	uint64_t t0, t_phase, t_stats, ts_first;
++	unsigned msgs, inds, rsp, bad;
++} see;
++
++/* ---- integer float helpers */
++static int64_t
++see_f2micro(uint32_t bits)
++{
++	uint32_t e = (bits >> 23) & 0xff, m = bits & 0x7fffffu;
++	bool neg = (bits >> 31) != 0;
++	int64_t v;
++	if (e == 0 || e == 0xff) {
++		return 0;
++	}
++	m |= 1u << 23;
++	int exp = (int)e - 127 - 23;
++	if (exp >= 0) {
++		v = exp > 16 ? ((int64_t)1 << 60) : ((int64_t)m << exp) * 1000000;
++	} else if (-exp >= 63) {
++		v = 0;
++	} else {
++		v = ((int64_t)m * 1000000) >> -exp;
++	}
++	return neg ? -v : v;
++}
++
++static uint32_t
++see_f_from_uint(uint32_t n)
++{
++	if (n == 0) {
++		return 0;
++	}
++	unsigned e = 31 - (unsigned)__builtin_clz(n);
++	uint32_t m = e <= 23 ? (n << (23 - e)) : (n >> (e - 23));
++	return ((127 + e) << 23) | (m & 0x7fffffu);
++}
++
++static int32_t
++see_clamp32(int64_t v)
++{
++	return v > INT32_MAX ? INT32_MAX : v < INT32_MIN ? INT32_MIN : (int32_t)v;
++}
++
++/* ---- protobuf */
++static uint32_t
++pb_varint(uint8_t *o, uint64_t v)
++{
++	uint32_t n = 0;
++	do {
++		uint8_t b = v & 0x7f;
++		v >>= 7;
++		o[n++] = v ? (b | 0x80) : b;
++	} while (v);
++	return n;
++}
++
++static uint32_t
++pb_uid(uint8_t *o, uint64_t lo, uint64_t hi)
++{
++	o[0] = 0x09;
++	memcpy(o + 1, &lo, 8);
++	o[9] = 0x11;
++	memcpy(o + 10, &hi, 8);
++	return 18;
++}
++
++/* SscClientRequest { uid, msg_id fixed32, config {processor 1, suspend 0}, request { msg bytes } } */
++static uint32_t
++pb_creq(uint8_t *o, uint64_t lo, uint64_t hi, uint32_t msg_id, const uint8_t *body, uint32_t blen)
++{
++	uint32_t n = 0;
++	o[n++] = 0x0a;
++	o[n++] = 18;
++	n += pb_uid(o + n, lo, hi);
++	o[n++] = 0x15;
++	memcpy(o + n, &msg_id, 4);
++	n += 4;
++	static const uint8_t cfg[] = { 0x1a, 0x04, 0x08, 0x01, 0x10, 0x00 };
++	memcpy(o + n, cfg, sizeof(cfg));
++	n += sizeof(cfg);
++	o[n++] = 0x22;
++	if (blen) {
++		uint8_t hdr[8];
++		uint32_t h = 1 + pb_varint(hdr + 1, blen);
++		hdr[0] = 0x12;
++		n += pb_varint(o + n, h + blen);
++		memcpy(o + n, hdr, h);
++		n += h;
++		memcpy(o + n, body, blen);
++		n += blen;
++	} else {
++		o[n++] = 0;
++	}
++	return n;
++}
++
++struct pb_r {
++	const uint8_t *p, *end;
++};
++
++static bool
++pb_get_varint(struct pb_r *r, uint64_t *v)
++{
++	uint64_t x = 0;
++	for (unsigned s = 0; r->p < r->end && s < 64; s += 7) {
++		uint8_t b = *r->p++;
++		x |= (uint64_t)(b & 0x7f) << s;
++		if (!(b & 0x80)) {
++			*v = x;
++			return true;
++		}
++	}
++	return false;
++}
++
++/* next field: *f number, *wt wire type; *v the varint / fixed value, or (*d, *dl) the length-delimited data */
++static bool
++pb_next(struct pb_r *r, uint32_t *f, uint32_t *wt, uint64_t *v, const uint8_t **d, uint32_t *dl)
++{
++	uint64_t tag, l;
++	if (r->p >= r->end || !pb_get_varint(r, &tag)) {
++		return false;
++	}
++	*f = (uint32_t)(tag >> 3);
++	*wt = (uint32_t)(tag & 7);
++	*v = 0;
++	*d = NULL;
++	*dl = 0;
++	switch (*wt) {
++	case 0:
++		return pb_get_varint(r, v);
++	case 1:
++		if (r->end - r->p < 8) {
++			return false;
++		}
++		memcpy(v, r->p, 8);
++		r->p += 8;
++		return true;
++	case 2:
++		if (!pb_get_varint(r, &l) || l > (uint64_t)(r->end - r->p)) {
++			return false;
++		}
++		*d = r->p;
++		*dl = (uint32_t)l;
++		r->p += l;
++		return true;
++	case 5: {
++		uint32_t x;
++		if (r->end - r->p < 4) {
++			return false;
++		}
++		memcpy(&x, r->p, 4);
++		*v = x;
++		r->p += 4;
++		return true;
++	}
++	default:
++		return false;
++	}
++}
++
++/* ---- QMI over QRTR to the SSC service */
++static bool
++see_send_pb(const uint8_t *pb, uint32_t n)
++{
++	static uint8_t f[512];
++	if (n > 400) {
++		return false;
++	}
++	uint32_t o = 0, l1 = 2 + n, tlv = 3 + l1 + 4;
++	f[o++] = 0;                                     /* QMI request */
++	see.txn++;
++	memcpy(f + o, &see.txn, 2);
++	o += 2;
++	f[o++] = 0x20;
++	f[o++] = 0;
++	memcpy(f + o, &tlv, 2);
++	o += 2;
++	f[o++] = 0x01;                                  /* TLV 1: data = u16 length + protobuf */
++	memcpy(f + o, &l1, 2);
++	o += 2;
++	memcpy(f + o, &n, 2);
++	o += 2;
++	memcpy(f + o, pb, n);
++	o += n;
++	f[o++] = 0x10;                                  /* TLV 0x10: report type 1 = large */
++	f[o++] = 1;
++	f[o++] = 0;
++	f[o++] = 1;
++	see.msgs++;
++	return ipc_qrtr_send(Q_DATA, SEE_PORT, see_srv.node, see_srv.port, f, o);
++}
++
++static void
++see_send_suid(const char *type)
++{
++	uint8_t body[48], pb[128];
++	uint32_t n = 0, l = (uint32_t)strlen(type);
++	body[n++] = 0x0a;                               /* data_type */
++	body[n++] = (uint8_t)l;
++	memcpy(body + n, type, l);
++	n += l;
++	body[n++] = 0x10;                               /* enable_updates = false */
++	body[n++] = 0;
++	body[n++] = 0x18;                               /* only_default_values = true */
++	body[n++] = 1;
++	(void)see_send_pb(pb, pb_creq(pb, SEE_SUID, SEE_SUID, 512, body, n));
++}
++
++static void
++see_send_attr(const struct see_sensor *s)
++{
++	uint8_t body[2] = { 0x10, 0 }, pb[96];
++	(void)see_send_pb(pb, pb_creq(pb, s->lo, s->hi, 1, body, 2));
++}
++
++static void
++see_send_enable(struct see_sensor *s)
++{
++	uint8_t pb[96], body[8];
++	if (s->continuous) {
++		body[0] = 0x0d;
++		memcpy(body + 1, &s->pick, 4);
++		(void)see_send_pb(pb, pb_creq(pb, s->lo, s->hi, 513, body, 5));
++	} else {
++		(void)see_send_pb(pb, pb_creq(pb, s->lo, s->hi, 514, NULL, 0));
++	}
++	s->enabled = true;
++	s->t_enabled = ms_now_ms();
++}
++
++/* ---- decoding */
++static struct see_sensor *
++see_by_uid(uint64_t lo, uint64_t hi)
++{
++	for (unsigned i = 0; i < SEE_N; i++) {
++		if (see_s[i].found && see_s[i].lo == lo && see_s[i].hi == hi) {
++			return &see_s[i];
++		}
++	}
++	return NULL;
++}
++
++static void
++see_default_stream(struct see_sensor *s)
++{
++	s->continuous = s->bt == BERGAMOTA_SENSOR_ACCEL || s->bt == BERGAMOTA_SENSOR_GYRO || s->bt == BERGAMOTA_SENSOR_MAG;
++}
++
++static void
++see_attrs(struct see_sensor *s, const uint8_t *m, uint32_t ml)
++{
++	struct pb_r r = { m, m + ml };
++	uint32_t f, wt, dl;
++	uint64_t v;
++	const uint8_t *d;
++	s->nrates = 0;
++	s->available = true;
++	while (pb_next(&r, &f, &wt, &v, &d, &dl)) {
++		if (f != 1 || wt != 2) {
++			continue;
++		}
++		struct pb_r a = { d, d + dl };
++		uint32_t id = ~0u;
++		const uint8_t *arr = NULL;
++		uint32_t arrl = 0, f2, wt2, dl2;
++		uint64_t v2;
++		const uint8_t *d2;
++		while (pb_next(&a, &f2, &wt2, &v2, &d2, &dl2)) {
++			if (f2 == 1 && wt2 == 0) {
++				id = (uint32_t)v2;
++			} else if (f2 == 2 && wt2 == 2) {
++				arr = d2;
++				arrl = dl2;
++			}
++		}
++		if (!arr) {
++			continue;
++		}
++		struct pb_r va = { arr, arr + arrl };
++		while (pb_next(&va, &f2, &wt2, &v2, &d2, &dl2)) {
++			if (f2 != 1 || wt2 != 2) {
++				continue;
++			}
++			struct pb_r e = { d2, d2 + dl2 };
++			uint32_t f3, wt3, dl3;
++			uint64_t v3;
++			const uint8_t *d3;
++			while (pb_next(&e, &f3, &wt3, &v3, &d3, &dl3)) {
++				if (id == 0 && f3 == 2 && wt3 == 2) {
++					strlcpy(s->name, (const char *)d3, MIN(dl3 + 1, (uint32_t)sizeof(s->name)));
++				} else if (id == 1 && f3 == 2 && wt3 == 2) {
++					strlcpy(s->vendor, (const char *)d3, MIN(dl3 + 1, (uint32_t)sizeof(s->vendor)));
++				} else if (id == 3 && f3 == 5 && wt3 == 0) {
++					s->available = v3 != 0;
++				} else if (id == 6 && f3 == 3 && wt3 == 5 && s->nrates < 8 && see_f2micro((uint32_t)v3) > 0) {
++					s->rates[s->nrates++] = (uint32_t)v3;
++				} else if (id == 16 && f3 == 4 && wt3 == 1) {
++					s->continuous = v3 == 0;
++					s->have_stream = true;
++				}
++			}
++		}
++	}
++	if (!s->have_stream) {
++		see_default_stream(s);
++	}
++	s->attrs = true;
++}
++
++static void
++see_post(struct see_sensor *s, uint64_t ts, int32_t scale, const int32_t v[4])
++{
++	struct bergamota_sensor_sample o;
++	memset(&o, 0, sizeof(o));
++	o.time = mach_absolute_time();
++	o.hub_ns = (ts / 12) * 625 + (ts % 12) * 625 / 12;
++	o.type = s->bt;
++	o.scale = scale;
++	memcpy(o.v, v, sizeof(o.v));
++	bergamota_sensors_post(&o);
++}
++
++/* one measurement body for sensor s */
++static void
++see_measure(struct see_sensor *s, uint64_t ts, const uint8_t *m, uint32_t ml)
++{
++	struct pb_r r = { m, m + ml };
++	uint32_t f, wt, dl, nf = 0, acc = 0, fl[3] = { 0, 0, 0 };
++	uint64_t v;
++	const uint8_t *d;
++	int32_t near = -1, dist = 0;
++	while (pb_next(&r, &f, &wt, &v, &d, &dl)) {
++		if (s->bt == BERGAMOTA_SENSOR_PROXIMITY) {
++			if (f == 1 && wt == 0) {
++				near = (int32_t)v;
++			} else if (f == 2 && wt == 0) {
++				dist = (int32_t)v;
++			} else if (f == 1 && wt == 2 && dl >= 8) {      /* the Xiaomi variant: a struct of floats {near, coverness, ...} */
++				uint32_t a, b;
++				memcpy(&a, d, 4);
++				memcpy(&b, d + 4, 4);
++				near = see_f2micro(a) >= 500000 ? 1 : 0;
++				dist = see_clamp32(see_f2micro(b) / 1000000);
++			}
++		} else if (f == 1 && wt == 5 && nf < 3) {
++			fl[nf++] = (uint32_t)v;
++		} else if (f == 1 && wt == 2) {                         /* packed floats */
++			for (uint32_t k = 0; k + 4 <= dl && nf < 3; k += 4) {
++				memcpy(&fl[nf++], d + k, 4);
++			}
++		} else if (f == 2 && wt == 0) {
++			acc = (uint32_t)v;
++		}
++	}
++	int32_t o[4] = { 0, 0, 0, 0 };
++	int32_t scale = 0;
++	switch (s->bt) {
++	case BERGAMOTA_SENSOR_ACCEL:                                    /* m/s^2 -> counts of a 16 g range */
++		if (nf < 3) {
++			return;
++		}
++		for (unsigned i = 0; i < 3; i++) {
++			o[i] = see_clamp32(see_f2micro(fl[i]) * 2048 / 9806650);
++		}
++		scale = 16;
++		break;
++	case BERGAMOTA_SENSOR_GYRO:                                     /* rad/s -> counts of 1/16400 deg/s */
++		if (nf < 3) {
++			return;
++		}
++		for (unsigned i = 0; i < 3; i++) {
++			o[i] = see_clamp32(see_f2micro(fl[i]) * 93965 / 100000);
++		}
++		break;
++	case BERGAMOTA_SENSOR_MAG:                                      /* uT -> counts of 0.054 uT */
++		if (nf < 3) {
++			return;
++		}
++		for (unsigned i = 0; i < 3; i++) {
++			o[i] = see_clamp32(see_f2micro(fl[i]) / 54000);
++		}
++		o[3] = (int32_t)acc;
++		break;
++	case BERGAMOTA_SENSOR_LIGHT:                                    /* [0] lux, [1] raw */
++		if (nf < 1) {
++			return;
++		}
++		o[0] = see_clamp32(see_f2micro(fl[0]) / 1000000);
++		o[2] = BERGAMOTA_LIGHT_FRONT;
++		o[3] = nf > 1 ? see_clamp32(see_f2micro(fl[1]) / 1000000) : 0;
++		break;
++	case BERGAMOTA_SENSOR_PROXIMITY:
++		if (near < 0) {
++			return;
++		}
++		o[0] = near ? 1 : 0;
++		o[1] = dist;
++		break;
++	default:
++		return;
++	}
++	s->events++;
++	s->window++;
++	if (s->shown < 5) {
++		s->shown++;
++		printf("BERGAMOTA SLPI: see: %s event %u: %d %d %d %d (counts, scale %d), accuracy %u, hub %llu\n", s->type, s->events,
++		    o[0], o[1], o[2], o[3], scale, acc, ts);
++	}
++	see_post(s, ts, scale, o);
+ }
+ 
+ static void
++see_response_body(uint64_t lo, uint64_t hi, uint32_t id, uint64_t ts, const uint8_t *m, uint32_t ml)
++{
++	if (lo == SEE_SUID && hi == SEE_SUID) {
++		if (id != 768) {
++			return;
++		}
++		struct pb_r r = { m, m + ml };
++		uint32_t f, wt, dl;
++		uint64_t v;
++		const uint8_t *d;
++		char type[24] = "";
++		uint64_t ul = 0, uh = 0;
++		unsigned nuid = 0;
++		while (pb_next(&r, &f, &wt, &v, &d, &dl)) {
++			if (f == 1 && wt == 2) {
++				strlcpy(type, (const char *)d, MIN(dl + 1, (uint32_t)sizeof(type)));
++			} else if (f == 2 && wt == 2 && dl >= 18 && nuid++ == 0) {
++				struct pb_r u = { d, d + dl };
++				uint32_t f2, wt2, dl2;
++				uint64_t v2;
++				const uint8_t *d2;
++				while (pb_next(&u, &f2, &wt2, &v2, &d2, &dl2)) {
++					if (f2 == 1 && wt2 == 1) {
++						ul = v2;
++					} else if (f2 == 2 && wt2 == 1) {
++						uh = v2;
++					}
++				}
++			}
++		}
++		printf("BERGAMOTA SLPI: see: SUID lookup \"%s\": %u sensor(s)%s\n", type, nuid, nuid ? "" : " (none yet)");
++		if (!strcmp(type, "registry")) {
++			if (nuid) {
++				see.reg_ok = true;
++			}
++			return;
++		}
++		for (unsigned i = 0; i < SEE_N; i++) {
++			if (!strcmp(type, see_s[i].type) && !see_s[i].found && !see_s[i].absent) {
++				if (nuid) {
++					see_s[i].found = true;
++					see_s[i].lo = ul;
++					see_s[i].hi = uh;
++					printf("BERGAMOTA SLPI: see: %s uid %#llx %#llx\n", type, uh, ul);
++				} else if (++see_s[i].empty >= 3) {
++					see_s[i].absent = true;
++					printf("BERGAMOTA SLPI: see: no '%s' sensor on this phone\n", type);
++				}
++			}
++		}
++		return;
++	}
++	struct see_sensor *s = see_by_uid(lo, hi);
++	if (!s) {
++		return;
++	}
++	if (id == 128 && !s->attrs) {
++		see_attrs(s, m, ml);
++		printf("BERGAMOTA SLPI: see: %s attributes: name \"%s\" vendor \"%s\" available %d %s, %u rates", s->type, s->name,
++		    s->vendor, s->available, s->continuous ? "continuous" : "on-change", s->nrates);
++		for (unsigned i = 0; i < s->nrates; i++) {
++			printf(" %lld.%03lld", see_f2micro(s->rates[i]) / 1000000, (see_f2micro(s->rates[i]) / 1000) % 1000);
++		}
++		printf(" Hz\n");
++	} else if (id == 1025 || id == 769) {
++		see_measure(s, ts, m, ml);
++	} else if (id == 768 || id == 514 || id == 513) {
++		sl_hex(id == 768 ? "see: configuration update" : "see: other report", m, ml);
++	}
++}
++
++static void
++see_handle_pb(const uint8_t *pb, uint32_t n)
++{
++	struct pb_r r = { pb, pb + n };
++	uint32_t f, wt, dl;
++	uint64_t v, lo = 0, hi = 0;
++	const uint8_t *d;
++	const uint8_t *bodies[8];
++	uint32_t blens[8];
++	unsigned nb = 0;
++	while (pb_next(&r, &f, &wt, &v, &d, &dl)) {
++		if (f == 1 && wt == 2) {
++			struct pb_r u = { d, d + dl };
++			uint32_t f2, wt2, dl2;
++			uint64_t v2;
++			const uint8_t *d2;
++			while (pb_next(&u, &f2, &wt2, &v2, &d2, &dl2)) {
++				if (f2 == 1 && wt2 == 1) {
++					lo = v2;
++				} else if (f2 == 2 && wt2 == 1) {
++					hi = v2;
++				}
++			}
++		} else if (f == 2 && wt == 2 && nb < 8) {
++			bodies[nb] = d;
++			blens[nb++] = dl;
++		}
++	}
++	for (unsigned i = 0; i < nb; i++) {
++		struct pb_r b = { bodies[i], bodies[i] + blens[i] };
++		uint32_t id = 0, f2, wt2, dl2, ml = 0;
++		uint64_t v2, ts = 0;
++		const uint8_t *d2, *m = NULL;
++		while (pb_next(&b, &f2, &wt2, &v2, &d2, &dl2)) {
++			if (f2 == 1 && wt2 == 5) {
++				id = (uint32_t)v2;
++			} else if (f2 == 2 && wt2 == 1) {
++				ts = v2;
++			} else if (f2 == 3 && wt2 == 2) {
++				m = d2;
++				ml = dl2;
++			}
++		}
++		see_response_body(lo, hi, id, ts, m ? m : (const uint8_t *)"", ml);
++	}
++}
++
++/* a QMI message from service 0x190 */
++static void
++see_rx(const uint8_t *p, uint32_t len)
++{
++	if (len < 7) {
++		return;
++	}
++	uint16_t msg, mlen;
++	memcpy(&msg, p + 3, 2);
++	memcpy(&mlen, p + 5, 2);
++	const uint8_t *t = p + 7;
++	uint32_t tl = MIN((uint32_t)mlen, len - 7);
++	see.qmi_alive = true;
++	if (p[0] == 2) {
++		see.rsp++;
++		uint16_t res = 0xffff, err = 0;
++		for (uint32_t o = 0; o + 3 <= tl;) {
++			uint16_t l;
++			memcpy(&l, t + o + 1, 2);
++			if (o + 3 + l > tl) {
++				break;
++			}
++			if (t[o] == 2 && l >= 4) {
++				memcpy(&res, t + o + 3, 2);
++				memcpy(&err, t + o + 5, 2);
++			}
++			o += 3 + l;
++		}
++		if (res != 0) {
++			printf("BERGAMOTA SLPI: see: QMI response msg %#x result %u error %u\n", msg, res, err);
++		}
++		return;
++	}
++	if (p[0] != 4 || (msg != 0x21 && msg != 0x22)) {
++		printf("BERGAMOTA SLPI: see: QMI type %u msg %#x ignored\n", p[0], msg);
++		return;
++	}
++	see.inds++;
++	for (uint32_t o = 0; o + 3 <= tl;) {
++		uint16_t l;
++		memcpy(&l, t + o + 1, 2);
++		if (o + 3 + l > tl) {
++			break;
++		}
++		if (t[o] == 2 && l >= 2) {
++			uint16_t n;
++			memcpy(&n, t + o + 3, 2);
++			if ((uint32_t)n + 2 <= l) {
++				see_handle_pb(t + o + 5, n);
++			}
++		}
++		o += 3 + l;
++	}
++}
++
++static void
++see_pick_rate(struct see_sensor *s)
++{
++	uint32_t want = see_f_from_uint(s->want_hz);
++	s->pick = want;
++	if (!s->nrates) {
++		return;
++	}
++	int64_t w = (int64_t)s->want_hz * 1000000, best = INT64_MAX;
++	for (unsigned i = 0; i < s->nrates; i++) {
++		int64_t r = see_f2micro(s->rates[i]), dd = r >= w ? r - w : (w - r) * 4;    /* closest, preferring not lower */
++		if (dd < best) {
++			best = dd;
++			s->pick = s->rates[i];
++		}
++	}
++}
++
++static void
++see_poll(void)
++{
++	uint64_t now = ms_now_ms();
++	if (!see.on || see.phase == SEE_DEAD) {
++		return;
++	}
++	switch (see.phase) {
++	case SEE_WAIT:
++		if (!see_srv.node && !see_srv.port) {
++			return;
++		}
++		if (fr.on && fr.state < FRS_NEXT && fr.state != FRS_DEAD && now < see_srv.ms + 30000) {
++			return;
++		}
++		printf("BERGAMOTA SLPI: see: starting: service 0x190 at %u:%#x, fastrpc state %u (%s)\n", see_srv.node, see_srv.port,
++		    fr.state, fr.on ? "enabled" : "off");
++		see.phase = SEE_REG;
++		see.t0 = now;
++		see.t_phase = 0;
++		break;
++	case SEE_REG:
++		if (see.reg_ok) {
++			printf("BERGAMOTA SLPI: see: 'registry' sensor is up after %llu ms: sensor_process is serving\n", now - see.t0);
++			see.phase = SEE_LOOKUP;
++			see.cur = 0;
++			see.t_phase = 0;
++			return;
++		}
++		if (now < see.t_phase + 2000) {
++			return;
++		}
++		if (see.t_phase && !see.qmi_alive && !see.warned_dead && now > see.t0 + 5000) {
++			see.warned_dead = true;
++			printf("BERGAMOTA SLPI: see: NO RESPONSE from service 0x190 to %u lookups in %llu ms: sensor_process is still stalled "
++			    "(fastrpc state %u, %u calls served)\n", see.msgs, now - see.t0, fr.state, fr.calls);
++		}
++		if (see.t_phase && see.qmi_alive && !see.warned_empty && now > see.t0 + 5000) {
++			see.warned_empty = true;
++			printf("BERGAMOTA SLPI: see: service 0x190 answers but the 'registry' sensor is not listed yet "
++			    "(fastrpc state %u, %u calls served)\n", fr.state, fr.calls);
++		}
++		if (now > see.t0 + 180000) {
++			printf("BERGAMOTA SLPI: see: giving up: no 'registry' sensor after 180 s\n");
++			see.phase = SEE_DEAD;
++			return;
++		}
++		see.t_phase = now;
++		see_send_suid("registry");
++		break;
++	case SEE_LOOKUP: {
++		while (see.cur < SEE_N && (see_s[see.cur].found || see_s[see.cur].absent)) {
++			see.cur++;
++		}
++		if (see.cur == SEE_N) {
++			see.phase = SEE_ATTR;
++			see.cur = 0;
++			see.t_phase = 0;
++			for (unsigned i = 0; i < SEE_N; i++) {
++				see_s[i].tries = 0;
++			}
++			return;
++		}
++		struct see_sensor *s = &see_s[see.cur];
++		if (now < see.t_phase + 1500) {
++			return;
++		}
++		if (s->tries >= 6) {
++			s->absent = true;
++			printf("BERGAMOTA SLPI: see: no '%s' sensor on this phone\n", s->type);
++			return;
++		}
++		see.t_phase = now;
++		s->tries++;
++		see_send_suid(s->type);
++		break;
++	}
++	case SEE_ATTR: {
++		while (see.cur < SEE_N && (!see_s[see.cur].found || see_s[see.cur].attrs)) {
++			see.cur++;
++		}
++		if (see.cur == SEE_N) {
++			printf("BERGAMOTA SLPI: see: enabling the sensors\n");
++			for (unsigned i = 0; i < SEE_N; i++) {
++				struct see_sensor *s = &see_s[i];
++				if (!s->found) {
++					continue;
++				}
++				if (!s->have_stream) {
++					see_default_stream(s);
++					printf("BERGAMOTA SLPI: see: %s: no attribute reply, assuming %s\n", s->type,
++					    s->continuous ? "continuous" : "on-change");
++				}
++				if (!s->available) {
++					printf("BERGAMOTA SLPI: see: %s reports itself unavailable: not enabled\n", s->type);
++					continue;
++				}
++				see_pick_rate(s);
++				printf("BERGAMOTA SLPI: see: enable %s (%s%s)\n", s->type, s->continuous ? "continuous" : "on-change",
++				    s->continuous ? ", rate chosen from the list" : "");
++				see_send_enable(s);
++			}
++			see.phase = SEE_RUN;
++			see.t_stats = now;
++			return;
++		}
++		struct see_sensor *s = &see_s[see.cur];
++		if (now < see.t_phase + 1500) {
++			return;
++		}
++		if (s->tries >= 8) {
++			s->attrs = true;                        /* give up on its attributes, defaults apply */
++			return;
++		}
++		if (s->tries == 0) {
++			s->tries = 1;
++		} else {
++			s->tries++;
++		}
++		see.t_phase = now;
++		see_send_attr(s);
++		break;
++	}
++	case SEE_RUN:
++		if (now >= see.t_stats + 10000) {
++			see.t_stats = now;
++			for (unsigned i = 0; i < SEE_N; i++) {
++				struct see_sensor *s = &see_s[i];
++				if (!s->enabled) {
++					continue;
++				}
++				printf("BERGAMOTA SLPI: see: %s %u events in 10 s (%u.%u Hz), %u in total\n", s->type, s->window, s->window / 10,
++				    s->window % 10, s->events);
++				s->window = 0;
++			}
++		}
++		for (unsigned i = 0; i < SEE_N; i++) {
++			struct see_sensor *s = &see_s[i];
++			if (s->enabled && !s->events && s->t_enabled && now > s->t_enabled + 8000 && s->continuous) {
++				s->t_enabled = 0;
++				printf("BERGAMOTA SLPI: see: %s: no event 8 s after the enable\n", s->type);
++			}
++		}
++		break;
++	default:
++		break;
++	}
++}
++
++static void
++see_reset(void)
++{
++	for (unsigned i = 0; i < SEE_N; i++) {
++		const char *t = see_s[i].type;
++		uint32_t bt = see_s[i].bt, hz = see_s[i].want_hz;
++		memset(&see_s[i], 0, sizeof(see_s[i]));
++		see_s[i].type = t;
++		see_s[i].bt = bt;
++		see_s[i].want_hz = hz;
++	}
++	memset(&see, 0, sizeof(see));
++	memset(&see_srv, 0, sizeof(see_srv));
++	see.on = sl.see != 0;
++}
++
++/* disable what is running (msg 10), before the SLPI is stopped */
++static void
++see_stop(void)
++{
++	if (!see.on || see.phase != SEE_RUN) {
++		return;
++	}
++	for (unsigned i = 0; i < SEE_N; i++) {
++		if (see_s[i].enabled) {
++			uint8_t pb[96];
++			(void)see_send_pb(pb, pb_creq(pb, see_s[i].lo, see_s[i].hi, 10, NULL, 0));
++			see_s[i].enabled = false;
++		}
++	}
++	printf("BERGAMOTA SLPI: see: sensors disabled; %u requests, %u responses, %u indications\n", see.msgs, see.rsp, see.inds);
++}
++
++static void
+ sl_edge_free(void)
+ {
+ 	gx_free();
+@@ -11824,6 +12663,7 @@
+ 	if (sl.frpc) {
+ 		(void)fr_init();
+ 	}
++	see_reset();
+ 	uint64_t t0 = ms_now_ms(), next = t0;
+ 	uint64_t end = forever ? UINT64_MAX : t0 + (uint64_t)sl.hold_s * 1000;
+ 	printf("BERGAMOTA SLPI: servicing the edge for %s\n", forever ? "ever (bergamotaslpikeep=1)" : "the hold time");
+@@ -11833,6 +12673,7 @@
+ 		ipc_flush();
+ 		gx_flush();
+ 		fr_poll();
++		see_poll();
+ 		if (ge->open_acked && !sle.announced && ms_now_ms() > ge->open_ms + 3000) {
+ 			printf("BERGAMOTA SLPI: qrtr: no hello from the slpi 3 s after IPCRTR opened: sending ours\n");
+ 			sl_qrtr_announce();
+@@ -11843,6 +12684,9 @@
+ 		}
+ 		wl_sleep(1);
+ 	}
++	if (!sl.fatal) {
++		see_stop();
++	}
+ 	printf("BERGAMOTA SLPI: edge summary after %llu s: glink %s, IPCRTR %s, qrtr hello %s (node %u), %u packets in, %u out, "
+ 	    "%u services offered, %u lookups, %u data packets, SSC 0x190 %s\n", (ms_now_ms() - t0) / 1000,
+ 	    ge->version_acked ? "versioned" : "no version-ack", ge->open_acked ? "open" : "NOT open", sle.hello ? "seen" : "not seen",
+@@ -12007,6 +12851,7 @@
+ 	sl.peek = 1;
+ 	sl.fs = 1;
+ 	sl.frpc = 0;
++	sl.see = 0;
+ 	sl.wait_s = 10;
+ 	sl.hold_s = stage == 3 ? 60 : 20;
+ 	(void)PE_parse_boot_argn("bergamotaslpipas", &sl.pas, sizeof(sl.pas));
+@@ -12015,6 +12860,10 @@
+ 	(void)PE_parse_boot_argn("bergamotaslpipeek", &sl.peek, sizeof(sl.peek));
+ 	(void)PE_parse_boot_argn("bergamotaslpifs", &sl.fs, sizeof(sl.fs));
+ 	(void)PE_parse_boot_argn("bergamotaslpifrpc", &sl.frpc, sizeof(sl.frpc));
++	(void)PE_parse_boot_argn("bergamotaslpisee", &sl.see, sizeof(sl.see));
++	if (sl.see && stage == 3) {
++		sl.frpc = 1;                    /* the SEE client needs the sensors PD served */
++	}
+ 	(void)PE_parse_boot_argn("bergamotaslpiwait", &sl.wait_s, sizeof(sl.wait_s));
+ 	(void)PE_parse_boot_argn("bergamotaslpihold", &sl.hold_s, sizeof(sl.hold_s));
+ 	(void)PE_parse_boot_argn("bergamotaslpistop", &sl.stop_at, sizeof(sl.stop_at));
+@@ -12046,6 +12895,11 @@
+ 	unsigned stage = 0;
+ 	thread_t thread;
+ 	(void)PE_parse_boot_argn("bergamotaslpi", &stage, sizeof(stage));
++	int see = 0;
++	(void)PE_parse_boot_argn("bergamotaslpisee", &see, sizeof(see));
++	if (see && stage < 3) {
++		stage = 3;              /* the SEE client implies stage 3 and the FastRPC client */
++	}
+ 	if (stage == 0) {
+ 		return;                 /* off by default: no log line, no mapping */
+ 	}

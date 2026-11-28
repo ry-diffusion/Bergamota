@@ -870,3 +870,50 @@ HLOS at the end); a malformed payload can make the DSP fault (fatal bit, SMEM 42
 the stage-3 thread for the whole hold (default 60 s; use `bergamotaslpihold`). The ext4 reads hold `bergamota_ufs_lock` per read, which
 the root filesystem shares; reads are small. Wi-Fi code is untouched (the SLPI stages still refuse to run with `bergamotawlan`).
 
+---------------------------------------------------------------------------------------------------------------------
+
+## 16. Implemented: 1151 (the SEE client), NOT run on the phone
+
+Boot-args, the real-use mode (Wi-Fi off, `bergamotawlan` unset): **`bergamotasensors=1 bergamotaslpisee=1 bergamotaslpikeep=1`**
+(about 55 bytes; `bergamotasensors=3` additionally lets root `sensorpost` into the same queue). `bergamotaslpisee=1` implies
+`bergamotaslpi=3` and `bergamotaslpifrpc=1`. For a bounded test drop `keep` and add `bergamotaslpihold=180`: the sensors are
+disabled at the end of the hold and the SLPI is stopped as in stage 3. The queue only fills while backboardd's bridge has
+`/dev/bergamota-sensors` open.
+
+Flow (`see_poll`, polled from the stage-3 loop): wait for service 0x190 and for the FastRPC listener (state NEXT, dead, or 30 s);
+`SUID("registry")` every 2 s until sensor_process lists it (180 s limit); `SUID` for `accel`, `gyro`, `mag`, `proximity`,
+`ambient_light` (1.5 s retries; three empty answers = no such sensor); attributes (name, vendor, available, sample rates, stream type;
+defaults after 8 tries); enable (continuous: `SscEnableConfigRequest` with the listed rate nearest to 50/50/20 Hz and not below it;
+on-change: no body); events. All verified against known encodings by `tools/seetest/run.sh`: the SUID(accel), 50 Hz enable and disable
+requests are byte-identical to section 4.3, and the integer float conversions agree with IEEE floats.
+
+Conversions into `struct bergamota_sensor_sample` (the Android frame, as the bridge expects; no floating point in the kernel):
+accel m/s^2 -> counts of a **16 g** range (`scale` 16, 9.81 m/s^2 = 2048 counts, a flat phone reads z = +2048); gyro rad/s -> counts of
+1/16400 deg/s (the bridge's `gyro_k`); mag uT -> counts of 0.054 uT, `v[3]` = accuracy; light: `v[0]` lux, `v[2]` FRONT, `v[3]` the raw
+value; proximity: `v[0]` 1 near / 0 far, `v[1]` the distance (both the standard message and the Xiaomi float-struct variant are
+decoded). `hub_ns` = DSP ticks * 625/12. If the bridge's gyro or mag constants are changed (`sens_gyro_k`, `sens_mag_k`) these counts
+must follow.
+
+Log lines (prefix `BERGAMOTA SLPI:`), after the FastRPC lines:
+```
+see: starting: service 0x190 at 9:0xc, fastrpc state 6 (enabled)
+see: NO RESPONSE from service 0x190 to N lookups in 5xxx ms: sensor_process is still stalled (fastrpc state S, C calls served)   (only if silent)
+see: service 0x190 answers but the 'registry' sensor is not listed yet (...)                                                  (alive but not ready)
+see: SUID lookup "registry": 1 sensor(s)
+see: 'registry' sensor is up after N ms: sensor_process is serving
+see: SUID lookup "accel": 1 sensor(s)  /  see: accel uid 0x... 0x...         (then gyro, mag, proximity, ambient_light; "none yet" or
+                                                                              "no 'X' sensor on this phone")
+see: accel attributes: name "bmi160" vendor "BOSCH" available 1 continuous, N rates 12.500 25.000 50.000 ... Hz
+see: enabling the sensors  /  see: enable accel (continuous, rate chosen from the list)
+see: accel event 1: 12 2051 -30 0 (counts, scale 16), accuracy 3, hub 123456789      (first 5 events of each sensor)
+see: accel 500 events in 10 s (50.0 Hz), 1500 in total                              (every 10 s, per enabled sensor)
+see: accel: no event 8 s after the enable                                           (continuous sensor that stays silent)
+see: sensors disabled; R requests, S responses, I indications                       (end of a bounded run)
+```
+Reading failures: no QMI response at all = still stalled (look at the FastRPC `fopen ... FAILED` lines for what is missing); registry never
+listed while QMI answers = sensor_process waits for something more (see the `fastrpc:` lines); `QMI response msg 0x20 result N error E`
+= the request was refused (a protobuf field wrong: the hex of the unexpected reports is logged by `see: configuration update` /
+`see: other report`).
+Risks: no new hardware access beyond 1148 (QRTR packets to node 9). The 10 s stats and first-event lines are the only log output per
+event; high-rate sensors do not log per event. A sensor enabled at a rate the hub dislikes may reply with an error response instead.
+
