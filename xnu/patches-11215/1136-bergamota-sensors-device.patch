@@ -1,0 +1,283 @@
+1136: /dev/bergamota-sensors, a sensor sample queue (port of Jesvi iOS / HakiOS redwood_sensors, APSL 2.0): drivers
+queue struct bergamota_sensor_sample with bergamota_sensors_post(); backboardd's sensor bridge (tools/bergamotanet/sensorbridge.c)
+reads them. Boot-arg bergamotasensors bit 0 makes the device (inert by default), bit 1 lets root write() whole samples into
+it (test path, tools/bergamotanet/sensorpost.c). Started from bergamota_ufs.c like the other drivers.
+
+diff --git a/bsd/conf/files b/bsd/conf/files
+index 107fe44..b9a652c 100644
+--- a/bsd/conf/files
++++ b/bsd/conf/files
+@@ -123,6 +123,7 @@ bsd/dev/beryllium_wlan.c		standard
+ bsd/dev/bergamota_80211.c			standard
+ bsd/dev/bergamota_wpa.c			standard
+ bsd/dev/bergamota_wlan_frames.c		standard
++bsd/dev/bergamota_sensors.c		standard
+ bsd/dev/beryllium_bt_hci.c		standard
+ bsd/dev/mem.c				standard
+ bsd/dev/munge.c 			optional config_requires_u32_munging
+diff --git a/bsd/dev/bergamota_ufs.c b/bsd/dev/bergamota_ufs.c
+index 3eab549..58dd767 100644
+--- a/bsd/dev/bergamota_ufs.c
++++ b/bsd/dev/bergamota_ufs.c
+@@ -76,6 +76,7 @@ extern void bergamota_usb_probe(void);
+ extern void bergamota_cpufreq_max(void);
+ extern void bergamota_charger_start(void);
+ extern void bergamota_a630_probe(void);
++extern void bergamota_sensors_init(void);
+ 
+ #define REG_CAP         0x00
+ #define REG_IS          0x20
+@@ -1158,6 +1159,7 @@ bergamota_ufs_init(void)
+ 	bergamota_a630_probe();	/* bergamotagpu=N, beryllium only, off by default */
+ 	beryllium_wlan_init();      /* boot-arg bergamotawlan=N, off by default */
+ 	bergamota80211_init();          /* boot-arg bergamota80211=N (iOS 26 Wi-Fi stand-in), off by default */
++	bergamota_sensors_init();         /* boot-arg bergamotasensors=N: /dev/bergamota-sensors, off by default */
+ 	return 0;
+ }
+ 
+diff --git a/bsd/dev/bergamota_sensors.c b/bsd/dev/bergamota_sensors.c
+new file mode 100644
+index 0000000..053dcb9
+--- /dev/null
++++ b/bsd/dev/bergamota_sensors.c
+@@ -0,0 +1,177 @@
++/*
++ * /dev/bergamota-sensors (sys/bergamota_sensors.h): one queue of sensor samples that drivers post into
++ * (bergamota_sensors_post()) and backboardd's sensor bridge reads (tools/bergamotanet/sensorbridge.c).
++ *
++ * Ported from Jesvi iOS / HakiOS (S20 port), bsd/dev/redwood_sensors.c, which took the queue from Scion's S9 driver.
++ * Apple Public Source License 2.0 (see APPLE_LICENSE in this tree). Changes: renamed; the device is made by
++ * bergamota_sensors_init() under boot-arg bergamotasensors instead of by the first driver; only a reader (FREAD) open
++ * counts; no proximity ioctl; and a TEST path so the iOS side can be checked before a real sensor driver exists:
++ * with bergamotasensors bit 1 set, root may write() whole bergamota_sensor_sample structs, queued exactly like driver
++ * samples (tools/bergamotanet/sensorpost.c).
++ *
++ *   bergamotasensors=1   the device, drivers only
++ *   bergamotasensors=3   the device, and root's test writes
++ */
++#include <kern/locks.h>
++#include <libkern/libkern.h>
++#include <mach/mach_types.h>
++#include <miscfs/devfs/devfs.h>
++#include <pexpert/pexpert.h>
++#include <sys/bergamota_sensors.h>
++#include <sys/conf.h>
++#include <sys/errno.h>
++#include <sys/file.h>
++#include <sys/kauth.h>
++#include <sys/param.h>
++#include <sys/proc.h>
++#include <sys/systm.h>
++#include <sys/uio.h>
++
++extern uint64_t mach_absolute_time(void);
++
++#define QUEUE 256
++#define SENSORS_ENABLE  1u
++#define SENSORS_TEST    2u
++
++static LCK_GRP_DECLARE(sensors_lck_grp, "bergamota-sensors");
++static LCK_MTX_DECLARE(sensors_lock, &sensors_lck_grp);
++
++static struct bergamota_sensor_sample queue[QUEUE];
++static uint32_t q_head, q_tail;
++static bool q_waiting;
++static int q_readers;
++static uint32_t sensors_mode;
++
++void
++bergamota_sensors_post(const struct bergamota_sensor_sample *s)
++{
++	lck_mtx_lock(&sensors_lock);
++	if (q_readers > 0) {
++		if (q_head - q_tail >= QUEUE) {
++			q_tail++;
++		}
++		queue[q_head++ % QUEUE] = *s;
++		if (q_waiting) {
++			q_waiting = false;
++			wakeup(&q_head);
++		}
++	}
++	lck_mtx_unlock(&sensors_lock);
++}
++
++int
++bergamota_sensors_readers(void)
++{
++	return q_readers;
++}
++
++static int
++sensors_open(__unused dev_t dev, int flags, __unused int devtype, __unused proc_t p)
++{
++	if (flags & FREAD) {
++		lck_mtx_lock(&sensors_lock);
++		q_readers++;
++		q_tail = q_head;
++		lck_mtx_unlock(&sensors_lock);
++	}
++	return 0;
++}
++
++static int
++sensors_close(__unused dev_t dev, int flags, __unused int devtype, __unused proc_t p)
++{
++	if (flags & FREAD) {
++		lck_mtx_lock(&sensors_lock);
++		if (q_readers > 0) {
++			q_readers--;
++		}
++		lck_mtx_unlock(&sensors_lock);
++	}
++	return 0;
++}
++
++static int
++sensors_read(__unused dev_t dev, struct uio *uio, __unused int ioflag)
++{
++	int error = 0;
++
++	lck_mtx_lock(&sensors_lock);
++	while (q_head == q_tail) {
++		q_waiting = true;
++		error = msleep(&q_head, &sensors_lock, PZERO | PCATCH, BERGAMOTA_SENSORS_NAME, NULL);
++		if (error != 0) {
++			lck_mtx_unlock(&sensors_lock);
++			return error;
++		}
++	}
++	while (q_head != q_tail && uio_resid(uio) >= (user_ssize_t)sizeof(struct bergamota_sensor_sample)) {
++		struct bergamota_sensor_sample o = queue[q_tail++ % QUEUE];
++
++		lck_mtx_unlock(&sensors_lock);
++		error = uiomove((caddr_t)&o, sizeof(o), uio);
++		lck_mtx_lock(&sensors_lock);
++		if (error != 0) {
++			break;
++		}
++	}
++	lck_mtx_unlock(&sensors_lock);
++	return error;
++}
++
++/* test path: whole samples from root, only with bergamotasensors bit 1 */
++static int
++sensors_write(__unused dev_t dev, struct uio *uio, __unused int ioflag)
++{
++	if (!(sensors_mode & SENSORS_TEST)) {
++		return ENODEV;
++	}
++	if (!kauth_cred_issuser(kauth_cred_get())) {
++		return EPERM;
++	}
++	if (uio_resid(uio) % (user_ssize_t)sizeof(struct bergamota_sensor_sample) != 0) {
++		return EINVAL;
++	}
++	while (uio_resid(uio) > 0) {
++		struct bergamota_sensor_sample s;
++		int error = uiomove((caddr_t)&s, sizeof(s), uio);
++
++		if (error != 0) {
++			return error;
++		}
++		if (s.type < BERGAMOTA_SENSOR_ACCEL || s.type > BERGAMOTA_SENSOR_PROXIMITY) {
++			return EINVAL;
++		}
++		if (s.time == 0) {
++			s.time = mach_absolute_time();
++		}
++		bergamota_sensors_post(&s);
++	}
++	return 0;
++}
++
++static const struct cdevsw sensors_cdevsw = {
++	.d_open = sensors_open, .d_close = sensors_close, .d_read = sensors_read, .d_write = sensors_write,
++	.d_ioctl = eno_ioctl, .d_stop = eno_stop, .d_reset = eno_reset, .d_select = eno_select,
++	.d_mmap = eno_mmap, .d_strategy = eno_strat, .d_type = 0,
++};
++
++void
++bergamota_sensors_init(void)
++{
++	int major;
++	uint32_t mode = 0;
++
++	(void)PE_parse_boot_argn("bergamotasensors", &mode, sizeof(mode));
++	if (!(mode & SENSORS_ENABLE)) {
++		return;
++	}
++	sensors_mode = mode;
++	major = cdevsw_add(-1, &sensors_cdevsw);
++	if (major < 0 || devfs_make_node(makedev(major, 0), DEVFS_CHAR, UID_ROOT, GID_WHEEL, 0666,
++	    BERGAMOTA_SENSORS_NAME) == NULL) {
++		printf("BERGAMOTA SENSORS: /dev/%s could not be made\n", BERGAMOTA_SENSORS_NAME);
++		return;
++	}
++	printf("BERGAMOTA SENSORS: /dev/%s made (bergamotasensors=%u%s)\n", BERGAMOTA_SENSORS_NAME, mode,
++	    (mode & SENSORS_TEST) ? ", root test writes on" : "");
++}
+diff --git a/bsd/sys/bergamota_sensors.h b/bsd/sys/bergamota_sensors.h
+new file mode 100644
+index 0000000..e09bcca
+--- /dev/null
++++ b/bsd/sys/bergamota_sensors.h
+@@ -0,0 +1,57 @@
++/*
++ * /dev/bergamota-sensors: the phone's motion and environment sensors, sample by sample, from the kernel (a driver, or
++ * root's test writes) to the code in backboardd that turns them into the HID events iOS's own consumers read
++ * (tools/bergamotanet/sensorbridge.c).
++ *
++ * Ported from Jesvi iOS / HakiOS (S20 port), bsd/sys/redwood_sensors.h, Apple Public Source License 2.0 (see
++ * APPLE_LICENSE in this tree). Same sample layout and semantics; "redwood" became "bergamota". The ssp/tcs3407 hooks and
++ * the proximity-emitter ioctl are not carried over (the Poco F1 has no sensor driver yet).
++ *
++ * A queue: read() blocks until there is at least one sample and returns as many whole ones as fit. The queue only fills
++ * while a reader has the device open; a reader 256 samples behind loses the oldest. One shared queue: each sample goes
++ * to one read() call, so run one reader (the bridge).
++ *
++ * Values are in Android's frame (x right, y up, z out of the screen):
++ *   ACCEL      v[0..2] x, y, z; scale = the range in g (32768 counts are scale g). Face up z is +1 g (iOS: -1 g)
++ *   GYRO       v[0..2] x, y, z in counts (the bridge's gyro_k turns them into degrees/s)
++ *   MAG        v[0..2] x, y, z in counts (mag_k: uT), v[3] the accuracy 0-3
++ *   PRESSURE   v[0] the pressure, v[1] the temperature (no HID consumer)
++ *   LIGHT      v[0] lux, v[1] colour temperature in K (0: none), v[2] BERGAMOTA_LIGHT_FRONT or _REAR, v[3] raw clear
++ *   PROXIMITY  v[0] 1 when something is near, 0 when not; v[1] the raw reading
++ *
++ * Boot-arg bergamotasensors (bit mask): 1 = make the device; 2 = root may write() whole samples into it (test path,
++ * see bsd/dev/bergamota_sensors.c). Default 0: no device.
++ */
++#ifndef _SYS_BERGAMOTA_SENSORS_H_
++#define _SYS_BERGAMOTA_SENSORS_H_
++
++#include <stdint.h>
++
++#define BERGAMOTA_SENSORS_NAME    "bergamota-sensors"
++#define BERGAMOTA_SENSORS_DEVICE  "/dev/bergamota-sensors"
++
++#define BERGAMOTA_SENSOR_ACCEL     1
++#define BERGAMOTA_SENSOR_GYRO      2
++#define BERGAMOTA_SENSOR_MAG       3
++#define BERGAMOTA_SENSOR_PRESSURE  4
++#define BERGAMOTA_SENSOR_LIGHT     5
++#define BERGAMOTA_SENSOR_PROXIMITY 6
++
++#define BERGAMOTA_LIGHT_FRONT      0
++#define BERGAMOTA_LIGHT_REAR       1
++
++struct bergamota_sensor_sample {
++	uint64_t time;                  /* mach_absolute_time() when the kernel got it (0 in a test write: filled in) */
++	uint64_t hub_ns;                /* the sensor hub's own time stamp in ns (0 if none) */
++	uint32_t type;                  /* BERGAMOTA_SENSOR_* */
++	int32_t scale;                  /* ACCEL: the range in g; else 0 */
++	int32_t v[4];
++};
++
++#ifdef KERNEL
++/* bsd/dev/bergamota_sensors.c: queue a sample for the readers (thread context only: it takes a mutex) */
++void bergamota_sensors_post(const struct bergamota_sensor_sample *s);
++int bergamota_sensors_readers(void);
++void bergamota_sensors_init(void);      /* called from bergamota_ufs.c with the other drivers */
++#endif
++#endif /* _SYS_BERGAMOTA_SENSORS_H_ */
