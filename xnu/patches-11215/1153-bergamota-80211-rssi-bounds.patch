@@ -1,0 +1,24 @@
+diff -ru a/bsd/dev/bergamota_80211.c b/bsd/dev/bergamota_80211.c
+--- a/bsd/dev/bergamota_80211.c	2026-11-28 01:53:17
++++ b/bsd/dev/bergamota_80211.c	2026-11-28 01:53:17
+@@ -94,6 +94,7 @@
+ #define IOC_ASSOCIATE_RESULT    21
+ #define IOC_DISASSOCIATE        22
+ #define IOC_CURRENT_NETWORK     103
++#define IOC_RSSI_BOUNDS         106
+ #define IOC_SUPPORTED_CHANNELS  27
+ #define IOC_LOCALE              28
+ #define IOC_DRIVER_VERSION      43
+@@ -595,6 +596,12 @@
+ 	}
+ 	case IOC_LOCALE:
+ 		return s8_reply_u32(req, LOCALE_ETSI);
++	case IOC_RSSI_BOUNDS: {
++		/* wifid (WiFiDeviceOpen 0x100059f98) keeps RSSI_THRESHOLD in device+0x100; unanswered it is 0 and
++		 * __WiFiDeviceManagerGetAutoJoinThreshold returns 0 for the preferred networks: every RSSI < 0 is rejected */
++		int32_t d[4] = { 1, -100, -30, -80 };           /* version, min, max, auto-join threshold (dBm) */
++		return s8_reply(req, d, sizeof(d));
++	}
+ 	case IOC_COUNTRY_CODE: {
+ 		/* boot 23: wifid asks with len 3, i.e. the bare char[3], no version word */
+ 		char cc[3] = { 0 };
