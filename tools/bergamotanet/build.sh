@@ -2,6 +2,7 @@
 # Build and ad-hoc sign the on-device tools for iOS 16 -> research/bergamotanet/
 # (bergamotanetcfg, cscheck, hcitest, bluetool-stub, bergamotareboot, bergamotadur = UFS durability test, kernel 0221; set TOOLS="hcitest" to build a subset; bergamotareboot = reboot-to-fastboot, kernel 0137)
 # iOS 18: also research/bergamotanet/ios18/{bergamotauicache,bergamotafp.dylib} (arm64e + pacstrip --sign)
+# iOS 18 sensors: ios18/{bergamota-sensorbridge.dylib,sensorpost} (docs/SENSORS.md); set TOOLS=" " (a space) to build only those
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 out=$here/../../research/bergamotanet
@@ -146,4 +147,21 @@ if [ "${IOS18:-1}" = 1 ]; then
 	codesign -s - -f --entitlements "$here/entitlements.plist" "$out18/bergamotametrics"
 	"$here/../renegade/renegade" strip --sign "$out18/bergamotametrics"
 	ls -l "$out18/bergamotametrics"
+fi
+
+# Sensors (docs/SENSORS.md, kernel patch 1136): the bridge dylib linked into backboardd (root_tweaks18.sensorbridge) and the test poster.
+# Output: research/bergamotanet/ios18/{bergamota-sensorbridge.dylib,sensorpost}
+if [ "${IOS18:-1}" = 1 ]; then
+	out18=$out/ios18
+	pacstrip=$here/../renegade/pacstrip.py
+	mkdir -p "$out18"
+	xcrun -sdk iphoneos clang -arch arm64e -mios-version-min=18.0 -O2 -Wall -dynamiclib \
+		-install_name /usr/local/lib/bergamota-sensorbridge.dylib -framework CoreFoundation -framework IOKit \
+		"$here/sensorbridge.c" -o "$out18/bergamota-sensorbridge.dylib"
+	codesign -s - -f "$out18/bergamota-sensorbridge.dylib"
+	python3 -I "$pacstrip" --sign "$out18/bergamota-sensorbridge.dylib"
+	xcrun -sdk iphoneos clang -arch arm64e -mios-version-min=18.0 -O2 -Wall "$here/sensorpost.c" -o "$out18/sensorpost"
+	codesign -s - -f --entitlements "$here/entitlements.plist" "$out18/sensorpost"
+	python3 -I "$pacstrip" --sign "$out18/sensorpost"
+	ls -l "$out18/bergamota-sensorbridge.dylib" "$out18/sensorpost"
 fi

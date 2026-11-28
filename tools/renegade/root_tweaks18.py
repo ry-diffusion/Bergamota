@@ -847,6 +847,58 @@ def posterboard(root):
 
 
 # ---------------------------------------------------------------------------------------------------------------
+# sensorbridge (opt-in: RENEGADE_SENSORBRIDGE=1, docs/SENSORS.md): the sensors of /dev/bergamota-sensors (kernel patch 1136) as HID events inside
+# backboardd. tools/bergamotanet/sensorbridge.c (build.sh: bergamota-sensorbridge.dylib, arm64e, pacstrip --sign) goes to
+# /usr/local/lib and is linked into /usr/libexec/backboardd as an extra LC_LOAD_DYLIB (backboardd has 120 bytes of load-command slack
+# before Crimson's inject, which takes 72; this one takes 64). The dylib does nothing unless the kernel made /dev/bergamota-sensors
+# (boot-arg bergamotasensors=1) and /private/var/tmp/sensorbridge.off is absent. Its install name is checked: a binary must never name
+# a dylib that is not there, so the dylib is installed first.
+SENSORBRIDGE_PATH = '/usr/local/lib/bergamota-sensorbridge.dylib'
+BACKBOARDD_BIN = 'usr/libexec/backboardd'
+
+
+def link_dylib(binp, dylib, outp):
+    """Copy binp to outp with an extra LC_LOAD_DYLIB for `dylib` (addlc.py), re-signed ad hoc keeping identifier, flags and
+    entitlements (as posterboard()/crimson_link()); False when it already links it. The CLI --link-dylib is the live-phone use."""
+    import subprocess
+    import pacstrip
+    if macho_has_dylib(binp, dylib):
+        return False
+    ents, ident = entitlements_of(binp), pacstrip.cs_identity(binp)
+    shutil.copyfile(binp, outp)
+    os.chmod(outp, 0o755)
+    subprocess.run([sys.executable, '-I', ADDLC, outp, dylib], check=True)
+    pacstrip.sign(outp)
+    if entitlements_of(outp) != ents or pacstrip.cs_identity(outp)[:2] != ident[:2]:
+        sys.exit('link_dylib: entitlements or identifier changed by the re-sign of %s' % binp)
+    if not macho_has_dylib(outp, dylib):
+        sys.exit('link_dylib: LC_LOAD_DYLIB missing after addlc.py in ' + binp)
+    return True
+
+
+def sensorbridge(root):
+    import tempfile
+    sys.path.insert(0, HERE)
+    binp = os.path.join(root, BACKBOARDD_BIN)
+    dylib = find_bergamotanet('ios18/bergamota-sensorbridge.dylib')
+    if not dylib or not os.path.exists(binp):
+        note_skip('sensorbridge', not_built() if not dylib else 'no ' + BACKBOARDD_BIN)
+        return
+    install_file(dylib, os.path.join(root, SENSORBRIDGE_PATH.lstrip('/')), 0o755)     # first: backboardd must never name a missing dylib
+    mode = os.stat(binp).st_mode & 0o7777
+    tmpd = tempfile.mkdtemp(prefix='renegade-sensorbridge-')
+    try:
+        tmp = os.path.join(tmpd, 'backboardd')
+        if link_dylib(binp, SENSORBRIDGE_PATH, tmp):
+            install_file(tmp, binp, mode)
+            print('sensorbridge: backboardd links', SENSORBRIDGE_PATH)
+        else:
+            print('sensorbridge: backboardd already links', SENSORBRIDGE_PATH)
+    finally:
+        shutil.rmtree(tmpd, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------------------------------------------
 # crimson (ON by default, see the feature list above): the Crimson Metal device (Metal over Turnip/Vulkan, repo ry-diffusion/Crimson).
 # Crimson's ios/inject/build.sh, ios/turnip/build-turnip.sh and ios/build.sh give crimson-inject.dylib, libdrm.2.dylib, libturnip.dylib and
 # libcrimson.dylib (arm64e; pacstrip --sign here); they go to /usr/local/lib/crimson. crimson-inject.dylib is linked into each binary of
@@ -1427,6 +1479,8 @@ def auto(root):
     metal = False
     if os.environ.get('RENEGADE_NO_CRIMSON') != '1':
         metal = crimson(root)
+    if os.environ.get('RENEGADE_SENSORBRIDGE') == '1':
+        sensorbridge(root)      # after crimson(): its inject takes its load-command room first
     firstboot(root, appreg=enabled('appreg'), jb=enabled('jb'), wallpaper=enabled('wallpaper'), metal=metal)
     if enabled('bglrender'):
         bglrender(root)
@@ -1442,6 +1496,10 @@ def main():
         with open(sys.argv[3], 'wb') as f:
             plistlib.dump(plist, f, fmt=plistlib.FMT_BINARY)
         print('%s: %s environment %s' % (sys.argv[3], BT_LABEL, BT_ENV))
+        return
+    if len(sys.argv) == 5 and sys.argv[1] == '--link-dylib':        # BIN DYLIB_PATH OUT: tools/bergamotanet/sensorbridge, live phone
+        sys.path.insert(0, HERE)
+        print('linked' if link_dylib(sys.argv[2], sys.argv[3], sys.argv[4]) else 'already linked: %s not written' % sys.argv[4])
         return
     if len(sys.argv) != 2 or not os.path.isdir(os.path.join(sys.argv[1], 'System/Library/xpc')):
         sys.exit(__doc__)
