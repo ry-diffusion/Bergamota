@@ -41,7 +41,7 @@ BERGAMOTANET = [
     ('ios18/bergamotaprefs', 'macho'), ('ios18/bergamotauicache', 'macho'), ('ios18/bergamotafp.dylib', 'macho'),
     ('ios18/bergamotametrics', 'macho'), ('ios18/bergamotaposterset', 'macho'), ('ios18/bergamotaiconstyle', 'macho'),
     ('ios18/bergamotaopen', 'macho'), ('ios18/bergamotashot', 'macho'), ('ios18/bergamotatouch', 'macho'),
-    ('ios18/bergamotasample', 'macho'), ('ios18/bergamotalog', 'macho'),
+    ('ios18/bergamotasample', 'macho'), ('ios18/bergamotalog', 'macho'), ('ios18/lsplug', 'macho'), ('ios18/lsa', 'macho'),
     ('ios18/BergamotaRun.app/BergamotaRun', 'macho'), ('ios18/BergamotaRun.app/Info.plist', 'data'),
     ('ios18/BergamotaRun.app/_CodeSignature/CodeResources', 'data'),
 ]

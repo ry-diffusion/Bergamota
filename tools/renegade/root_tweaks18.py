@@ -722,6 +722,7 @@ def find_bergamotanet(rel):
 
 
 UICACHE = None              # default: find_bergamotanet('ios18/bergamotauicache') (arm64e, pacstrip --sign)
+LSPLUG = None               # default: find_bergamotanet('ios18/lsplug')
 BERGAMOTAFP = None              # default: find_bergamotanet('ios18/bergamotafp.dylib')
 ADDLC = os.path.join(HERE, '..', 'bergamotanet', 'addlc.py')
 BERGAMOTAFP_PATH = '/usr/local/lib/bergamotafp.dylib'
@@ -1060,6 +1061,8 @@ FIRSTBOOT_SCRIPT = r'''#!/bin/sh
 #  1. APPREG: register /Applications apps listed in /usr/local/share/renegade/register-apps with LaunchServices:
 #       /usr/local/bin/bergamotauicache /Applications/NAME.app      (one call per app, as root, like the live fix)
 #     LaunchServices answers only once lsd is up, so the first app is retried (5 s apart, 10 min at most).
+#     PLUG: then the apps' embedded extensions (widgets, controls), which lsd never registers itself on iOS 26:
+#       /usr/local/bin/lsplug /Applications/*.app     (retried 10 s apart, 5 min at most; skips registered apps)
 #  2. the jailbreak post-install (/var/jb/usr/share/renegade-jb/postinstall.sh) if the root has one
 #  3. WALL: the default wallpaper (a Core Animation poster, no Metal: WALLPAPER_POSTER) and icon style (default, not tinted), once, as mobile:
 #     /private/var/tmp/bergamotarun.sh is written, `bergamotaopen com.bergamota.run` starts BergamotaRun.app through FrontBoard (an app
@@ -1109,6 +1112,17 @@ if [ $APPREG = 1 ] && [ -x $UIC ] && [ -s $LIST ]; then
 		reg "$app" || rc=1
 	done
 	[ $rc = 0 ] && echo "apps registered" || echo "registration incomplete"
+fi
+PLUG=@PLUG@
+LSP=/usr/local/bin/lsplug
+if [ $PLUG = 1 ] && [ -x $LSP ]; then
+	echo "-- app extensions (lsplug)"
+	t=0
+	until $LSP /Applications/*.app; do      # skips apps already registered; fails until lsd answers
+		t=$((t+1))
+		[ $t -ge 30 ] && { rc=1; echo "app extensions incomplete"; break; }
+		sleep 10
+	done
 fi
 WALL=@WALL@
 PDONE=/private/var/db/.renegade-poster-done
@@ -1188,7 +1202,8 @@ exit 0
 def firstboot(root, appreg=True, jb=True, wallpaper=True, metal=False):
     """First-boot job: app registration with bergamotauicache and, when the root has /var/jb, the jailbreak post-install
     (Sileo and TrollStore registration). Runs from the launchd.plist cache, needs /bin/sh (dash, ssh tweak). Disables
-    itself with /private/var/db/.renegade-firstboot-done. Also installs /usr/local/bin/bergamotauicache (arm64e,
+    itself with /private/var/db/.renegade-firstboot-done. Also installs /usr/local/bin/bergamotauicache and, for the apps'
+    embedded extensions, /usr/local/bin/lsplug (arm64e,
     pacstrip --sign, tools/bergamotanet/build.sh)."""
     if not appreg and not jb and not wallpaper:
         print('firstboot: appreg, jb and wallpaper are all off: no job')
@@ -1215,6 +1230,12 @@ def firstboot(root, appreg=True, jb=True, wallpaper=True, metal=False):
         if not jb:
             print('firstboot: nothing left for the job to do: no job')
             return
+    lsp = (LSPLUG or find_bergamotanet('ios18/lsplug')) if appreg else None
+    if lsp:
+        install_file(lsp, os.path.join(root, 'usr/local/bin/lsplug'))
+    elif appreg:
+        print('firstboot: lsplug not built (tools/bergamotanet/build.sh): app extensions (widgets, controls) not registered')
+        note_skip('app extensions (lsplug)', not_built() + '; widgets and Control Center controls stay missing on iOS 26')
     if wallpaper:
         wall = [find_bergamotanet('ios18/' + n) for n in ('bergamotaposterset', 'bergamotaiconstyle', 'bergamotaopen', 'BergamotaRun.app')]
         if not all(wall):
@@ -1235,6 +1256,7 @@ def firstboot(root, appreg=True, jb=True, wallpaper=True, metal=False):
             os.lchown(app, 0, 0)
             print('firstboot: bergamotaposterset, bergamotaiconstyle, bergamotaopen, /Applications/BergamotaRun.app installed')
     write_file(os.path.join(root, FIRSTBOOT_SH), FIRSTBOOT_SCRIPT.replace('@APPREG@', '1' if appreg else '0')
+               .replace('@PLUG@', '1' if lsp else '0')
                .replace('@WALL@', '1' if wallpaper else '0')
                .replace('@WPROV@', wallpaper_poster(metal).split(':', 1)[0]).replace('@WDESC@', wallpaper_poster(metal).split(':', 1)[1])
                .replace('@WPROV2@', WALLPAPER_COLLECTIONS.split(':', 1)[0]).replace('@WDESC2@', WALLPAPER_COLLECTIONS.split(':', 1)[1]), 0o755)

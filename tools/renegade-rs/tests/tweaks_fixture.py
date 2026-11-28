@@ -76,6 +76,7 @@ def make_tools(tools):
         ('bergamotanet/bluetool-stub', b'\xcf\xfa\xed\xfe bluetool stub', 0o755),
         ('bergamotanet/hcitest', b'\xcf\xfa\xed\xfe hcitest', 0o755),
         ('bergamotanet/ios18/bergamotauicache', b'\xcf\xfa\xed\xfe uicache', 0o755),
+        ('bergamotanet/ios18/lsplug', b'\xcf\xfa\xed\xfe lsplug', 0o755),
         ('bergamotanet/ios18/bergamotaposterset', b'\xcf\xfa\xed\xfe posterset', 0o755),
         ('bergamotanet/ios18/bergamotaiconstyle', b'\xcf\xfa\xed\xfe iconstyle', 0o755),
         ('bergamotanet/ios18/bergamotaopen', b'\xcf\xfa\xed\xfe open', 0o755),

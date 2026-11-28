@@ -3,6 +3,8 @@
 #  1. APPREG: register /Applications apps listed in /usr/local/share/renegade/register-apps with LaunchServices:
 #       /usr/local/bin/bergamotauicache /Applications/NAME.app      (one call per app, as root, like the live fix)
 #     LaunchServices answers only once lsd is up, so the first app is retried (5 s apart, 10 min at most).
+#     PLUG: then the apps' embedded extensions (widgets, controls), which lsd never registers itself on iOS 26:
+#       /usr/local/bin/lsplug /Applications/*.app     (retried 10 s apart, 5 min at most; skips registered apps)
 #  2. the jailbreak post-install (/var/jb/usr/share/renegade-jb/postinstall.sh) if the root has one
 #  3. WALL: the default wallpaper (a Core Animation poster, no Metal: WALLPAPER_POSTER) and icon style (default, not tinted), once, as mobile:
 #     /private/var/tmp/bergamotarun.sh is written, `bergamotaopen com.bergamota.run` starts BergamotaRun.app through FrontBoard (an app
@@ -52,6 +54,17 @@ if [ $APPREG = 1 ] && [ -x $UIC ] && [ -s $LIST ]; then
 		reg "$app" || rc=1
 	done
 	[ $rc = 0 ] && echo "apps registered" || echo "registration incomplete"
+fi
+PLUG=@PLUG@
+LSP=/usr/local/bin/lsplug
+if [ $PLUG = 1 ] && [ -x $LSP ]; then
+	echo "-- app extensions (lsplug)"
+	t=0
+	until $LSP /Applications/*.app; do      # skips apps already registered; fails until lsd answers
+		t=$((t+1))
+		[ $t -ge 30 ] && { rc=1; echo "app extensions incomplete"; break; }
+		sleep 10
+	done
 fi
 WALL=@WALL@
 PDONE=/private/var/db/.renegade-poster-done

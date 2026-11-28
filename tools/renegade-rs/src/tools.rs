@@ -351,7 +351,7 @@ fn posterboard(fs: &mut dyn Fs, log: &mut Log, t: &Tools) -> Result<()> {
     Ok(())
 }
 
-/// firstboot(): the first-boot job (app registration with bergamotauicache, default wallpaper and icon style).
+/// firstboot(): the first-boot job (app registration with bergamotauicache, their extensions with lsplug, default wallpaper and icon style).
 fn firstboot(fs: &mut dyn Fs, log: &mut Log, t: &Tools) -> Result<()> {
     if !fs.exists("bin/sh") {
         log.push("firstboot: /bin/sh missing (the ssh tweak installs dash): skipped".into());
@@ -365,6 +365,12 @@ fn firstboot(fs: &mut dyn Fs, log: &mut Log, t: &Tools) -> Result<()> {
             appreg = false;
             wallpaper = false;
         }
+    }
+    let lsplug = if appreg { t.get("bergamotanet/ios18/lsplug") } else { None };
+    match lsplug {
+        Some(l) => install(fs, l, "usr/local/bin/lsplug", 0o755)?,
+        None if appreg => log.push("firstboot: lsplug not built (tools/bergamotanet/build.sh): app extensions (widgets, controls) not registered".into()),
+        None => {}
     }
     if wallpaper {
         let names = ["bergamotaposterset", "bergamotaiconstyle", "bergamotaopen"];
@@ -398,6 +404,7 @@ fn firstboot(fs: &mut dyn Fs, log: &mut Log, t: &Tools) -> Result<()> {
     let (wp, wd) = WALLPAPER_COLLECTIONS.split_once(':').unwrap();
     let script = FIRSTBOOT_SCRIPT
         .replace("@APPREG@", if appreg { "1" } else { "0" })
+        .replace("@PLUG@", if lsplug.is_some() { "1" } else { "0" })
         .replace("@WALL@", if wallpaper { "1" } else { "0" })
         .replace("@WPROV@", wp)
         .replace("@WDESC@", wd)

@@ -103,6 +103,9 @@ if [ "${IOS18:-1}" = 1 ]; then
 	python3 -I "$pacstrip" --sign "$out18/bergamotapb26.dylib"
 	b18 bergamotaiconstyle bergamotaiconstyle.m iconstyle.entitlements -framework UIKit
 	b18 bergamotaopen bergamotaopen.m uicache.entitlements
+	# iOS 26: the apps' embedded extensions (widgets, controls) into LaunchServices, run by the first-boot job; lsa lists them
+	b18 lsplug lsplug.m lsplug.ents
+	b18 lsa lsa.m lsplug.ents
 	# remote testing over SSH: screenshot of the panel (PNG) and synthetic touch/buttons
 	b18 bergamotashot bergamotashot.m touch.entitlements -framework CoreGraphics -framework ImageIO -framework IOSurface \
 		-framework QuartzCore

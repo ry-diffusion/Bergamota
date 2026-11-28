@@ -2,9 +2,10 @@
 // the way uicache does (registerApplicationDictionary: with _LSBundlePlugins). For system apps whose extensions LS never took:
 // on the iOS 26 root every /Applications app had 0 plugins, so chronod found no widget/control providers (home widget "Waiting...",
 // Control Center layout regenerated empty, controls gallery would not open). registerApplication: / registerPlugin: did not help.
-// Build: xcrun --sdk iphoneos clang -arch arm64e -miphoneos-version-min=18.0 -fobjc-arc -O1 -o lsplug lsplug.m -framework Foundation
-//        codesign -f -s - --entitlements lsplug.ents lsplug && python3 ../renegade/pacstrip.py --sign lsplug
-// Run on the phone (root): lsplug /Applications/*.app  (only apps with a PlugIns folder matter; ~80 take a few minutes)
+// Idempotent: an app without extensions, or whose extensions are all registered already, is skipped.
+// Exit status 1 when an app's registration failed or none of its extensions shows up afterwards (lsd not up yet): run it again.
+// Built by tools/bergamotanet/build.sh (research/bergamotanet/ios18/lsplug); run at first boot by root_tweaks18.firstboot (renegade).
+// By hand on the phone (root): lsplug /Applications/*.app
 #import <Foundation/Foundation.h>
 #import <objc/message.h>
 static NSMutableDictionary *base(NSString *ident, NSString *path, NSString *type) {
@@ -14,7 +15,16 @@ static NSMutableDictionary *base(NSString *ident, NSString *path, NSString *type
   d[@"SignerOrganization"] = @"Apple Inc."; d[@"IsAdHocSigned"] = @YES; d[@"LSInstallType"] = @1;
   return d;
 }
+// identifiers of the extensions LaunchServices has under this app (empty when it does not know the app or lsd is not up)
+static NSSet *registered(NSString *ident) {
+  id app = ((id(*)(id,SEL,id))objc_msgSend)((id)NSClassFromString(@"LSApplicationProxy"), sel_registerName("applicationProxyForIdentifier:"), ident);
+  NSArray *plugins = [app respondsToSelector:sel_registerName("plugInKitPlugins")] ? ((id(*)(id,SEL))objc_msgSend)(app, sel_registerName("plugInKitPlugins")) : nil;
+  NSMutableSet *s = [NSMutableSet set];
+  for (id p in plugins) { NSString *pid = ((id(*)(id,SEL))objc_msgSend)(p, sel_registerName("pluginIdentifier")); if (pid) [s addObject:pid]; }
+  return s;
+}
 int main(int argc, char **argv) {
+  int failed = 0;
   @autoreleasepool {
     id ws = ((id(*)(id,SEL))objc_msgSend)((id)NSClassFromString(@"LSApplicationWorkspace"), sel_registerName("defaultWorkspace"));
     for (int i = 1; i < argc; i++) {
@@ -35,10 +45,17 @@ int main(int argc, char **argv) {
         p[@"PluginOwnerBundleID"] = ident;
         plugins[pid] = p;
       }
+      if (!plugins.count) continue;      // registering an app without extensions this way would only rewrite its record
+      NSSet *want = [NSSet setWithArray:plugins.allKeys];
+      if ([want isSubsetOfSet:registered(ident)]) { printf("%s (%s): %lu extensions already registered\n", argv[i], ident.UTF8String, (unsigned long)want.count); continue; }
       d[@"_LSBundlePlugins"] = plugins;
       BOOL ok = ((BOOL(*)(id,SEL,id))objc_msgSend)(ws, sel_registerName("registerApplicationDictionary:"), d);
-      printf("%s (%s): %lu extensions, registerApplicationDictionary -> %d\n", argv[i], ident.UTF8String, (unsigned long)plugins.count, ok);
+      NSMutableSet *now = [want mutableCopy];
+      [now intersectSet:registered(ident)];
+      printf("%s (%s): %lu extensions, registerApplicationDictionary -> %d, %lu registered\n", argv[i], ident.UTF8String,
+             (unsigned long)want.count, ok, (unsigned long)now.count);
+      if (!ok || !now.count) failed++;   // a partial set is kept: some extensions may never register, retrying would not help
     }
   }
-  return 0;
+  return failed ? 1 : 0;
 }
