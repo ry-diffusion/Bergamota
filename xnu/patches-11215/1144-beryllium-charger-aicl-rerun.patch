@@ -1,0 +1,165 @@
+diff -ru a/bsd/dev/bergamota_charger.c b/bsd/dev/bergamota_charger.c
+--- a/bsd/dev/bergamota_charger.c	2026-11-27 23:23:06
++++ b/bsd/dev/bergamota_charger.c	2026-11-27 23:23:06
+@@ -30,6 +30,13 @@
+  *                    1500 mA with AICL off); FLOAT 1000 mA (downstream FLOAT_CHARGER_UA); SDP untouched.
+  *                    A Rp change (CC re-vote) is treated like a new APSD result. kern.bergamota_charger
+  *                    shows typec_rp= (0 none/invalid, 1 default, 2 1.5 A, 3 3.0 A) and icl_sel_ma=.
++ *   bergamotacharger_aiclrerun=1  (default 0, mode 2 only) AICL rerun, 1144: when the ICL we applied is >= 200 mA above
++ *                    ICL_STATUS for >= 30 s (APSD/Rp stable, AICL on, USBIN not suspended, not hot/faulted), do what
++ *                    downstream smblib_rerun_aicl() does (smb-lib.c): write USBIN_CURRENT_LIMIT_CFG = max(ICL_STATUS - 25 mA,
++ *                    25 mA), then give the applied value back (downstream: vote AICL_RERUN_VOTER, then drop it; the ICL
++ *                    votable callback writes the register each time). Hardware AICL then restarts from the minimum
++ *                    (USBIN_AICL_START_AT_MAX is 0). At most once per 120 s and 20 times per plug; ICL_STATUS is logged
++ *                    3 s later. Only register 0x1370 is written (already allowed); nothing new to restore.
+  *   bergamotacharger_icl=<mA>  lowers the ICL ceiling (100..2000), e.g. 1500 = mainline
+  *   bergamotacharger_fcc=<mA>  lowers the FCC (500..2000), e.g. 1000 = mainline
+  *
+@@ -100,6 +107,11 @@
+ #define SC_FCC_MA               2000u
+ #define SC_FV_RAW_MAX           121u    /* 3487.5 mV + 121 * 7.5 mV = 4395 mV <= 4400 mV */
+ #define SC_STEP_MA              25u
++#define SC_RR_GAP_MA            200u    /* 1144: applied ICL above ICL_STATUS by this much ... */
++#define SC_RR_GAP_S             30u     /* ... for this long: rerun AICL */
++#define SC_RR_MIN_S             120u    /* at most one rerun per this */
++#define SC_RR_MAX               20u     /* per plug */
++#define SC_RR_CHECK_S           3u      /* log ICL_STATUS this long after a rerun */
+ 
+ #define R_STATUS1               0x1006u
+ #define R_STATUS2               0x1007u
+@@ -168,6 +180,7 @@
+ static unsigned sc_icl_cap_ma = SC_ICL_DCP_MA;
+ static unsigned sc_fcc_ma = SC_FCC_MA;
+ static bool sc_started;
++static int sc_aiclrerun;                /* bergamotacharger_aiclrerun */
+ 
+ /* what the control did and may undo */
+ static struct {
+@@ -183,6 +196,8 @@
+ 	unsigned stable, safe, bad;
+ 	unsigned writes, write_fails, applies, restores;
+ 	bool event;
++	bool rr_gap, rr_chk, rr_any, rr_have_icl;       /* 1144: gap seen / result due / ever rerun / rr_icl_ma valid */
++	unsigned rr_gap_s, rr_last_s, rr_chk_s, rr_n, rr_total, rr_icl_ma;
+ 	const char *why;                /* last decision, for the log */
+ } cs;
+ 
+@@ -215,6 +230,15 @@
+ 	return r < 0 ? n : (n + (size_t)r >= size ? size - 1 : n + (size_t)r);
+ }
+ 
++static unsigned
++sc_now_s(void)
++{
++	clock_sec_t sec = 0;
++	clock_nsec_t nsec = 0;
++	clock_get_system_nanotime(&sec, &nsec);
++	return (unsigned)sec;
++}
++
+ static bool
+ sc_rd(unsigned addr, uint8_t *out)
+ {
+@@ -444,11 +468,14 @@
+ 	n = sc_cat_hex(buf, size, n, "typec4", sc_have(s, R_TYPEC4), s->typec4);
+ 	n = sc_cat_hex(buf, size, n, "jeita_en", sc_have(s, R_JEITA_EN), s->jeita);
+ 	n = sc_cat_hex(buf, size, n, "aicl_st", sc_have(s, R_AICL_STATUS), s->aicl_stat);
++	n = sc_cat_hex(buf, size, n, "aicl_opt", sc_have(s, R_AICL_OPTIONS), s->aicl_opt);
+ 	if (sc_mode == 2) {
+ 		n = sc_cat(buf, size, n, " applied=%s icl_sel_ma=%u", cs.applied ? sc_apsd_name(cs.applied_res) : "none", cs.icl_sel);
+ 		n = sc_cat(buf, size, n, " cap_icl_ma=%u cap_fcc_ma=%u writes=%u write_fails=%u applies=%u restores=%u why=%s",
+ 		    sc_icl_cap_ma, sc_fcc_ma, cs.writes, cs.write_fails, cs.applies, cs.restores,
+ 		    cs.why ? cs.why : "-");
++		n = sc_cat(buf, size, n, " aiclrerun=%d reruns=%u rerun_total=%u rerun_icl_ma=%d", sc_aiclrerun, cs.rr_n, cs.rr_total,
++		    cs.rr_have_icl ? (int)cs.rr_icl_ma : -1);
+ 	}
+ 	return n;
+ }
+@@ -534,6 +561,31 @@
+ 	    icl * SC_STEP_MA, fcc * SC_STEP_MA, s->icl_opt, s->load, why);
+ }
+ 
++/*
++ * 1144: downstream smblib_rerun_aicl() (smb-lib.c): vote max(ICL_STATUS - 25 mA, 25 mA), then drop the vote; each vote
++ * change makes smblib_set_icl_current() write USBIN_CURRENT_LIMIT_CFG. Same two writes here.
++ */
++static void
++sc_aicl_rerun(struct sc_snap *s)
++{
++	unsigned now = sc_now_s(), before = s->icl_stat * SC_STEP_MA;
++	uint8_t lo = s->icl_stat > 1 ? (uint8_t)(s->icl_stat - 1) : 1, hi = cs.applied_icl_raw;
++	int r = sc_set(R_ICL_CFG, &s->icl_cfg, lo);
++
++	cs.rr_last_s = now;
++	cs.rr_n++;
++	cs.rr_total++;
++	cs.rr_gap = false;
++	if (r >= 0 && sc_set(R_ICL_CFG, &s->icl_cfg, hi) < 0) {
++		(void)sc_set(R_ICL_CFG, &s->icl_cfg, hi);       /* one retry; else the next tick rewrites it */
++	}
++	cs.rr_chk = true;
++	cs.rr_chk_s = now + SC_RR_CHECK_S;
++	cs.event = true;
++	printf("BERGAMOTA CHARGER: AICL rerun %u/%u: icl_now %u mA, cfg %u -> %u -> %u mA%s\n", cs.rr_n, SC_RR_MAX, before,
++	    hi * SC_STEP_MA, lo * SC_STEP_MA, hi * SC_STEP_MA, r < 0 ? " (write failed)" : "");
++}
++
+ /* returns the number of registers written (or -1 when a write failed) */
+ static int
+ sc_control(struct sc_snap *s)
+@@ -561,6 +613,8 @@
+ 
+ 	if (!plug) {
+ 		cs.safe = 0;
++		cs.rr_n = 0;
++		cs.rr_gap = cs.rr_chk = cs.rr_any = false;
+ 		sc_restore(s, "unplug");
+ 		cs.why = "unplugged";
+ 		cs.bad = 0;
+@@ -575,6 +629,13 @@
+ 	if (cs.safe < 255u) {
+ 		cs.safe++;
+ 	}
++	if (cs.rr_chk && sc_now_s() >= cs.rr_chk_s) {
++		cs.rr_chk = false;
++		cs.rr_have_icl = sc_have(s, R_ICL_STATUS);
++		cs.rr_icl_ma = s->icl_stat * SC_STEP_MA;
++		cs.event = true;
++		printf("BERGAMOTA CHARGER: AICL rerun result: icl_now %u mA (aicl_st 0x%02x)\n", cs.rr_icl_ma, s->aicl_stat);
++	}
+ 	if (cs.applied && (cs.applied_res != res || cs.applied_rp != rp)) {
+ 		sc_restore(s, "apsd-or-rp-changed");
+ 	}
+@@ -645,6 +706,22 @@
+ 		cs.applied_res = res;
+ 		cs.applied_rp = rp;
+ 	}
++	/* 1144: rerun AICL when it sits well below what we asked for (needs a tick without writes of ours) */
++	if (sc_aiclrerun && icl && !wrote && sc_have(s, R_ICL_STATUS) && (s->aicl_opt & 4u) && !(s->ppath & 0x40u) &&
++	    cs.stable >= SC_RR_GAP_S * 1000u / SC_CTL_PERIOD_MS && cs.safe >= 3 &&
++	    (unsigned)cs.applied_icl_raw * SC_STEP_MA >= s->icl_stat * SC_STEP_MA + SC_RR_GAP_MA) {
++		unsigned now = sc_now_s();
++		if (!cs.rr_gap) {
++			cs.rr_gap = true;
++			cs.rr_gap_s = now;
++		} else if (now - cs.rr_gap_s >= SC_RR_GAP_S && cs.rr_n < SC_RR_MAX &&
++		    (!cs.rr_any || now - cs.rr_last_s >= SC_RR_MIN_S)) {
++			cs.rr_any = true;
++			sc_aicl_rerun(s);
++		}
++	} else {
++		cs.rr_gap = false;
++	}
+ 	return wrote;
+ }
+ 
+@@ -719,6 +796,9 @@
+ 	}
+ 	if (PE_parse_boot_argn("bergamotacharger_fcc", &v, sizeof(v)) && v >= 500 && v < (int)SC_FCC_MA) {
+ 		sc_fcc_ma = (unsigned)v;
++	}
++	if (mode == 2 && PE_parse_boot_argn("bergamotacharger_aiclrerun", &v, sizeof(v)) && v == 1) {
++		sc_aiclrerun = 1;
+ 	}
+ 	sc_mode = mode;
+ 	if (kernel_thread_start((thread_continue_t)sc_thread, NULL, &thread) == KERN_SUCCESS) {
