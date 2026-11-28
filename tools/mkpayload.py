@@ -170,6 +170,33 @@ def add_img4_nodes(adt_blob):
     return adt.serialize(root)
 
 
+EXTRA_MAX = 1024        # sanity limit for the /chosen overflow string (kernel buffer is 2048 for both parts)
+
+
+def split_cmdline(cmdline):
+    """(head, extra): head fits XNU's CommandLine (<= 607 bytes, cut at a space), extra goes to /chosen bergamota-bootargs-extra."""
+    cl = cmdline.strip()
+    if len(cl.encode()) <= BOOT_LINE_LENGTH - 1:
+        return cl, ''
+    cut = cl.rfind(' ', 0, BOOT_LINE_LENGTH)      # head = cl[:cut] is at most 607 chars
+    if cut <= 0:
+        sys.exit('mkpayload: no space in the first %d bytes of the cmdline to split at' % (BOOT_LINE_LENGTH - 1))
+    head, extra = cl[:cut].rstrip(), cl[cut:].strip()
+    if len(head.encode()) > BOOT_LINE_LENGTH - 1 or len(extra.encode()) > EXTRA_MAX:
+        sys.exit('mkpayload: cmdline too long: CommandLine part %d (max %d), extra part %d (max %d)'
+                 % (len(head.encode()), BOOT_LINE_LENGTH - 1, len(extra.encode()), EXTRA_MAX))
+    return head, extra
+
+
+def add_bootargs_extra(adt_blob, extra):
+    """Return the ADT with /chosen/bergamota-bootargs-extra = extra (NUL terminated string); read by PE_bootargs_merge_extra (patch 1145)."""
+    root, _ = adt.parse(adt_blob)
+    chosen = next(c for c in root.children if c.name == 'chosen')
+    assert chosen.prop('bergamota-bootargs-extra') is None, 'ADT already has bergamota-bootargs-extra'
+    chosen.props.append(('bergamota-bootargs-extra', 0, extra.encode() + b'\0'))
+    return adt.serialize(root)
+
+
 def adt_dram(adt_blob):
     """Kernel-managed RAM <base, size> from the ADT's /chosen dram-base/dram-size."""
     root, _ = adt.parse(adt_blob)
@@ -192,6 +219,9 @@ def build(kernel_path, adt_path, cmdline, ramdisk_path=None, compress=False, img
     kernel_end = (kernel_end + PAGE - 1) & ~(PAGE - 1)
 
     adt_blob = open(adt_path, 'rb').read()
+    cmdline, extra = split_cmdline(cmdline)
+    if extra:
+        adt_blob = add_bootargs_extra(adt_blob, extra)
     if img4_nodes:
         adt_blob = add_img4_nodes(adt_blob)
     # The ADT decides where the kernel's RAM is (mkadt.py --highmem).
@@ -231,13 +261,11 @@ def build(kernel_path, adt_path, cmdline, ramdisk_path=None, compress=False, img
     struct.pack_into('<7Q', out, 0x10, virt_base, m['entry'], adt_off, len(adt_blob), kernel_end,
                      PHYS_BASE, MEM_SIZE)
     cl = cmdline.encode()
-    if len(cl) > BOOT_LINE_LENGTH - 1:      # XNU's boot_args CommandLine: a longer line was silently cut (boot 24/26 lost their last args)
-        sys.exit('mkpayload: cmdline is %d bytes, the limit is %d: drop some boot-args' % (len(cl), BOOT_LINE_LENGTH - 1))
     out[CMDLINE:CMDLINE + len(cl)] = cl
     for i, t in enumerate(seg_table):
         struct.pack_into('<5Q' if compress else '<4Q', out, SEG_TABLE + stride * i, *t)
     info = dict(cputype=hex(m['cputype']), cpusub=m['cpusub'], fixups=nfix, virt_base=hex(virt_base),
-                entry=hex(m['entry']), kernel_end=hex(kernel_end), ramdisk=ramdisk, size=len(out),
+                entry=hex(m['entry']), kernel_end=hex(kernel_end), ramdisk=ramdisk, cmdline_extra=len(extra), size=len(out),
                 segs=[(s['name'], hex(s['vmaddr']), hex(s['vmsize'])) for s in segs])
     return bytes(out), info
 

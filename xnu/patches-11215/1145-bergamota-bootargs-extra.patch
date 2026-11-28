@@ -1,0 +1,90 @@
+diff -ru a/bsd/kern/kern_sysctl.c b/bsd/kern/kern_sysctl.c
+--- a/bsd/kern/kern_sysctl.c	2026-11-28 00:11:40
++++ b/bsd/kern/kern_sysctl.c	2026-11-28 00:11:53
+@@ -2206,12 +2206,10 @@
+ sysctl_sysctl_bootargs
+ (__unused struct sysctl_oid *oidp, __unused void *arg1, __unused int arg2, struct sysctl_req *req)
+ {
+-	int error;
+-	char buf[BOOT_LINE_LENGTH];
++	/* 1145: PE_boot_args() can be longer than BOOT_LINE_LENGTH (CommandLine + /chosen bergamota-bootargs-extra); read-only */
++	char *args = PE_boot_args();
+ 
+-	strlcpy(buf, PE_boot_args(), BOOT_LINE_LENGTH);
+-	error = sysctl_io_string(req, buf, BOOT_LINE_LENGTH, 0, NULL);
+-	return error;
++	return sysctl_io_string(req, args, strlen(args) + 1, 0, NULL);
+ }
+ 
+ SYSCTL_PROC(_kern, OID_AUTO, bootargs,
+diff -ru a/pexpert/arm/pe_bootargs.c b/pexpert/arm/pe_bootargs.c
+--- a/pexpert/arm/pe_bootargs.c	2026-11-28 00:11:40
++++ b/pexpert/arm/pe_bootargs.c	2026-11-28 00:11:53
+@@ -3,10 +3,47 @@
+  */
+ #include <pexpert/pexpert.h>
+ #include <pexpert/boot.h>
++#include <pexpert/device_tree.h>
+ 
++/*
++ * Bergamota 1145: boot_args.CommandLine is only BOOT_LINE_LENGTH (608) bytes. mkpayload.py puts the overflow
++ * into /chosen "bergamota-bootargs-extra"; PE_bootargs_merge_extra() (PE_init_platform, right after SecureDTInit)
++ * builds CommandLine + " " + extra here, and PE_boot_args() returns it from then on. Whatever runs before that
++ * (bergamota_early_set_cmdline, start.s, arm_init up to PE_init_platform) sees CommandLine only.
++ */
++#define BERGAMOTA_BOOTARGS_MAX 2048
++static char bergamota_bootargs[BERGAMOTA_BOOTARGS_MAX];
++static bool bergamota_bootargs_merged;
++
++void
++PE_bootargs_merge_extra(void)
++{
++	DTEntry chosen;
++	char const *extra;
++	unsigned int size;
++	size_t len;
++
++	if (SecureDTLookupEntry(NULL, "/chosen", &chosen) != kSuccess ||
++	    SecureDTGetProperty(chosen, "bergamota-bootargs-extra", (void const **)&extra, &size) != kSuccess ||
++	    size == 0) {
++		return;
++	}
++	strlcpy(bergamota_bootargs, ((boot_args *)PE_state.bootArgs)->CommandLine, sizeof(bergamota_bootargs));
++	len = strlcat(bergamota_bootargs, " ", sizeof(bergamota_bootargs));
++	/* the property is not guaranteed to be NUL terminated, and ends up in a static buffer (the DT gets slid later) */
++	for (unsigned int i = 0; i < size && extra[i] && len < sizeof(bergamota_bootargs) - 1; i++) {
++		bergamota_bootargs[len++] = extra[i];
++	}
++	bergamota_bootargs[len] = '\0';
++	bergamota_bootargs_merged = true;
++}
++
+ char *
+ PE_boot_args(
+ 	void)
+ {
++	if (bergamota_bootargs_merged) {
++		return bergamota_bootargs;
++	}
+ 	return (char *)((boot_args *)PE_state.bootArgs)->CommandLine;
+ }
+diff -ru a/pexpert/arm/pe_init.c b/pexpert/arm/pe_init.c
+--- a/pexpert/arm/pe_init.c	2026-11-28 00:11:40
++++ b/pexpert/arm/pe_init.c	2026-11-28 00:11:53
+@@ -408,6 +408,8 @@
+ 	SecureDTInit(PE_state.deviceTreeHead, PE_state.deviceTreeSize);
+ }
+ 
++extern void PE_bootargs_merge_extra(void);
++
+ void
+ PE_init_platform(boolean_t vm_initialized, void *args)
+ {
+@@ -442,6 +444,7 @@
+ 		 * can be used..
+ 		 */
+ 		SecureDTInit(PE_state.deviceTreeHead, PE_state.deviceTreeSize);
++		PE_bootargs_merge_extra();      /* 1145: /chosen bergamota-bootargs-extra */
+ 		pe_identify_machine(boot_args_ptr);
+ 	} else {
+ 		pe_arm_init_interrupts(args);
