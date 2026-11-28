@@ -1,0 +1,661 @@
+1141: per-edge GLINK/QRTR transport context in beryllium_wlan.c, no behaviour change for the modem. The transport members of the
+global `ipc` (SMEM descriptor/FIFOs, intents, TX queue, remote id, QRTR node, packet counters) move into struct glink_edge; the
+modem edge is ge_modem, `ge` is the edge the ipc_* functions work on. host (smem partition 0<->host), doorbell, name (log text)
+and rx_cb (the QRTR packet handler) are per edge; for the modem they are 1, GLINK_DOORBELL (12), "modem", ipc_qrtr_rx, so every
+SMEM address, doorbell write, GLINK/QRTR byte and log line of the modem is as before. The tail of ms_ipc_setup() (descriptor,
+TX FIFO, VERSION) becomes ge_setup(). Mechanical: `ipc.<transport member>` -> `ge-><member>` (134 sites).
+One thread must drive the edges (ge is a plain pointer): bergamotawlan and bergamotaslpi stay mutually exclusive.
+
+--- a/bsd/dev/beryllium_wlan.c
++++ b/bsd/dev/beryllium_wlan.c
+@@ -2214,33 +2214,48 @@
+ 	{ "/boot/modem_fs1", "modemst1" }, { "/boot/modem_fs2", "modemst2" },
+ 	{ "/boot/modem_fsc", "fsc" }, { "/boot/modem_fsg", "fsg" },
+ };
+-static struct {
+-	uint32_t desc, tx, tx_len, rx, rx_len;  /* SMEM offsets; rx 0 until the modem's FIFO exists */
++/*
++ * 1141: one GLINK-over-SMEM edge (a remote processor's pair of SMEM FIFOs and its IPCRTR channel). The modem edge is
++ * ge_modem, set up by ms_ipc_setup() exactly as before; `ge` is the edge the ipc_* transport functions work on (one
++ * thread drives them, so a plain pointer is enough). host/doorbell/name/rx_cb are what differs between edges.
++ */
++struct glink_edge {
++	const char *name;               /* "modem" / "slpi": log lines only */
++	uint32_t host;                  /* smem remote pid: the partition is 0<->host (modem 1, slpi 3) */
++	uint32_t doorbell;              /* apss_shared channel of the glink edge (modem 12, slpi 24) */
++	void (*rx_cb)(const uint8_t *p, uint32_t len);  /* a complete QRTR packet from the remote */
++	uint32_t desc, tx, tx_len, rx, rx_len;  /* SMEM offsets; rx 0 until the remote's FIFO exists */
+ 	uint32_t features;
+ 	bool version_acked, bad_rx, closed;
+-	uint32_t rcid;                  /* the modem's id for IPCRTR, 0 = not opened yet */
++	uint32_t rcid;                  /* the remote's id for IPCRTR, 0 = not opened yet */
+ 	bool open_acked, intents_sent;
+ 	struct ipc_lintent li[IPC_MAX_INTENTS];
+ 	struct ipc_rintent ri[IPC_MAX_RINTENTS];
+ 	struct {
+ 		uint32_t len;
+ 		uint8_t *data;
+-	} txq[IPC_TXQ];                 /* QRTR packets waiting for a modem intent (kalloc'd copies) */
++	} txq[IPC_TXQ];                 /* QRTR packets waiting for a remote intent (kalloc'd copies) */
+ 	unsigned txq_n;
+ 	bool intent_asked;
+ 	uint32_t next_liid;
+-	uint32_t node;                  /* the modem's QRTR node, learned from its packets */
++	uint32_t node;                  /* the remote's QRTR node, learned from its packets */
++	uint64_t open_ms;
++	unsigned rx_pkts, tx_pkts;
++};
++static struct glink_edge ge_modem;
++static struct glink_edge *ge = &ge_modem;
++
++static struct {
+ 	bool hello_seen, announced, tftp, pdm, wlfw_seen, wlfw, ce, wmi, scan;
+ 	unsigned pdm_reqs;
+ 	char notes[3072];               /* the stage's key events, printed again at the end (ipc_note) */
+ 	uint32_t notes_len;
+-	uint64_t open_ms;
+ 	vm_offset_t win;                /* kernel window over the rmtfs buffer */
+ 	uint64_t win_base, win_len;
+ 	uint32_t rmtfs_perm;
+ 	uint8_t *shadow[4];
+ 	uint64_t part_bytes[4];
+-	unsigned rx_pkts, tx_pkts, reads, writes, iovec_logged;
++	unsigned reads, writes, iovec_logged;
+ 	uint64_t read_bytes, write_bytes;
+ } ipc;
+ 
+@@ -2268,26 +2283,26 @@
+ ipc_kick(void)
+ {
+ 	__asm__ volatile ("dsb sy" ::: "memory");
+-	wl_wr(ms.ipc, 12, 1u << GLINK_DOORBELL);
++	wl_wr(ms.ipc, 12, 1u << ge->doorbell);
+ }
+ 
+ static uint32_t
+ ipc_rx_avail(void)
+ {
+-	if (!ipc.rx) {
+-		uint32_t sz = 0, it = ms_smem_item(0, 1, GLINK_RX_ITEM, &sz);
++	if (!ge->rx) {
++		uint32_t sz = 0, it = ms_smem_item(0, ge->host, GLINK_RX_ITEM, &sz);
+ 		if (!it || sz < 64 || (sz & 7)) {
+ 			return 0;
+ 		}
+-		ipc.rx = it;
+-		ipc.rx_len = sz;
+-		printf("BERGAMOTA IPC: modem's GLINK FIFO (item %u) at +%#x, %u bytes\n", GLINK_RX_ITEM, it, sz);
++		ge->rx = it;
++		ge->rx_len = sz;
++		printf("BERGAMOTA IPC: %s's GLINK FIFO (item %u) at +%#x, %u bytes\n", ge->name, GLINK_RX_ITEM, it, sz);
+ 	}
+-	uint32_t head = smem_u32(ipc.desc + 12), tail = smem_u32(ipc.desc + 8);
+-	if (head >= ipc.rx_len || tail >= ipc.rx_len) {
++	uint32_t head = smem_u32(ge->desc + 12), tail = smem_u32(ge->desc + 8);
++	if (head >= ge->rx_len || tail >= ge->rx_len) {
+ 		return 0;
+ 	}
+-	return head >= tail ? head - tail : ipc.rx_len - tail + head;
++	return head >= tail ? head - tail : ge->rx_len - tail + head;
+ }
+ 
+ /* glink_smem_rx_peek(): byte copy out of the ring through 32-bit device reads */
+@@ -2295,12 +2310,12 @@
+ ipc_rx_peek(uint32_t offset, void *dst, uint32_t count)
+ {
+ 	uint8_t *d = dst;
+-	uint32_t pos = smem_u32(ipc.desc + 8) + offset;
++	uint32_t pos = smem_u32(ge->desc + 8) + offset;
+ 	while (count) {
+-		while (pos >= ipc.rx_len) {
+-			pos -= ipc.rx_len;
++		while (pos >= ge->rx_len) {
++			pos -= ge->rx_len;
+ 		}
+-		uint32_t w = smem_u32(ipc.rx + (pos & ~3u)), b = pos & 3u, n = MIN(4u - b, count);
++		uint32_t w = smem_u32(ge->rx + (pos & ~3u)), b = pos & 3u, n = MIN(4u - b, count);
+ 		memcpy(d, (uint8_t *)&w + b, n);
+ 		d += n;
+ 		count -= n;
+@@ -2311,19 +2326,19 @@
+ static void
+ ipc_rx_advance(uint32_t count)
+ {
+-	uint32_t tail = smem_u32(ipc.desc + 8) + count;
+-	while (tail >= ipc.rx_len) {
+-		tail -= ipc.rx_len;
++	uint32_t tail = smem_u32(ge->desc + 8) + count;
++	while (tail >= ge->rx_len) {
++		tail -= ge->rx_len;
+ 	}
+-	wl_wr(wl.smem, ipc.desc + 8, tail);
++	wl_wr(wl.smem, ge->desc + 8, tail);
+ }
+ 
+ /* glink_smem_tx_avail(): FIFO_FULL_RESERVE + TX_BLOCKED_CMD_RESERVE = 16 bytes kept free */
+ static uint32_t
+ ipc_tx_avail(void)
+ {
+-	uint32_t head = smem_u32(ipc.desc + 4), tail = smem_u32(ipc.desc + 0);
+-	uint32_t avail = tail <= head ? ipc.tx_len - head + tail : tail - head;
++	uint32_t head = smem_u32(ge->desc + 4), tail = smem_u32(ge->desc + 0);
++	uint32_t avail = tail <= head ? ge->tx_len - head + tail : tail - head;
+ 	return avail < 16 ? 0 : avail - 16;
+ }
+ 
+@@ -2333,13 +2348,13 @@
+ {
+ 	static uint8_t buf[GLINK_TX_MAX + 64];
+ 	uint32_t tlen = hlen + dlen, total = (tlen + 7u) & ~7u;
+-	if (total > sizeof(buf) || tlen >= ipc.tx_len) {
++	if (total > sizeof(buf) || tlen >= ge->tx_len) {
+ 		return false;
+ 	}
+ 	for (unsigned i = 0; ipc_tx_avail() < tlen; i++) {
+ 		if (i == 1000) {
+-			printf("BERGAMOTA IPC: GLINK TX FIFO full for 1 s (head %#x tail %#x)\n", smem_u32(ipc.desc + 4),
+-			    smem_u32(ipc.desc + 0));
++			printf("BERGAMOTA IPC: GLINK TX FIFO full for 1 s (head %#x tail %#x)\n", smem_u32(ge->desc + 4),
++			    smem_u32(ge->desc + 0));
+ 			return false;
+ 		}
+ 		wl_sleep(1);
+@@ -2349,21 +2364,21 @@
+ 		memcpy(buf + hlen, data, dlen);
+ 	}
+ 	bzero(buf + tlen, total - tlen);
+-	uint32_t head = smem_u32(ipc.desc + 4);
++	uint32_t head = smem_u32(ge->desc + 4);
+ 	for (uint32_t i = 0; i < total; i += 4) {       /* head and the ring size are 8-aligned: no word wraps */
+ 		uint32_t w, p = head + i;
+ 		memcpy(&w, buf + i, 4);
+-		if (p >= ipc.tx_len) {
+-			p -= ipc.tx_len;
++		if (p >= ge->tx_len) {
++			p -= ge->tx_len;
+ 		}
+-		wl_wr(wl.smem, ipc.tx + p, w);
++		wl_wr(wl.smem, ge->tx + p, w);
+ 	}
+ 	head += total;
+-	if (head >= ipc.tx_len) {
+-		head -= ipc.tx_len;
++	if (head >= ge->tx_len) {
++		head -= ge->tx_len;
+ 	}
+ 	__asm__ volatile ("dsb sy" ::: "memory");
+-	wl_wr(wl.smem, ipc.desc + 4, head);
++	wl_wr(wl.smem, ge->desc + 4, head);
+ 	ipc_kick();
+ 	return true;
+ }
+@@ -2383,7 +2398,7 @@
+ ipc_add_intent(uint32_t size, bool reuse)
+ {
+ 	for (unsigned k = 0; k < IPC_MAX_INTENTS; k++) {
+-		struct ipc_lintent *in = &ipc.li[k];
++		struct ipc_lintent *in = &ge->li[k];
+ 		if (in->buf) {
+ 			continue;
+ 		}
+@@ -2391,7 +2406,7 @@
+ 		if (!in->buf) {
+ 			return false;
+ 		}
+-		in->id = ++ipc.next_liid;
++		in->id = ++ge->next_liid;
+ 		in->size = size;
+ 		in->off = 0;
+ 		in->reuse = reuse;
+@@ -2417,7 +2432,7 @@
+ 		uint32_t len;
+ 		char name[8];
+ 	} __attribute__((packed)) req = { G_OPEN, GLINK_LCID, 7, "IPCRTR" };
+-	(void)ipc_tx_cmd(G_OPEN_ACK, (uint16_t)ipc.rcid, 0);
++	(void)ipc_tx_cmd(G_OPEN_ACK, (uint16_t)ge->rcid, 0);
+ 	(void)ipc_tx(&req, (uint32_t)sizeof(req), NULL, 0);
+ }
+ 
+@@ -2427,7 +2442,7 @@
+ static void
+ ipc_rx_poll(void)
+ {
+-	for (unsigned guard = 0; guard < 64 && !ipc.bad_rx; guard++) {
++	for (unsigned guard = 0; guard < 64 && !ge->bad_rx; guard++) {
+ 		uint32_t avail = ipc_rx_avail();
+ 		if (avail < 8) {
+ 			return;
+@@ -2443,22 +2458,22 @@
+ 		case G_VERSION:
+ 			ipc_rx_advance(8);
+ 			if (p1 == 1) {
+-				ipc.features &= p2;
++				ge->features &= p2;
+ 			}
+-			printf("BERGAMOTA IPC: glink version %u features %#x from the modem -> ack with %#x\n", p1, p2,
+-			    ipc.features);
++			printf("BERGAMOTA IPC: glink version %u features %#x from the %s -> ack with %#x\n", p1, p2, ge->name,
++			    ge->features);
+ 			if (p1 != 0) {
+-				(void)ipc_tx_cmd(G_VERSION_ACK, 1, ipc.features);
++				(void)ipc_tx_cmd(G_VERSION_ACK, 1, ge->features);
+ 			}
+ 			break;
+ 		case G_VERSION_ACK:
+ 			ipc_rx_advance(8);
+ 			printf("BERGAMOTA IPC: glink version-ack %u features %#x\n", p1, p2);
+-			if (p1 == 1 && p2 != ipc.features) {
+-				ipc.features &= p2;
+-				(void)ipc_tx_cmd(G_VERSION, 1, ipc.features);
++			if (p1 == 1 && p2 != ge->features) {
++				ge->features &= p2;
++				(void)ipc_tx_cmd(G_VERSION, 1, ge->features);
+ 			} else if (p1 == 1) {
+-				ipc.version_acked = true;
++				ge->version_acked = true;
+ 			}
+ 			break;
+ 		case G_OPEN: {
+@@ -2470,32 +2485,32 @@
+ 			memset(name, 0, sizeof(name));
+ 			ipc_rx_peek(8, name, MIN(p2, 32u));
+ 			ipc_rx_advance(8 + extra);
+-			printf("BERGAMOTA IPC: glink: modem opens \"%s\" (its id %u)\n", name, p1);
+-			if (strcmp(name, "IPCRTR") == 0 && !ipc.rcid) {
+-				ipc.rcid = p1;
++			printf("BERGAMOTA IPC: glink: %s opens \"%s\" (its id %u)\n", ge->name, name, p1);
++			if (strcmp(name, "IPCRTR") == 0 && !ge->rcid) {
++				ge->rcid = p1;
+ 				ipc_send_open();
+ 			}
+ 			break;
+ 		}
+ 		case G_OPEN_ACK:
+ 			ipc_rx_advance(8);
+-			if (p1 == GLINK_LCID && !ipc.open_acked) {
+-				ipc.open_acked = true;
+-				ipc.open_ms = ms_now_ms();
++			if (p1 == GLINK_LCID && !ge->open_acked) {
++				ge->open_acked = true;
++				ge->open_ms = ms_now_ms();
+ 				printf("BERGAMOTA IPC: glink IPCRTR open both ways; advertising %u x %u-byte intents\n", IPC_INTENTS,
+ 				    IPC_INTENT_SIZE);
+ 				for (unsigned k = 0; k < IPC_INTENTS; k++) {
+ 					(void)ipc_add_intent(IPC_INTENT_SIZE, true);
+ 				}
+-				ipc.intents_sent = true;
++				ge->intents_sent = true;
+ 			}
+ 			break;
+ 		case G_CLOSE:
+ 			ipc_rx_advance(8);
+-			printf("BERGAMOTA IPC: glink: modem closes its id %u\n", p1);
++			printf("BERGAMOTA IPC: glink: %s closes its id %u\n", ge->name, p1);
+ 			(void)ipc_tx_cmd(G_CLOSE_ACK, p1, 0);
+-			if (p1 == ipc.rcid) {
+-				ipc.closed = true;
++			if (p1 == ge->rcid) {
++				ge->closed = true;
+ 			}
+ 			break;
+ 		case G_INTENT: {
+@@ -2508,13 +2523,13 @@
+ 				ipc_rx_peek(8 + 8 * k, pair, 8);
+ 				unsigned j;
+ 				for (j = 0; j < IPC_MAX_RINTENTS; j++) {
+-					if (!ipc.ri[j].valid) {
+-						ipc.ri[j] = (struct ipc_rintent){ pair[1], pair[0], true, false };
++					if (!ge->ri[j].valid) {
++						ge->ri[j] = (struct ipc_rintent){ pair[1], pair[0], true, false };
+ 						break;
+ 					}
+ 				}
+ 				if (j == IPC_MAX_RINTENTS) {
+-					printf("BERGAMOTA IPC: glink: modem intent %u (%u bytes) not kept: table full\n", pair[1], pair[0]);
++					printf("BERGAMOTA IPC: glink: %s intent %u (%u bytes) not kept: table full\n", ge->name, pair[1], pair[0]);
+ 				}
+ 			}
+ 			ipc_rx_advance((msglen + 7u) & ~7u);
+@@ -2524,10 +2539,10 @@
+ 		case G_RX_DONE_W_REUSE:
+ 			ipc_rx_advance(8);
+ 			for (unsigned j = 0; j < IPC_MAX_RINTENTS; j++) {
+-				if (ipc.ri[j].valid && ipc.ri[j].id == p2) {
+-					ipc.ri[j].used = false;
++				if (ge->ri[j].valid && ge->ri[j].id == p2) {
++					ge->ri[j].used = false;
+ 					if (cmd == G_RX_DONE) {
+-						ipc.ri[j].valid = false;
++						ge->ri[j].valid = false;
+ 					}
+ 				}
+ 			}
+@@ -2535,7 +2550,7 @@
+ 		case G_RX_INTENT_REQ:
+ 			/* qcom_glink_handle_intent_req(): a one-shot intent of the asked size, then the ack */
+ 			ipc_rx_advance(8);
+-			printf("BERGAMOTA IPC: glink: modem asks for a %u-byte intent\n", p2);
++			printf("BERGAMOTA IPC: glink: %s asks for a %u-byte intent\n", ge->name, p2);
+ 			{
+ 				bool ok = p2 <= 0x10000u && ipc_add_intent(MAX(p2, 1u), false);
+ 				(void)ipc_tx_cmd(G_RX_INTENT_REQ_ACK, GLINK_LCID, ok);
+@@ -2563,11 +2578,11 @@
+ 			}
+ 			struct ipc_lintent *in = NULL;
+ 			for (unsigned k = 0; k < IPC_MAX_INTENTS; k++) {
+-				if (ipc.li[k].buf && ipc.li[k].id == p2) {
+-					in = &ipc.li[k];
++				if (ge->li[k].buf && ge->li[k].id == p2) {
++					in = &ge->li[k];
+ 				}
+ 			}
+-			if (p1 != ipc.rcid || !in || in->size - in->off < chunk) {
++			if (p1 != ge->rcid || !in || in->size - in->off < chunk) {
+ 				/* "The packet header lied, drop payload": no delivery, no rx-done (Linux) */
+ 				printf("BERGAMOTA IPC: glink data for id %u intent %u (%u bytes) dropped\n", p1, p2, chunk);
+ 				if (in) {
+@@ -2581,11 +2596,11 @@
+ 			if (in && left == 0 && in->bad) {
+ 				in->bad = false;
+ 				in->off = 0;
+-			} else if (in && left == 0 && p1 == ipc.rcid) {
++			} else if (in && left == 0 && p1 == ge->rcid) {
+ 				uint32_t n = in->off;
+ 				in->off = 0;
+-				ipc.rx_pkts++;
+-				ipc_qrtr_rx(in->buf, n);
++				ge->rx_pkts++;
++				ge->rx_cb(in->buf, n);
+ 				/* qcom_glink_rx_done(): our intents from announce_create are reusable */
+ 				struct {
+ 					uint16_t id, lcid;
+@@ -2601,7 +2616,7 @@
+ 		}
+ 		default:
+ 			printf("BERGAMOTA IPC: glink: unknown command %u (p1 %u p2 %#x): ring stopped\n", cmd, p1, p2);
+-			ipc.bad_rx = true;
++			ge->bad_rx = true;
+ 			return;
+ 		}
+ 	}
+@@ -2613,7 +2628,7 @@
+ {
+ 	struct ipc_rintent *best = NULL;
+ 	for (unsigned j = 0; j < IPC_MAX_RINTENTS; j++) {
+-		struct ipc_rintent *r = &ipc.ri[j];
++		struct ipc_rintent *r = &ge->ri[j];
+ 		if (r->valid && !r->used && r->size >= len && (!best || r->size < best->size)) {
+ 			best = r;
+ 		}
+@@ -2622,7 +2637,7 @@
+ 		return false;
+ 	}
+ 	best->used = true;
+-	ipc.tx_pkts++;
++	ge->tx_pkts++;
+ 	/* chunks of at most SZ_8K: TX_DATA, then TX_DATA_CONT, left_size counting down */
+ 	for (uint32_t off = 0; off < len;) {
+ 		uint32_t chunk = MIN(len - off, GLINK_TX_MAX);
+@@ -2646,13 +2661,13 @@
+ static bool
+ ipc_send(const void *data, uint32_t len)
+ {
+-	if (!ipc.open_acked || ipc.closed || len > IPC_PKT_MAX) {
++	if (!ge->open_acked || ge->closed || len > IPC_PKT_MAX) {
+ 		return false;
+ 	}
+-	if (ipc.txq_n == 0 && ipc_send_now(data, len)) {
++	if (ge->txq_n == 0 && ipc_send_now(data, len)) {
+ 		return true;
+ 	}
+-	if (ipc.txq_n == IPC_TXQ) {
++	if (ge->txq_n == IPC_TXQ) {
+ 		printf("BERGAMOTA IPC: glink TX queue full: %u-byte packet dropped\n", len);
+ 		return false;
+ 	}
+@@ -2661,15 +2676,15 @@
+ 		return false;
+ 	}
+ 	memcpy(copy, data, len);
+-	ipc.txq[ipc.txq_n].len = len;
+-	ipc.txq[ipc.txq_n].data = copy;
+-	ipc.txq_n++;
+-	if (!ipc.intent_asked) {
++	ge->txq[ge->txq_n].len = len;
++	ge->txq[ge->txq_n].data = copy;
++	ge->txq_n++;
++	if (!ge->intent_asked) {
+ 		struct {
+ 			uint16_t id, cid;
+ 			uint32_t size;
+ 		} __attribute__((packed)) req = { G_RX_INTENT_REQ, GLINK_LCID, len };
+-		ipc.intent_asked = true;
++		ge->intent_asked = true;
+ 		(void)ipc_tx(&req, (uint32_t)sizeof(req), NULL, 0);
+ 	}
+ 	return true;
+@@ -2678,18 +2693,18 @@
+ static void
+ ipc_flush(void)
+ {
+-	while (ipc.txq_n && ipc_send_now(ipc.txq[0].data, ipc.txq[0].len)) {
+-		kfree_data(ipc.txq[0].data, ipc.txq[0].len);
+-		ipc.txq_n--;
+-		memmove(&ipc.txq[0], &ipc.txq[1], ipc.txq_n * sizeof(ipc.txq[0]));
+-		ipc.intent_asked = false;
++	while (ge->txq_n && ipc_send_now(ge->txq[0].data, ge->txq[0].len)) {
++		kfree_data(ge->txq[0].data, ge->txq[0].len);
++		ge->txq_n--;
++		memmove(&ge->txq[0], &ge->txq[1], ge->txq_n * sizeof(ge->txq[0]));
++		ge->intent_asked = false;
+ 	}
+-	if (ipc.txq_n && !ipc.intent_asked) {
++	if (ge->txq_n && !ge->intent_asked) {
+ 		struct {
+ 			uint16_t id, cid;
+ 			uint32_t size;
+-		} __attribute__((packed)) req = { G_RX_INTENT_REQ, GLINK_LCID, ipc.txq[0].len };
+-		ipc.intent_asked = true;
++		} __attribute__((packed)) req = { G_RX_INTENT_REQ, GLINK_LCID, ge->txq[0].len };
++		ge->intent_asked = true;
+ 		(void)ipc_tx(&req, (uint32_t)sizeof(req), NULL, 0);
+ 	}
+ }
+@@ -2719,18 +2734,18 @@
+ {
+ 	uint32_t hello[5] = { Q_HELLO, 0, 0, 0, 0 };
+ 	uint32_t srv[5] = { Q_NEW_SERVER, RMTFS_SERVICE, RMTFS_INSTANCE, QRTR_NODE_LOCAL, QRTR_RMTFS_PORT };
+-	bool a = ipc_qrtr_send(Q_HELLO, QRTR_PORT_CTRL, ipc.node, QRTR_PORT_CTRL, hello, sizeof(hello));
+-	bool b = ipc_qrtr_send(Q_NEW_SERVER, QRTR_PORT_CTRL, ipc.node, QRTR_PORT_CTRL, srv, sizeof(srv));
++	bool a = ipc_qrtr_send(Q_HELLO, QRTR_PORT_CTRL, ge->node, QRTR_PORT_CTRL, hello, sizeof(hello));
++	bool b = ipc_qrtr_send(Q_NEW_SERVER, QRTR_PORT_CTRL, ge->node, QRTR_PORT_CTRL, srv, sizeof(srv));
+ 	ipc.announced = true;
+ 	if (ipc.tftp) {
+ 		uint32_t tsrv[5] = { Q_NEW_SERVER, 4096u, 1u, QRTR_NODE_LOCAL, 0x4001u };   /* TFTP_SERVICE/INSTANCE/PORT */
+-		bool c = ipc_qrtr_send(Q_NEW_SERVER, QRTR_PORT_CTRL, ipc.node, QRTR_PORT_CTRL, tsrv, sizeof(tsrv));
++		bool c = ipc_qrtr_send(Q_NEW_SERVER, QRTR_PORT_CTRL, ge->node, QRTR_PORT_CTRL, tsrv, sizeof(tsrv));
+ 		printf("BERGAMOTA IPC: qrtr: tftp announced as service 4096 instance 1 at %u:0x4001 %s\n", QRTR_NODE_LOCAL,
+ 		    c ? "" : "(FAILED)");
+ 	}
+ 	if (ipc.pdm) {
+ 		uint32_t psrv[5] = { Q_NEW_SERVER, PDM_SERVICE, PDM_INSTANCE, QRTR_NODE_LOCAL, QRTR_PDM_PORT };
+-		bool d = ipc_qrtr_send(Q_NEW_SERVER, QRTR_PORT_CTRL, ipc.node, QRTR_PORT_CTRL, psrv, sizeof(psrv));
++		bool d = ipc_qrtr_send(Q_NEW_SERVER, QRTR_PORT_CTRL, ge->node, QRTR_PORT_CTRL, psrv, sizeof(psrv));
+ 		printf("BERGAMOTA IPC: qrtr: pd-mapper announced as service %#x instance field %#x at %u:%#x %s\n", PDM_SERVICE,
+ 		    PDM_INSTANCE, QRTR_NODE_LOCAL, QRTR_PDM_PORT, d ? "" : "(FAILED)");
+ 	}
+@@ -3397,7 +3412,7 @@
+ {
+ 	for (unsigned k = 0; k < TFTP_CLIENTS; k++) {
+ 		struct tftp_client *c = &tftp_cl[k];
+-		while (c->used && !c->writer && c->win_next < c->win_end && ipc.txq_n < IPC_TXQ / 2) {
++		while (c->used && !c->writer && c->win_next < c->win_end && ge->txq_n < IPC_TXQ / 2) {
+ 			uint32_t block = c->win_next++;
+ 			uint64_t offset = (uint64_t)c->seek + (uint64_t)block * c->blksize;
+ 			uint32_t response_size = 0;
+@@ -5535,7 +5550,7 @@
+ 		return;
+ 	}
+ 	const uint8_t *pl = p + hdrlen;
+-	ipc.node = snode;
++	ge->node = snode;
+ 	switch (type) {
+ 	case Q_HELLO:
+ 		printf("BERGAMOTA IPC: qrtr: hello from node %u\n", snode);
+@@ -5597,11 +5612,43 @@
+ 	}
+ }
+ 
++/* descriptor + our TX FIFO in the apps<->ge->host partition, then GLINK VERSION (was the tail of ms_ipc_setup) */
++static bool
++ge_setup(void)
++{
++	ge->features = GLINK_FEATURE_REUSE;
++	ge->node = 0;
++	uint32_t sz = 0;
++	ge->desc = ms_smem_alloc_p(0, ge->host, GLINK_DESC_ITEM, 32);
++	if (!ge->desc || ms_smem_item(0, ge->host, GLINK_DESC_ITEM, &sz) != ge->desc || sz != 32) {
++		printf("BERGAMOTA IPC: glink descriptor not usable (size %u)\n", sz);
++		return false;
++	}
++	ge->tx = ms_smem_alloc_p(0, ge->host, GLINK_TX_ITEM, GLINK_TX_SIZE);
++	if (!ge->tx || ms_smem_item(0, ge->host, GLINK_TX_ITEM, &sz) != ge->tx || sz < 1024 || (sz & 7)) {
++		printf("BERGAMOTA IPC: glink TX FIFO not usable (size %u)\n", sz);
++		return false;
++	}
++	ge->tx_len = sz;                        /* the item's own size, as qcom_smem_get() returns it */
++	wl_wr(wl.smem, ge->desc + 8, 0);        /* *rx_pipe->tail = 0 */
++	wl_wr(wl.smem, ge->desc + 4, 0);        /* *tx_pipe->head = 0 */
++	bool v = ipc_tx_cmd(G_VERSION, 1, ge->features);
++	printf("BERGAMOTA IPC: glink up: descriptor +%#x, TX FIFO +%#x (%u bytes), version 1 features %#x %s\n", ge->desc,
++	    ge->tx, ge->tx_len, ge->features, v ? "sent" : "NOT SENT");
++	return v;
++}
++
+ /* step 15: rmtfs buffer to HLOS + MSS (qcom_rmtfs_mem_probe), GLINK descriptor + our FIFO, VERSION */
+ static bool
+ ms_ipc_setup(void)
+ {
+ 	memset(&ipc, 0, sizeof(ipc));
++	memset(&ge_modem, 0, sizeof(ge_modem));
++	ge = &ge_modem;
++	ge->name = "modem";
++	ge->host = 1;
++	ge->doorbell = GLINK_DOORBELL;
++	ge->rx_cb = ipc_qrtr_rx;
+ 	int tftp = wl_gate("bergamotatftp");
+ 	ipc.tftp = tftp == 1;
+ 	int pdm = wl_gate("bergamotapdm");
+@@ -5618,8 +5665,6 @@
+ 	if (ipc.wlfw && !wf_rails()) {
+ 		ipc.wlfw = false;
+ 	}
+-	ipc.features = GLINK_FEATURE_REUSE;
+-	ipc.node = 0;
+ 	ipc.rmtfs_perm = VMBIT(SCM_VMID_HLOS);
+ 	ipc.win_base = trunc_page_64(RMTFS_MEM_PA);
+ 	ipc.win_len = round_page_64(RMTFS_MEM_PA + RMTFS_MEM_SIZE) - ipc.win_base;
+@@ -5633,24 +5678,7 @@
+ 		return false;
+ 	}
+ 	ipc.rmtfs_perm = VMBIT(SCM_VMID_HLOS) | VMBIT(SCM_VMID_MSS_MSA);
+-	uint32_t sz = 0;
+-	ipc.desc = ms_smem_alloc(GLINK_DESC_ITEM, 32);
+-	if (!ipc.desc || ms_smem_item(0, 1, GLINK_DESC_ITEM, &sz) != ipc.desc || sz != 32) {
+-		printf("BERGAMOTA IPC: glink descriptor not usable (size %u)\n", sz);
+-		return false;
+-	}
+-	ipc.tx = ms_smem_alloc(GLINK_TX_ITEM, GLINK_TX_SIZE);
+-	if (!ipc.tx || ms_smem_item(0, 1, GLINK_TX_ITEM, &sz) != ipc.tx || sz < 1024 || (sz & 7)) {
+-		printf("BERGAMOTA IPC: glink TX FIFO not usable (size %u)\n", sz);
+-		return false;
+-	}
+-	ipc.tx_len = sz;                        /* the item's own size, as qcom_smem_get() returns it */
+-	wl_wr(wl.smem, ipc.desc + 8, 0);        /* *rx_pipe->tail = 0 */
+-	wl_wr(wl.smem, ipc.desc + 4, 0);        /* *tx_pipe->head = 0 */
+-	bool v = ipc_tx_cmd(G_VERSION, 1, ipc.features);
+-	printf("BERGAMOTA IPC: glink up: descriptor +%#x, TX FIFO +%#x (%u bytes), version 1 features %#x %s\n", ipc.desc,
+-	    ipc.tx, ipc.tx_len, ipc.features, v ? "sent" : "NOT SENT");
+-	return v;
++	return ge_setup();
+ }
+ 
+ /*
+@@ -7166,10 +7194,10 @@
+ static bool
+ svc_busy(void)
+ {
+-	bool moved = wce.msgs != svc.last_msgs || ipc.rx_pkts != svc.last_rx || ipc.tx_pkts != svc.last_tx;
++	bool moved = wce.msgs != svc.last_msgs || ge->rx_pkts != svc.last_rx || ge->tx_pkts != svc.last_tx;
+ 	svc.last_msgs = wce.msgs;
+-	svc.last_rx = ipc.rx_pkts;
+-	svc.last_tx = ipc.tx_pkts;
++	svc.last_rx = ge->rx_pkts;
++	svc.last_tx = ge->tx_pkts;
+ 	bool tftp_active = false;
+ 	for (unsigned k = 0; k < TFTP_CLIENTS; k++) {
+ 		tftp_active = tftp_active || tftp_cl[k].used;
+@@ -7177,7 +7205,7 @@
+ 	bool settled = wf.state == WS_SCAN_DONE || wf.state == WS_FAILED || wf.state == WS_OFF ||
+ 	    (wf.state == WS_WMI_READY && !ipc.scan) || (wf.state == WS_READY && !ipc.ce);
+ 	bool joining = sta.state != ST_IDLE && sta.state != ST_CONNECTED;
+-	if (moved || tftp_active || wf.pending || !settled || ipc.txq_n || joining || sta.req_pending || sta.txq_n ||
++	if (moved || tftp_active || wf.pending || !settled || ge->txq_n || joining || sta.req_pending || sta.txq_n ||
+ 	    sta.wq_n) {
+ 		svc.last_busy_ms = ms_now_ms();
+ 	}
+@@ -7238,7 +7266,7 @@
+ 	}
+ 	printf("BERGAMOTA WLAN svc: up %llu s, state %s, loops %llu (busy %llu), glink %u in / %u out, wmi events %u, "
+ 	    "credit %u, echo %u/%u ok (last %u ms, %u skipped), rmtfs %u reads / %u writes, modem %s\n", (now - t0) / 1000,
+-	    wf_state_name[wf.state], svc.loops, svc.busy_loops, ipc.rx_pkts, ipc.tx_pkts, wce.wmi_events, wce.wmi_credits,
++	    wf_state_name[wf.state], svc.loops, svc.busy_loops, ge->rx_pkts, ge->tx_pkts, wce.wmi_events, wce.wmi_credits,
+ 	    svc.echo_ok, svc.echo_sent, svc.echo_rtt_ms, svc.echo_skipped, ipc.reads, ipc.writes, mw.fatal ? "FATAL" : "up");
+ 	bergamota_log_sync();
+ 	if (wf.state == WS_SCAN_DONE || wf.state == WS_WMI_READY) {
+@@ -7263,7 +7291,7 @@
+ 		ipc_flush();
+ 		tftp_pump();
+ 		wf_poll();
+-		if (ipc.open_acked && !ipc.announced && ms_now_ms() > ipc.open_ms + 3000) {
++		if (ge->open_acked && !ipc.announced && ms_now_ms() > ge->open_ms + 3000) {
+ 			printf("BERGAMOTA IPC: qrtr: no hello from the modem 3 s after IPCRTR opened: sending ours\n");
+ 			ipc_qrtr_announce();
+ 		}
+@@ -7296,8 +7324,8 @@
+ 	}
+ 	printf("BERGAMOTA IPC: %u s: glink %s, IPCRTR %s, qrtr hello %s; %u packets in, %u out; rmtfs %u reads (%llu bytes), "
+ 	    "%u writes kept in RAM (%llu bytes); pd-mapper %u requests; WLFW %s\n", (unsigned)((ms_now_ms() - t0) / 1000),
+-	    ipc.version_acked ? "versioned" : "no version-ack", ipc.open_acked ? "open" : "not open",
+-	    ipc.hello_seen ? "seen" : "not seen", ipc.rx_pkts, ipc.tx_pkts, ipc.reads, ipc.read_bytes, ipc.writes,
++	    ge->version_acked ? "versioned" : "no version-ack", ge->open_acked ? "open" : "not open",
++	    ipc.hello_seen ? "seen" : "not seen", ge->rx_pkts, ge->tx_pkts, ipc.reads, ipc.read_bytes, ipc.writes,
+ 	    ipc.write_bytes, ipc.pdm_reqs, ipc.wlfw_seen ? "up" : "not seen");
+ 	if (ipc.ce) {
+ 		printf("BERGAMOTA IPC: wce: %u target messages, HTC %s (%u credits of %u bytes, %u endpoints)\n", wce.msgs,
+@@ -7337,9 +7365,9 @@
+ {
+ 	tftp_teardown();
+ 	wf_teardown();
+-	while (ipc.txq_n) {
+-		ipc.txq_n--;
+-		kfree_data(ipc.txq[ipc.txq_n].data, ipc.txq[ipc.txq_n].len);
++	while (ge->txq_n) {
++		ge->txq_n--;
++		kfree_data(ge->txq[ge->txq_n].data, ge->txq[ge->txq_n].len);
+ 	}
+ 	if (ipc.rmtfs_perm & VMBIT(SCM_VMID_MSS_MSA)) {
+ 		uint32_t src[2] = { SCM_VMID_HLOS, SCM_VMID_MSS_MSA }, dst = SCM_VMID_HLOS, perm = SCM_PERM_RW;
+@@ -7358,9 +7386,9 @@
+ 		}
+ 	}
+ 	for (unsigned k = 0; k < IPC_MAX_INTENTS; k++) {
+-		if (ipc.li[k].buf) {
+-			kfree_data(ipc.li[k].buf, ipc.li[k].size);
+-			ipc.li[k].buf = NULL;
++		if (ge->li[k].buf) {
++			kfree_data(ge->li[k].buf, ge->li[k].size);
++			ge->li[k].buf = NULL;
+ 		}
+ 	}
+ }
