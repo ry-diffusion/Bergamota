@@ -751,3 +751,33 @@ Risks, beyond stage 2's: (1) first GLINK doorbell 24 and SMEM items 478/479 in 0
 ones); (2) the SLPI waits for a peer that never answers its other channels (it may time out and reset itself or crash: the fatal
 bit and SMEM 424 are logged); (3) teardown while its channels are open: no GLINK close is sent (the modem path does the same);
 (4) `keep=1` services the edge in the thread forever. A silent phone: the last `step N` line, as before.
+
+---------------------------------------------------------------------------------------------------------------------
+
+## 13. Stage 3 result (boot 32) and what sensor_process is stalled on
+
+Observed (live log `../ios-beryllium/logs/usb-20261126-122550.txt`, lines 998816-1000679): AUTH_AND_RESET status 0; smp2p 481 after 113 ms,
+`slave-kernel` 0x6 = ready + handover; GLINK + IPCRTR up; QRTR hello from node **9**; services 0x42 v1 i90 (9:2), 0x1004 v10 (9:0xd),
+0x2b v2 i22 (9:5, ssctl), 0xf i48 (9:1) and i49 (9:9), **0x190 v1 i0 (9:0xc, SEE)**, 0x33 i8 (9:6) and i12 (9:0xb), 0x18 i83 (9:8); then
+at 40.1 s `slave-kernel` = 0x7 (fatal) with `err_qdi.c:456:EF:sensor_process:1:dog_virtual_user.c:240:USER-PD DOG detects stalled
+initialization`. Clean SHUTDOWN, no SoC reset.
+
+What the log also shows, and the coordinator's message missed: the SLPI **did** open `fastrpcglink-apps-dsp` (its id 1) right after the
+version exchange, then `glink_ssr` (2), `IPCRTR` (3), `LOOPBACK_CTL_DSPS` (4) (the transport logs every open). Stage 3 acknowledged only
+IPCRTR; the other opens stayed pending. The two "data packets" were pd-mapper requests, both answered with 0 domains:
+`tms/pdr_enabled` and `tms/pddump_disabled`; the SLPI never asked for `msm/slpi/root_pd` or `msm/slpi/sensor_pd` and there were 0 QRTR
+lookups. Our domain table is Linux's sdm845 table (`qcom_pd_mapper.c:530-538`, no `tms/pdr_enabled` entry for sdm845), so those answers
+are what Linux gives too.
+
+Decision (confidence: medium-high, not proven):
+* servreg/pd-mapper/sysmon/ssctl are not the stall. The locator was asked only the two `tms/*` questions and answered as Linux does;
+  nothing in the log is waiting on a servreg notifier or an ssctl request from us (ssctl, 0x2b i22, is offered by the SLPI for *our*
+  use when we stop it).
+* The stall is the **FastRPC reverse tunnel**: sensor_process (the sensor user PD, `sensor_pd`) reads `sensors/config`, the registry and
+  `sns_reg_config` from the AP through FastRPC during initialisation (section 5), nobody served the channel, and the PD's init watchdog
+  fired at 40 s. Two layers to fix: (1) the channel itself must be acknowledged (Linux's fastrpc rpmsg driver does it at probe), (2) a
+  listener must be registered and answer the file calls. (1) is cheap and is patch 1146; (2) needs the files (ext4 reader, 1147) and the
+  FastRPC client (1148).
+* Expectation for the 1146 boot: the DSP may now send something on the fastrpc channel (logged as hex); the dog very probably still
+  fires at about 40 s, because no listener serves files. If it does NOT fire, the open-ack was the whole story. Either result narrows it.
+

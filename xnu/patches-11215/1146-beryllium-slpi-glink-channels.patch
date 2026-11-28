@@ -1,0 +1,426 @@
+1146: SLPI stage 3: answer the SLPI's other GLINK channels. Boot 32 showed the SLPI opening "fastrpcglink-apps-dsp" (id 1), "glink_ssr" (2),
+"IPCRTR" (3) and "LOOPBACK_CTL_DSPS" (4); only IPCRTR was acknowledged, and its sensor_process then died after 40 s with "USER-PD DOG
+detects stalled initialization". glink_edge gets an optional hook (ge->hook, NULL for the modem, one `if` in ipc_rx_poll) that sees every
+command first; for the SLPI edge sl_gx_hook claims the fastrpc and glink_ssr channels (open-ack, our open, intents, data reassembly,
+close, RX_INTENT_REQ, a send queue for later) and leaves everything else to the generic code. Received data on them is logged as hex.
+No FastRPC logic yet (1148). Requires 1141/1142.
+
+--- a/bsd/dev/beryllium_wlan.c
++++ b/bsd/dev/beryllium_wlan.c
+@@ -2224,6 +2224,8 @@
+ 	uint32_t host;                  /* smem remote pid: the partition is 0<->host (modem 1, slpi 3) */
+ 	uint32_t doorbell;              /* apss_shared channel of the glink edge (modem 12, slpi 24) */
+ 	void (*rx_cb)(const uint8_t *p, uint32_t len);  /* a complete QRTR packet from the remote */
++	/* 1146: first look at every command; 1 = consumed, -1 = need more data, 0 = not mine (NULL for the modem) */
++	int (*hook)(uint16_t cmd, uint16_t p1, uint32_t p2, uint32_t avail);
+ 	uint32_t desc, tx, tx_len, rx, rx_len;  /* SMEM offsets; rx 0 until the remote's FIFO exists */
+ 	uint32_t features;
+ 	bool version_acked, bad_rx, closed;
+@@ -2454,6 +2456,15 @@
+ 		memcpy(&cmd, m, 2);
+ 		memcpy(&p1, m + 2, 2);
+ 		memcpy(&p2, m + 4, 4);
++		if (ge->hook) {
++			int hr = ge->hook(cmd, p1, p2, avail);
++			if (hr < 0) {
++				return;
++			}
++			if (hr > 0) {
++				continue;
++			}
++		}
+ 		switch (cmd) {
+ 		case G_VERSION:
+ 			ipc_rx_advance(8);
+@@ -10364,13 +10375,361 @@
+ 	default:
+ 		sle.ctrl++;
+ 		printf("BERGAMOTA SLPI: qrtr: control %u from %u:%#x (%u bytes)\n", type, snode, sport, size);
++		break;
++	}
++}
++
++/*
++ * ---- 1146: more GLINK channels on the SLPI edge. The generic transport handles one channel (IPCRTR, lcid 1); the SLPI
++ * also opens "fastrpcglink-apps-dsp" and "glink_ssr" (boot 32 log) and waits for our side: Linux's fastrpc and
++ * qcom_glink_ssr drivers answer those opens, stage 3 did not. ge->hook sees every command first; it claims the
++ * commands of these two channels (by the remote id, or our lcid for OPEN_ACK/CLOSE_ACK) and leaves everything else to
++ * ipc_rx_poll. The modem edge has no hook. Frames follow qcom_glink_native.c exactly as the IPCRTR code does:
++ * a sender puts its own lcid in param1 of everything except OPEN_ACK/CLOSE_ACK (the receiver's id).
++ */
++#define GX_N            2u
++#define GX_LI           8u
++#define GX_RI           16u
++#define GX_TXQ          8u
++#define GX_FASTRPC      0u
++#define GX_SSR          1u
++
++struct gx_chan {
++	const char *name;
++	uint32_t lcid, rcid;
++	bool open, acked, closed, intent_asked;
++	struct ipc_lintent li[GX_LI];
++	struct ipc_rintent ri[GX_RI];
++	uint32_t next_liid;
++	struct {
++		uint32_t len;
++		uint8_t *data;
++	} txq[GX_TXQ];
++	unsigned txq_n, rx_pkts, tx_pkts;
++	void (*rx)(struct gx_chan *c, const uint8_t *p, uint32_t len);
++};
++static struct gx_chan gx[GX_N];
++
++static struct gx_chan *
++gx_by(uint16_t id, bool local)
++{
++	for (unsigned i = 0; i < GX_N; i++) {
++		if (gx[i].open && (local ? gx[i].lcid : gx[i].rcid) == id) {
++			return &gx[i];
++		}
++	}
++	return NULL;
++}
++
++static bool
++gx_add_intent(struct gx_chan *c, uint32_t size, bool reuse)
++{
++	for (unsigned k = 0; k < GX_LI; k++) {
++		struct ipc_lintent *in = &c->li[k];
++		if (in->buf) {
++			continue;
++		}
++		in->buf = kalloc_data(size, Z_WAITOK | Z_ZERO);
++		if (!in->buf) {
++			return false;
++		}
++		in->id = ++c->next_liid;
++		in->size = size;
++		in->off = 0;
++		in->reuse = reuse;
++		in->bad = false;
++		uint8_t m[16];
++		uint16_t id = G_INTENT, lcid = (uint16_t)c->lcid;
++		uint32_t one = 1;
++		memcpy(m, &id, 2);
++		memcpy(m + 2, &lcid, 2);
++		memcpy(m + 4, &one, 4);
++		memcpy(m + 8, &size, 4);
++		memcpy(m + 12, &in->id, 4);
++		return ipc_tx(m, 16, NULL, 0);
++	}
++	return false;
++}
++
++/* __qcom_glink_send() on channel c with the smallest free remote intent that fits */
++static bool
++gx_send_now(struct gx_chan *c, const void *data, uint32_t len)
++{
++	struct ipc_rintent *best = NULL;
++	for (unsigned j = 0; j < GX_RI; j++) {
++		struct ipc_rintent *r = &c->ri[j];
++		if (r->valid && !r->used && r->size >= len && (!best || r->size < best->size)) {
++			best = r;
++		}
++	}
++	if (!best) {
++		return false;
++	}
++	best->used = true;
++	c->tx_pkts++;
++	for (uint32_t off = 0; off < len;) {
++		uint32_t chunk = MIN(len - off, GLINK_TX_MAX);
++		struct {
++			uint16_t cmd, lcid;
++			uint32_t iid, chunk, left;
++		} __attribute__((packed)) h = { off == 0 ? G_TX_DATA : G_TX_DATA_CONT, (uint16_t)c->lcid, best->id, chunk,
++		    len - off - chunk };
++		if (!ipc_tx(&h, (uint32_t)sizeof(h), (const uint8_t *)data + off, chunk)) {
++			best->used = false;
++			printf("BERGAMOTA SLPI: gx %s: send of %u bytes failed at %u\n", c->name, len, off);
++			return false;
++		}
++		off += chunk;
++	}
++	return true;
++}
++
++static bool
++gx_send(struct gx_chan *c, const void *data, uint32_t len)
++{
++	if (!c->acked || c->closed) {
++		return false;
++	}
++	if (c->txq_n == 0 && gx_send_now(c, data, len)) {
++		return true;
++	}
++	if (c->txq_n == GX_TXQ) {
++		printf("BERGAMOTA SLPI: gx %s: TX queue full, %u bytes dropped\n", c->name, len);
++		return false;
++	}
++	uint8_t *copy = kalloc_data(len, Z_WAITOK);
++	if (!copy) {
++		return false;
++	}
++	memcpy(copy, data, len);
++	c->txq[c->txq_n].len = len;
++	c->txq[c->txq_n].data = copy;
++	c->txq_n++;
++	if (!c->intent_asked) {
++		struct {
++			uint16_t id, cid;
++			uint32_t size;
++		} __attribute__((packed)) req = { G_RX_INTENT_REQ, (uint16_t)c->lcid, len };
++		c->intent_asked = true;
++		(void)ipc_tx(&req, (uint32_t)sizeof(req), NULL, 0);
++	}
++	return true;
++}
++
++static void
++gx_flush(void)
++{
++	for (unsigned i = 0; i < GX_N; i++) {
++		struct gx_chan *c = &gx[i];
++		while (c->txq_n && gx_send_now(c, c->txq[0].data, c->txq[0].len)) {
++			kfree_data(c->txq[0].data, c->txq[0].len);
++			c->txq_n--;
++			memmove(&c->txq[0], &c->txq[1], c->txq_n * sizeof(c->txq[0]));
++			c->intent_asked = false;
++		}
++		if (c->txq_n && !c->intent_asked) {
++			struct {
++				uint16_t id, cid;
++				uint32_t size;
++			} __attribute__((packed)) req = { G_RX_INTENT_REQ, (uint16_t)c->lcid, c->txq[0].len };
++			c->intent_asked = true;
++			(void)ipc_tx(&req, (uint32_t)sizeof(req), NULL, 0);
++		}
++	}
++}
++
++static void
++gx_free(void)
++{
++	for (unsigned i = 0; i < GX_N; i++) {
++		struct gx_chan *c = &gx[i];
++		while (c->txq_n) {
++			c->txq_n--;
++			kfree_data(c->txq[c->txq_n].data, c->txq[c->txq_n].len);
++		}
++		for (unsigned k = 0; k < GX_LI; k++) {
++			if (c->li[k].buf) {
++				kfree_data(c->li[k].buf, c->li[k].size);
++				c->li[k].buf = NULL;
++			}
++		}
++	}
++}
++
++/* what the DSP sends on a channel that nobody serves yet: logged, 1148 interprets the FastRPC one */
++static void
++gx_rx_log(struct gx_chan *c, const uint8_t *p, uint32_t len)
++{
++	sl_hex(c->name, p, len);
++}
++
++static int
++sl_gx_hook(uint16_t cmd, uint16_t p1, uint32_t p2, uint32_t avail)
++{
++	struct gx_chan *c;
++	switch (cmd) {
++	case G_OPEN: {
++		uint32_t extra = (p2 + 7u) & ~7u;
++		char name[33];
++		if (p2 == 0 || p2 > 32 || avail < 8 + extra) {
++			return 0;
++		}
++		memset(name, 0, sizeof(name));
++		ipc_rx_peek(8, name, p2);
++		unsigned w = !strcmp(name, "fastrpcglink-apps-dsp") ? GX_FASTRPC : !strcmp(name, "glink_ssr") ? GX_SSR : GX_N;
++		if (w == GX_N) {
++			return 0;
++		}
++		ipc_rx_advance(8 + extra);
++		printf("BERGAMOTA IPC: glink: %s opens \"%s\" (its id %u)\n", ge->name, name, p1);
++		c = &gx[w];
++		if (c->open) {
++			return 1;
++		}
++		c->name = w == GX_FASTRPC ? "fastrpcglink-apps-dsp" : "glink_ssr";
++		c->rcid = p1;
++		c->lcid = 2 + w;
++		c->rx = gx_rx_log;
++		c->open = true;
++		uint8_t req[8 + 24];
++		uint16_t oc = G_OPEN, lc = (uint16_t)c->lcid;
++		uint32_t nl = (uint32_t)strlen(c->name) + 1, hl = 8 + ((nl + 7u) & ~7u);
++		bzero(req, sizeof(req));
++		memcpy(req, &oc, 2);
++		memcpy(req + 2, &lc, 2);
++		memcpy(req + 4, &nl, 4);
++		memcpy(req + 8, c->name, nl);
++		(void)ipc_tx_cmd(G_OPEN_ACK, p1, 0);
++		(void)ipc_tx(req, hl, NULL, 0);
++		printf("BERGAMOTA SLPI: gx: %s: open-ack sent for its id %u, our open with id %u\n", c->name, p1, c->lcid);
++		return 1;
++	}
++	case G_OPEN_ACK:
++	case G_CLOSE_ACK:
++		c = gx_by(p1, true);
++		if (!c) {
++			return 0;
++		}
++		ipc_rx_advance(8);
++		if (cmd == G_OPEN_ACK && !c->acked) {
++			c->acked = true;
++			printf("BERGAMOTA SLPI: gx: %s open both ways; advertising %u x %u-byte intents\n", c->name, IPC_INTENTS,
++			    IPC_INTENT_SIZE);
++			for (unsigned k = 0; k < IPC_INTENTS; k++) {
++				(void)gx_add_intent(c, IPC_INTENT_SIZE, true);
++			}
++		}
++		return 1;
++	default:
+ 		break;
+ 	}
++	c = gx_by(p1, false);
++	if (!c) {
++		return 0;
++	}
++	switch (cmd) {
++	case G_CLOSE:
++		ipc_rx_advance(8);
++		printf("BERGAMOTA SLPI: gx: %s closed by the DSP\n", c->name);
++		(void)ipc_tx_cmd(G_CLOSE_ACK, p1, 0);
++		c->closed = true;
++		return 1;
++	case G_INTENT: {
++		uint32_t msglen = 8 + 8 * p2;
++		if (p2 > 64 || avail < msglen) {
++			return -1;
++		}
++		for (uint32_t k = 0; k < p2; k++) {
++			uint32_t pair[2];
++			ipc_rx_peek(8 + 8 * k, pair, 8);
++			for (unsigned j = 0; j < GX_RI; j++) {
++				if (!c->ri[j].valid) {
++					c->ri[j] = (struct ipc_rintent){ pair[1], pair[0], true, false };
++					break;
++				}
++			}
++		}
++		ipc_rx_advance((msglen + 7u) & ~7u);
++		return 1;
++	}
++	case G_RX_DONE:
++	case G_RX_DONE_W_REUSE:
++		ipc_rx_advance(8);
++		for (unsigned j = 0; j < GX_RI; j++) {
++			if (c->ri[j].valid && c->ri[j].id == p2) {
++				c->ri[j].used = false;
++				if (cmd == G_RX_DONE) {
++					c->ri[j].valid = false;
++				}
++			}
++		}
++		return 1;
++	case G_RX_INTENT_REQ: {
++		ipc_rx_advance(8);
++		bool ok = p2 <= 0x10000u && gx_add_intent(c, MAX(p2, 1u), false);
++		(void)ipc_tx_cmd(G_RX_INTENT_REQ_ACK, (uint16_t)c->lcid, ok);
++		return 1;
++	}
++	case G_RX_INTENT_REQ_ACK:
++	case G_SIGNALS:
++		ipc_rx_advance(8);
++		return 1;
++	case G_TX_DATA:
++	case G_TX_DATA_CONT: {
++		if (avail < 16) {
++			return -1;
++		}
++		uint32_t sizes[2];
++		ipc_rx_peek(8, sizes, 8);
++		uint32_t chunk = sizes[0], left = sizes[1];
++		if (chunk > avail - 16) {
++			return -1;
++		}
++		struct ipc_lintent *in = NULL;
++		for (unsigned k = 0; k < GX_LI; k++) {
++			if (c->li[k].buf && c->li[k].id == p2) {
++				in = &c->li[k];
++			}
++		}
++		if (!in || in->size - in->off < chunk) {
++			printf("BERGAMOTA SLPI: gx %s: data for intent %u (%u bytes) dropped\n", c->name, p2, chunk);
++			if (in) {
++				in->bad = true;
++			}
++		} else if (!in->bad) {
++			ipc_rx_peek(16, in->buf + in->off, chunk);
++			in->off += chunk;
++		}
++		ipc_rx_advance((16 + chunk + 7u) & ~7u);
++		if (in && left == 0 && in->bad) {
++			in->bad = false;
++			in->off = 0;
++		} else if (in && left == 0) {
++			uint32_t n = in->off;
++			in->off = 0;
++			c->rx_pkts++;
++			c->rx(c, in->buf, n);
++			struct {
++				uint16_t id, lcid;
++				uint32_t liid;
++			} __attribute__((packed)) done = { in->reuse ? G_RX_DONE_W_REUSE : G_RX_DONE, (uint16_t)c->lcid, in->id };
++			if (!in->reuse) {
++				kfree_data(in->buf, in->size);
++				in->buf = NULL;
++			}
++			(void)ipc_tx(&done, (uint32_t)sizeof(done), NULL, 0);
++		}
++		return 1;
++	}
++	default:
++		return 0;
++	}
+ }
+ 
+ static void
+ sl_edge_free(void)
+ {
++	gx_free();
+ 	while (ge_slpi.txq_n) {
+ 		ge_slpi.txq_n--;
+ 		kfree_data(ge_slpi.txq[ge_slpi.txq_n].data, ge_slpi.txq[ge_slpi.txq_n].len);
+@@ -10395,6 +10754,8 @@
+ 	ge_slpi.host = SL_HOST;
+ 	ge_slpi.doorbell = 24;                  /* sdm845 glink-edge dsps: mboxes = <&apss_shared 24> */
+ 	ge_slpi.rx_cb = sl_qrtr_rx;
++	ge_slpi.hook = sl_gx_hook;
++	memset(gx, 0, sizeof(gx));
+ 	ge = &ge_slpi;
+ 	if (!sl_step(10, "GLINK edge to the SLPI: descriptor + TX FIFO in apps<->slpi, VERSION, doorbell 24")) {
+ 		ge = &ge_modem;
+@@ -10412,6 +10773,7 @@
+ 	while (ms_now_ms() < end && !sl.fatal) {
+ 		ipc_rx_poll();
+ 		ipc_flush();
++		gx_flush();
+ 		if (ge->open_acked && !sle.announced && ms_now_ms() > ge->open_ms + 3000) {
+ 			printf("BERGAMOTA SLPI: qrtr: no hello from the slpi 3 s after IPCRTR opened: sending ours\n");
+ 			sl_qrtr_announce();
+@@ -10426,6 +10788,12 @@
+ 	    "%u services offered, %u lookups, %u data packets, SSC 0x190 %s\n", (ms_now_ms() - t0) / 1000,
+ 	    ge->version_acked ? "versioned" : "no version-ack", ge->open_acked ? "open" : "NOT open", sle.hello ? "seen" : "not seen",
+ 	    sle.node, ge->rx_pkts, ge->tx_pkts, sle.n, sle.lookups, sle.data, sle.ssc ? "UP" : "not seen");
++	for (unsigned i = 0; i < GX_N; i++) {
++		if (gx[i].open) {
++			printf("BERGAMOTA SLPI: gx %s: its id %u, our id %u, %s, %u packets in, %u out\n", gx[i].name, gx[i].rcid,
++			    gx[i].lcid, gx[i].acked ? "open both ways" : "NOT acked by the DSP", gx[i].rx_pkts, gx[i].tx_pkts);
++		}
++	}
+ 	for (unsigned i = 0; i < sle.n; i++) {
+ 		printf("BERGAMOTA SLPI:  service %u (%#x) version %u instance %u at %u:%#x\n", sle.s[i].svc, sle.s[i].svc,
+ 		    sle.s[i].ver, sle.s[i].inst, sle.s[i].node, sle.s[i].port);
