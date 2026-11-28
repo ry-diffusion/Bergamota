@@ -1,0 +1,189 @@
+1157: Sandbox stand-in: container paths by code-signing ID (op 0xd) and by audit token (op 0x42); op 4 falls back to the
+process's signing ID. 1155 alone never answered: a debug kernel (1156, not kept) showed RunningBoard launches multi-instance
+extensions with the "Sandbox" spawn attrs (profile "plugin", 0x450 bytes) but container length 0 at +0xc, so nothing was recorded
+and PlugInKit kept aborting (People widget intents every 1-2 s, ReportCrash busy). bergamotasbx (tools/bergamotanet, launchd job
+org.bergamota.sbx at every boot) calls sandbox_set_container_path_for_signing_id(MCMMetadataIdentifier, container) for each
+PluginKitPlugin data container (787 on this root); an extension's signing ID is its bundle ID. Table: 1024 entries, root only.
+Op 0x42 (sandbox_set_container_path_for_audit_token {pid, pidversion, path}) stores into 1155's per-launch table.
+
+diff --git a/bsd/kern/bergamota_amfi.c b/bsd/kern/bergamota_amfi.c
+index 5050a56..d4ad2bd 100644
+--- a/bsd/kern/bergamota_amfi.c
++++ b/bsd/kern/bergamota_amfi.c
+@@ -396,7 +396,20 @@ bergamota_sandbox_container_expected(user_addr_t arg)
+  * ("plugin has invalid sandbox or container"): intents, share sheets, Spotlight
+  * indexers; chronod relaunched one every ~1.25 s. Keep the last 128 launches by
+  * unique pid; ENOENT ("not in a container") for anything else, as before.
++ *
++ * Observed (kernel 1156): RunningBoard launches multi-instance extensions with
++ * profile "plugin" but no container in the spawn attrs, so two more sources:
++ * op 0x42 sandbox_set_container_path_for_audit_token {pid, pidversion, path}
++ * (containermanagerd's pushdown) and op 0xd sandbox_set_container_path_for_
++ * signing_id {signing id, path, ...}, which bergamotasbx (root) calls at boot
++ * for every PluginKitPlugin data container. Op 4 falls back to the process's
++ * code-signing identity (an extension's signing ID is its bundle ID, the
++ * container's MCMMetadataIdentifier).
+  */
++#define BERGAMOTA_SBX_OP_SET_CONTAINER_SIGNING_ID 0xd
++#define BERGAMOTA_SBX_OP_SET_CONTAINER_TOKEN      0x42
++#define BERGAMOTA_SBX_SIGNING_IDS           1024
++#define BERGAMOTA_SBX_SIGNING_ID_MAX        128
+ #define BERGAMOTA_SBX_OP_CONTAINER_PATH     4
+ #define BERGAMOTA_SBX_ATTR_CONTAINER        0x50
+ #define BERGAMOTA_SBX_CONTAINERS            128
+@@ -408,9 +421,16 @@ static struct {
+ 	char path[BERGAMOTA_SBX_CONTAINER_MAX];
+ } bergamota_sandbox_containers[BERGAMOTA_SBX_CONTAINERS];
+ static unsigned bergamota_sandbox_container_next;
++static struct {
++	char id[BERGAMOTA_SBX_SIGNING_ID_MAX];
++	char path[BERGAMOTA_SBX_SIGNING_ID_MAX];
++} bergamota_sandbox_signing_ids[BERGAMOTA_SBX_SIGNING_IDS];
++static unsigned bergamota_sandbox_signing_id_count;
+ static LCK_GRP_DECLARE(bergamota_sandbox_lck_grp, "bergamota_sandbox");
+ static LCK_MTX_DECLARE(bergamota_sandbox_lock, &bergamota_sandbox_lck_grp);
+ 
++static void bergamota_sandbox_store(proc_t p, const char *c, size_t n);
++
+ static int
+ bergamota_sandbox_exec_container(kauth_cred_t old __unused, struct vnode *vp __unused, off_t offset __unused,
+     struct vnode *scriptvp __unused, struct label *vnodelabel __unused, struct label *scriptvnodelabel __unused,
+@@ -424,6 +444,13 @@ bergamota_sandbox_exec_container(kauth_cred_t old __unused, struct vnode *vp __u
+ 	if (n == 0 || n >= BERGAMOTA_SBX_CONTAINER_MAX || n == attrlen - BERGAMOTA_SBX_ATTR_CONTAINER || c[0] != '/') {
+ 		return 0;
+ 	}
++	bergamota_sandbox_store(p, c, n);
++	return 0;               /* no label transition */
++}
++
++static void
++bergamota_sandbox_store(proc_t p, const char *c, size_t n)
++{
+ 	uint64_t uid = proc_uniqueid(p);
+ 	lck_mtx_lock(&bergamota_sandbox_lock);
+ 	unsigned i;
+@@ -434,9 +461,9 @@ bergamota_sandbox_exec_container(kauth_cred_t old __unused, struct vnode *vp __u
+ 	}
+ 	bergamota_sandbox_containers[i].uniqueid = uid;
+ 	bergamota_sandbox_containers[i].pid = proc_pid(p);
+-	memcpy(bergamota_sandbox_containers[i].path, c, n + 1);
++	memcpy(bergamota_sandbox_containers[i].path, c, n);
++	bergamota_sandbox_containers[i].path[n] = 0;
+ 	lck_mtx_unlock(&bergamota_sandbox_lock);
+-	return 0;               /* no label transition */
+ }
+ 
+ static int
+@@ -453,6 +480,9 @@ bergamota_sandbox_container_path(user_addr_t arg)
+ 		return ESRCH;
+ 	}
+ 	uint64_t uid = proc_uniqueid(p);
++	const char *sid = csproc_get_identity(p);
++	char sidbuf[BERGAMOTA_SBX_SIGNING_ID_MAX];
++	strlcpy(sidbuf, sid ? sid : "", sizeof(sidbuf));
+ 	proc_rele(p);
+ 	path[0] = 0;
+ 	lck_mtx_lock(&bergamota_sandbox_lock);
+@@ -462,6 +492,11 @@ bergamota_sandbox_container_path(user_addr_t arg)
+ 			break;
+ 		}
+ 	}
++	for (unsigned i = 0; !path[0] && sidbuf[0] && i < bergamota_sandbox_signing_id_count; i++) {
++		if (strcmp(bergamota_sandbox_signing_ids[i].id, sidbuf) == 0) {
++			strlcpy(path, bergamota_sandbox_signing_ids[i].path, sizeof(path));
++		}
++	}
+ 	lck_mtx_unlock(&bergamota_sandbox_lock);
+ 	size_t n = strlen(path);
+ 	if (n == 0) {
+@@ -473,6 +508,79 @@ bergamota_sandbox_container_path(user_addr_t arg)
+ 	return copyout(path, (user_addr_t)a[2], n + 1);
+ }
+ 
++/* op 0xd {signing id, path, persona...}: root only; replaces an existing entry, ENOSPC when full */
++static int
++bergamota_sandbox_set_container_signing_id(user_addr_t arg)
++{
++	uint64_t a[2];
++	char id[BERGAMOTA_SBX_SIGNING_ID_MAX], path[BERGAMOTA_SBX_SIGNING_ID_MAX];
++	size_t idn = 0, pn = 0;
++	if (!kauth_cred_issuser(kauth_cred_get())) {
++		return EPERM;
++	}
++	int error = copyin(arg, a, sizeof(a));
++	if (!error) {
++		error = copyinstr((user_addr_t)a[0], id, sizeof(id), &idn);
++	}
++	if (!error) {
++		error = copyinstr((user_addr_t)a[1], path, sizeof(path), &pn);
++	}
++	if (error) {
++		return error == ENAMETOOLONG ? ERANGE : error;
++	}
++	if (idn <= 1 || path[0] != '/') {
++		return EINVAL;
++	}
++	lck_mtx_lock(&bergamota_sandbox_lock);
++	unsigned i;
++	for (i = 0; i < bergamota_sandbox_signing_id_count && strcmp(bergamota_sandbox_signing_ids[i].id, id) != 0; i++) {
++	}
++	if (i == BERGAMOTA_SBX_SIGNING_IDS) {
++		error = ENOSPC;
++	} else {
++		strlcpy(bergamota_sandbox_signing_ids[i].id, id, sizeof(id));
++		strlcpy(bergamota_sandbox_signing_ids[i].path, path, sizeof(path));
++		if (i == bergamota_sandbox_signing_id_count) {
++			bergamota_sandbox_signing_id_count++;
++		}
++	}
++	lck_mtx_unlock(&bergamota_sandbox_lock);
++	return error;
++}
++
++/* op 0x42 {pid, pidversion, path}: the container of one running process (root only) */
++static int
++bergamota_sandbox_set_container_token(user_addr_t arg)
++{
++	uint64_t a[3];
++	char path[BERGAMOTA_SBX_CONTAINER_MAX];
++	size_t pn = 0;
++	if (!kauth_cred_issuser(kauth_cred_get())) {
++		return EPERM;
++	}
++	int error = copyin(arg, a, sizeof(a));
++	if (!error) {
++		error = copyinstr((user_addr_t)a[2], path, sizeof(path), &pn);
++	}
++	if (error) {
++		return error == ENAMETOOLONG ? ERANGE : error;
++	}
++	if (pn <= 1 || path[0] != '/') {
++		return EINVAL;
++	}
++	proc_t p = proc_find((int)a[0]);
++	if (p == PROC_NULL) {
++		return ESRCH;
++	}
++	if (a[1] == 0 || proc_pidversion(p) == (int)a[1]) {
++		bergamota_sandbox_store(p, path, pn - 1);
++	} else {
++		error = ESRCH;
++	}
++	proc_rele(p);
++	return error;
++}
++
+ static int
+ bergamota_sandbox_syscall(struct proc *p, int call, user_addr_t arg)
+ {
+@@ -491,6 +599,10 @@ bergamota_sandbox_syscall(struct proc *p, int call, user_addr_t arg)
+ 		return bergamota_sandbox_container_expected(arg);
+ 	case BERGAMOTA_SBX_OP_CONTAINER_PATH:
+ 		return bergamota_sandbox_container_path(arg);
++	case BERGAMOTA_SBX_OP_SET_CONTAINER_SIGNING_ID:
++		return bergamota_sandbox_set_container_signing_id(arg);
++	case BERGAMOTA_SBX_OP_SET_CONTAINER_TOKEN:
++		return bergamota_sandbox_set_container_token(arg);
+ 	default:
+ 		return 0;
+ 	}

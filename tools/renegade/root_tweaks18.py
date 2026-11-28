@@ -553,6 +553,23 @@ def bergamotaclock(root):
     print('bergamotaclock: %s + launchd jobs %s, %s' % (CLOCK_BIN, CLOCK_RESTORE_LABEL, CLOCK_SAVE_LABEL))
 
 
+SBX_LABEL = 'org.bergamota.sbx'
+
+
+def bergamotasbx(root):
+    """/usr/local/bin/bergamotasbx (tools/bergamotanet/bergamotasbx.m) at every boot: registers each PluginKitPlugin data container
+    with the kernel's sandbox stand-in (op 0xd, kernel 1157) so sandboxed app extensions find their container instead of aborting
+    in PlugInKit (chronod relaunched the People widget's intents extension every 1-2 s). Skipped with a note when not built."""
+    src = find_bergamotanet('ios18/bergamotasbx')
+    if not src:
+        print('bergamotasbx: not built (tools/bergamotanet/build.sh): skipped')
+        note_skip('bergamotasbx (extension containers for the sandbox stand-in)', not_built() + '; sandboxed extensions abort')
+        return
+    install_file(src, os.path.join(root, 'usr/local/bin/bergamotasbx'))
+    add_job(root, SBX_LABEL, {'Label': SBX_LABEL, 'ProgramArguments': ['/usr/local/bin/bergamotasbx'], 'RunAtLoad': True,
+                              'UserName': 'root', 'StandardOutPath': '/dev/console', 'StandardErrorPath': '/dev/console'})
+    print('bergamotasbx: /usr/local/bin/bergamotasbx + launchd job', SBX_LABEL)
+
 def bergamotametrics(root):
     """/usr/local/bin/bergamotametrics: the live-metrics JSON Bergamota polls over SSH (docs/BERGAMOTA_METRICS.md,
     tools/bergamotanet/bergamotametrics.c, arm64e + pacstrip --sign, tools/bergamotanet/build.sh). Read-only tool, no job. Skipped
@@ -1523,6 +1540,7 @@ def base(root):
     prefs(root)
     bergamotaprefs_tool(root)
     bergamotaclock(root)
+    bergamotasbx(root)
     iosroot_dirs(root)
 
 
@@ -1583,6 +1601,7 @@ def main():
     bergamotareboot(root)
     bergamotametrics(root)
     bergamotaclock(root)
+    bergamotasbx(root)
     ssh(root)
     auto(root)        # staged apps, bluetooth, PosterBoard, first-boot job (opt-outs: RENEGADE_NO_*)
     activation(root)
