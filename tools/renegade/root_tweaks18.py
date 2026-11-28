@@ -525,6 +525,34 @@ def bergamotareboot(root):
     print('bergamotareboot: /usr/local/bin/bergamotareboot')
 
 
+CLOCK_RESTORE_LABEL = 'org.bergamota.clock-restore'
+CLOCK_SAVE_LABEL = 'org.bergamota.clock-save'
+CLOCK_BIN = '/usr/local/bin/bergamotaclock'
+
+
+def clock_jobs():
+    """The two launchd jobs of bergamotaclock (no RTC: the clock restarts at 1969 on every boot)."""
+    return {
+        CLOCK_RESTORE_LABEL: {'Label': CLOCK_RESTORE_LABEL, 'ProgramArguments': [CLOCK_BIN, 'restore'], 'RunAtLoad': True,
+                              'UserName': 'root', 'StandardOutPath': '/dev/console', 'StandardErrorPath': '/dev/console'},
+        CLOCK_SAVE_LABEL: {'Label': CLOCK_SAVE_LABEL, 'ProgramArguments': [CLOCK_BIN, 'save'], 'RunAtLoad': False,
+                           'StartInterval': 600, 'UserName': 'root', 'StandardErrorPath': '/dev/console'}}
+
+
+def bergamotaclock(root):
+    """/usr/local/bin/bergamotaclock (tools/bergamotanet/bergamotaclock.c, arm64e + pacstrip --sign) and its jobs: restore at boot
+    (never earlier than the image build time or the last saved time) and save every 10 minutes. Skipped with a note when not built."""
+    src = find_bergamotanet('ios18/bergamotaclock')
+    if not src:
+        print('bergamotaclock: not built (tools/bergamotanet/build.sh): skipped')
+        note_skip('bergamotaclock (clock restore at boot + jobs)', not_built() + '; every boot starts at 1969 until Wi-Fi time arrives')
+        return
+    install_file(src, os.path.join(root, CLOCK_BIN.lstrip('/')))
+    for label, job in clock_jobs().items():
+        add_job(root, label, job)
+    print('bergamotaclock: %s + launchd jobs %s, %s' % (CLOCK_BIN, CLOCK_RESTORE_LABEL, CLOCK_SAVE_LABEL))
+
+
 def bergamotametrics(root):
     """/usr/local/bin/bergamotametrics: the live-metrics JSON Bergamota polls over SSH (docs/BERGAMOTA_METRICS.md,
     tools/bergamotanet/bergamotametrics.c, arm64e + pacstrip --sign, tools/bergamotanet/build.sh). Read-only tool, no job. Skipped
@@ -1494,6 +1522,7 @@ def base(root):
     activation(root)
     prefs(root)
     bergamotaprefs_tool(root)
+    bergamotaclock(root)
     iosroot_dirs(root)
 
 
@@ -1528,6 +1557,14 @@ def main():
             plistlib.dump(plist, f, fmt=plistlib.FMT_BINARY)
         print('%s: %s environment %s' % (sys.argv[3], BT_LABEL, BT_ENV))
         return
+    if len(sys.argv) == 4 and sys.argv[1] == '--clock-plist':       # IN OUT: launchd.plist pulled from the live phone (docs in bergamotaclock())
+        plist = load(sys.argv[2])
+        for label, job in clock_jobs().items():
+            plist['LaunchDaemons']['/System/Library/LaunchDaemons/%s.plist' % label] = job
+        with open(sys.argv[3], 'wb') as f:        # no chown: this runs on the Mac, the phone's file keeps its owner when pushed over it
+            plistlib.dump(plist, f, fmt=plistlib.FMT_BINARY)
+        print('%s: %s, %s added' % (sys.argv[3], CLOCK_RESTORE_LABEL, CLOCK_SAVE_LABEL))
+        return
     if len(sys.argv) == 5 and sys.argv[1] == '--link-dylib':        # BIN DYLIB_PATH OUT: tools/bergamotanet/sensorbridge, live phone
         sys.path.insert(0, HERE)
         print('linked' if link_dylib(sys.argv[2], sys.argv[3], sys.argv[4]) else 'already linked: %s not written' % sys.argv[4])
@@ -1545,6 +1582,7 @@ def main():
     netcfg(root)
     bergamotareboot(root)
     bergamotametrics(root)
+    bergamotaclock(root)
     ssh(root)
     auto(root)        # staged apps, bluetooth, PosterBoard, first-boot job (opt-outs: RENEGADE_NO_*)
     activation(root)

@@ -82,6 +82,7 @@ def make_tools(tools):
         ('bergamotanet/ios18/bergamotaopen', b'\xcf\xfa\xed\xfe open', 0o755),
         ('bergamotanet/ios18/bergamotafp.dylib', b'\xcf\xfa\xed\xfe fp', 0o755),
         ('bergamotanet/ios18/bergamotaprefs', b'\xcf\xfa\xed\xfe prefs', 0o755),
+        ('bergamotanet/ios18/bergamotaclock', b'\xcf\xfa\xed\xfe clock', 0o755),
         ('bergamotanet/ios18/bergamotashot', b'\xcf\xfa\xed\xfe shot', 0o755),
         ('bergamotanet/ios18/bergamotatouch', b'\xcf\xfa\xed\xfe touch', 0o755),
         ('bergamotanet/ios18/BergamotaRun.app/BergamotaRun', b'\xcf\xfa\xed\xfe bergamotarun', 0o755),
@@ -149,6 +150,7 @@ def run(root, tools, quiet, with_tools=False):
         rt.firstboot(root, appreg=True, jb=False, wallpaper=True, metal=False)
         rt.bglrender(root)
         rt.bergamotaprefs_tool(root)
+        rt.bergamotaclock(root)
         console_job(rt, root)
     for p, (u, g) in sorted(rec.owners.items()):
         print(f'OWNER {os.path.relpath(p, root)} {u} {g}')

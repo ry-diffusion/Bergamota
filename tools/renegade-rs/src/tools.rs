@@ -496,6 +496,30 @@ fn bergamotaprefs_tools(fs: &mut dyn Fs, log: &mut Log, t: &Tools) -> Result<()>
     Ok(())
 }
 
+/// bergamotaclock(): /usr/local/bin/bergamotaclock and its two jobs (clock restore at boot, save every 10 minutes).
+fn bergamotaclock(fs: &mut dyn Fs, log: &mut Log, t: &Tools) -> Result<()> {
+    let Some(d) = t.get("bergamotanet/ios18/bergamotaclock") else {
+        log.push("bergamotaclock: not built (tools/bergamotanet/build.sh): skipped".into());
+        return Ok(());
+    };
+    install(fs, d, "usr/local/bin/bergamotaclock", 0o755)?;
+    let bin = "/usr/local/bin/bergamotaclock";
+    let restore = dict(vec![
+        ("Label", s("org.bergamota.clock-restore")), ("ProgramArguments", plist::Value::Array(vec![s(bin), s("restore")])),
+        ("RunAtLoad", plist::Value::Bool(true)), ("UserName", s("root")),
+        ("StandardOutPath", s("/dev/console")), ("StandardErrorPath", s("/dev/console")),
+    ]);
+    let save = dict(vec![
+        ("Label", s("org.bergamota.clock-save")), ("ProgramArguments", plist::Value::Array(vec![s(bin), s("save")])),
+        ("RunAtLoad", plist::Value::Bool(false)), ("StartInterval", plist::Value::Integer(600)), ("UserName", s("root")),
+        ("StandardErrorPath", s("/dev/console")),
+    ]);
+    add_job(fs, "org.bergamota.clock-restore", &restore)?;
+    add_job(fs, "org.bergamota.clock-save", &save)?;
+    log.push(format!("bergamotaclock: {bin} + launchd jobs org.bergamota.clock-restore, org.bergamota.clock-save"));
+    Ok(())
+}
+
 const JOB_XML: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -547,6 +571,7 @@ pub fn run_rest(fs: &mut dyn Fs, cfg: &Config, log: &mut Log) -> Result<()> {
     firstboot(fs, log, t)?;
     bglrender(fs, log, t)?;
     bergamotaprefs_tools(fs, log, t)?;
+    bergamotaclock(fs, log, t)?;
     console_job(fs, log)
 }
 
