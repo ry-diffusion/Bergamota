@@ -1,0 +1,20 @@
+--- a/iokit/Kernel/arm/BergamotaBattery.cpp	2026-11-27 22:08:33
++++ b/iokit/Kernel/arm/BergamotaBattery.cpp	2026-11-27 22:08:33
+@@ -323,10 +323,16 @@
+ 	    !bergamota_spmi_read(sid, 0x1006, &charger);
+ 	unsigned mv = valid ? (unsigned)(((uint64_t)rawVoltage * 122070u) / 1000000u) : 0;
+ 	valid = valid && mv >= 2800 && mv <= 4600;
++	/* 1138: a read can fail now and then (two equal samples needed while charging moves them): keep the last good
++	 * state instead of jumping to the 100 % fallback, which is only for a gauge that never answered */
++	static bool fg_seen;
+ 	if (!valid) {
+-		publish(100, 4200, 0, true, true, false, true, false, false);
++		if (!fg_seen) {
++			publish(100, 4200, 0, true, true, false, true, false, false);
++		}
+ 		return;
+ 	}
++	fg_seen = true;
+ 	/* qpnp-fg-gen3.c fg_get_msoc: DIV_ROUND_CLOSEST((msoc - 1) * 98, 253) + 1 */
+ 	unsigned percent = msoc == 255 ? 100 : msoc == 0 ? 0 :
+ 	    ((unsigned)(msoc - 1) * 98u + 126u) / 253u + 1u;
