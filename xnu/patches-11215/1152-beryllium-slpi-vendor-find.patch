@@ -1,0 +1,544 @@
+1152: SLPI: find the vendor filesystem, and serve the paths the DSP actually asked for (boot 36: opendir /mnt/vendor, opendir
+/system/vendor/etc/sensors/config failed, "super: no vendor logical partition"). liblp support generalised (block devices of a retrofit layout,
+lp_list of all logical partitions, fs_magic: ext4/erofs/f2fs/squashfs/liblp), vendor discovery tries GPT vendor/vendor_a/vendor_b (ext4 or liblp), then
+liblp in super/system/system_a/system_b, logging every candidate and its content; stage 1 lists the GPT partitions present. FastRPC: /mnt/vendor
+(-> persist), /vendor/etc/sensors/config and /system/vendor/etc/sensors/config are served as (empty) directories when the real tree is unreadable.
+Requires 1137-1151.
+
+--- a/bsd/dev/beryllium_wlan.c
++++ b/bsd/dev/beryllium_wlan.c
+@@ -9793,9 +9793,11 @@
+ 
+ struct sl_vol {
+ 	const char *part;               /* persist | dsp | vendor */
+-	struct e4_dev raw, dev;
++	struct e4_dev raw, dev, sub[4];
+ 	struct lp_view lp;
++	struct lp_info info;
+ 	struct e4_fs fs;
++	const char *how;
+ 	bool mounted;
+ };
+ 
+@@ -9803,9 +9805,115 @@
+ sl_part_read(void *ctx, uint64_t off, void *dst, uint64_t len)
+ {
+ 	return bergamota_ufs_read_part((const char *)ctx, off, dst, len);
++}
++
++/* lp_list callback: three "name:MiB(device)" per line */
++static void
++sl_lp_cb(const char *name, uint32_t ne, uint64_t sectors, uint32_t attr, uint32_t dev0, void *ctx)
++{
++	static char line[160];
++	static unsigned n, len;
++	if (ctx == NULL) {                      /* flush */
++		if (n) {
++			printf("BERGAMOTA SLPI:  %s\n", line);
++		}
++		n = len = 0;
++		return;
++	}
++	len += (unsigned)snprintf(line + len, sizeof(line) - len, " %s:%lluMiB/%ue/d%u%s", name, sectors >> 11, ne, dev0,
++	    (attr & 1) ? "/ro" : "");
++	len = MIN(len, (unsigned)sizeof(line) - 1);
++	if (++n == 3) {
++		printf("BERGAMOTA SLPI:  %s\n", line);
++		n = len = 0;
++	}
++}
++
++/* look for a logical partition "vendor" in the liblp metadata read from v->raw (named `label`) */
++static int
++sl_lp_try(struct sl_vol *v, const char *label)
++{
++	static const char *const names[] = { "vendor", "vendor_a", "vendor_b" };
++	printf("BERGAMOTA SLPI: %s: liblp metadata, logical partitions:\n", label);
++	int err = lp_list(&v->raw, sl_lp_cb, (void *)(uintptr_t)1);
++	sl_lp_cb(NULL, 0, 0, 0, 0, NULL);
++	if (err) {
++		printf("BERGAMOTA SLPI: %s: liblp metadata unreadable (errno %d)\n", label, err);
++		return err;
++	}
++	for (unsigned i = 0; i < 3; i++) {
++		unsigned n = 0;
++		err = lp_find(&v->raw, names[i], v->lp.ext, 8, &n, &v->info);
++		if (err) {
++			continue;
++		}
++		v->lp.n = n;
++		v->lp.devs[0] = &v->raw;
++		for (unsigned k = 1; k < 4 && k < v->info.nbdev; k++) {
++			v->sub[k].read = sl_part_read;
++			v->sub[k].ctx = v->info.bdev[k];
++			v->lp.devs[k] = &v->sub[k];
++		}
++		uint64_t mib = 0;
++		for (unsigned k = 0; k < n; k++) {
++			mib += v->lp.ext[k].sectors >> 11;
++		}
++		printf("BERGAMOTA SLPI: %s: logical partition %s, %u extents, first sector %llu on device %u (%s), %llu MiB\n", label,
++		    names[i], n, v->lp.ext[0].first_sector, v->lp.ext[0].dev, v->info.bdev[v->lp.ext[0].dev & 3], mib);
++		v->dev.read = lp_read;
++		v->dev.ctx = &v->lp;
++		return 0;
++	}
++	printf("BERGAMOTA SLPI: %s: no vendor/vendor_a/vendor_b logical partition\n", label);
++	return ENOENT;
+ }
+ 
++/* where is the vendor filesystem? a GPT partition (ext4 or liblp), a logical partition in super, or in a retrofit layout */
+ static int
++sl_vendor_find(struct sl_vol *v)
++{
++	static const char *const gpt[] = { "vendor", "vendor_a", "vendor_b" };
++	static const char *const lps[] = { "super", "system", "system_a", "system_b" };
++	char mg[48];
++	for (unsigned i = 0; i < 3; i++) {
++		uint8_t lun;
++		uint64_t bytes;
++		if (bergamota_ufs_part_size(gpt[i], &lun, &bytes) != 0) {
++			continue;
++		}
++		v->raw.read = sl_part_read;
++		v->raw.ctx = (void *)(uintptr_t)gpt[i];
++		fs_magic(&v->raw, mg, sizeof(mg));
++		printf("BERGAMOTA SLPI: GPT %s: LUN %u, %llu MiB, content: %s\n", gpt[i], lun, bytes >> 20, mg);
++		if (!strcmp(mg, "ext4")) {
++			v->dev = v->raw;
++			v->how = gpt[i];
++			return 0;
++		}
++		if (!strcmp(mg, "liblp") && sl_lp_try(v, gpt[i]) == 0) {
++			v->how = gpt[i];
++			return 0;
++		}
++	}
++	for (unsigned i = 0; i < 4; i++) {
++		uint8_t lun;
++		uint64_t bytes;
++		if (bergamota_ufs_part_size(lps[i], &lun, &bytes) != 0) {
++			continue;
++		}
++		v->raw.read = sl_part_read;
++		v->raw.ctx = (void *)(uintptr_t)lps[i];
++		fs_magic(&v->raw, mg, sizeof(mg));
++		printf("BERGAMOTA SLPI: GPT %s: LUN %u, %llu MiB, content: %s\n", lps[i], lun, bytes >> 20, mg);
++		if (!strcmp(mg, "liblp") && sl_lp_try(v, lps[i]) == 0) {
++			v->how = lps[i];
++			return 0;
++		}
++	}
++	return ENOENT;
++}
++
++static int
+ sl_vol_open(struct sl_vol *v, const char *part)
+ {
+ 	memset(v, 0, sizeof(*v));
+@@ -9815,30 +9923,12 @@
+ 		v->raw.ctx = (void *)(uintptr_t)part;
+ 		v->dev = v->raw;
+ 	} else {
+-		static const char *const names[] = { "vendor", "vendor_a", "vendor_b" };
+-		v->raw.read = sl_part_read;
+-		v->raw.ctx = (void *)(uintptr_t)"super";
+-		v->lp.base = &v->raw;
+-		int err = ENOENT;
+-		for (unsigned i = 0; i < 3 && err == ENOENT; i++) {
+-			unsigned n = 0;
+-			err = lp_find(&v->raw, names[i], v->lp.ext, 8, &n);
+-			v->lp.n = n;
+-			if (!err) {
+-				uint64_t mib = 0;
+-				for (unsigned k = 0; k < n; k++) {
+-					mib += v->lp.ext[k].sectors >> 11;
+-				}
+-				printf("BERGAMOTA SLPI: super: logical partition %s, %u extents, first sector %llu, %llu MiB\n", names[i], n,
+-				    v->lp.ext[0].first_sector, mib);
+-			}
+-		}
++		int err = sl_vendor_find(v);
+ 		if (err) {
+-			printf("BERGAMOTA SLPI: super: no vendor logical partition (errno %d)\n", err);
++			printf("BERGAMOTA SLPI: vendor filesystem not found (errno %d): see the GPT lines above (erofs/f2fs need a reader)\n",
++			    err);
+ 			return err;
+ 		}
+-		v->dev.read = lp_read;
+-		v->dev.ctx = &v->lp;
+ 	}
+ 	int err = e4_mount(&v->fs, &v->dev);
+ 	if (err) {
+@@ -9963,7 +10053,30 @@
+ sl_fs_inventory(void)
+ {
+ 	static struct sl_vol vol;
+-	printf("BERGAMOTA SLPI: data files (read-only): persist, vendor (in super), dsp\n");
++	printf("BERGAMOTA SLPI: data files (read-only): persist, vendor, dsp\n");
++	{
++		static const char *const probe[] = { "system", "system_a", "system_b", "vendor", "vendor_a", "vendor_b", "product",
++			"product_a", "odm", "odm_a", "super", "persist", "dsp", "modem", "cust", "cache", "userdata", "metadata", "vbmeta",
++			"boot", "boot_a", "recovery", "dtbo", "vendor_boot" };
++		char line[200];
++		unsigned len = 0, on = 0;
++		printf("BERGAMOTA SLPI: GPT partitions present (MiB):\n");
++		for (unsigned i = 0; i < sizeof(probe) / sizeof(probe[0]); i++) {
++			uint8_t lun;
++			uint64_t bytes;
++			if (bergamota_ufs_part_size(probe[i], &lun, &bytes) == 0) {
++				len += (unsigned)snprintf(line + len, sizeof(line) - len, " %s:%llu(L%u)", probe[i], bytes >> 20, lun);
++				len = MIN(len, (unsigned)sizeof(line) - 1);
++				if (++on == 5) {
++					printf("BERGAMOTA SLPI:  %s\n", line);
++					len = on = 0;
++				}
++			}
++		}
++		if (on) {
++			printf("BERGAMOTA SLPI:  %s\n", line);
++		}
++	}
+ 	bergamota_log_sync();
+ 	if (sl_vol_open(&vol, "persist") == 0) {
+ 		sl_ls(&vol, "/", 0);
+@@ -10988,7 +11101,21 @@
+ };
+ 
+ #define FR_FILES        16u
++/* directories that only exist for the SLPI to walk: /mnt/vendor (-> persist), and the vendor tree when the vendor filesystem
++ * cannot be read (an empty sensors/config: a known absence, not an error) */
++static const struct fr_vdir {
++	const char *path;
++	const char *ent[3];
++} fr_vdirs[] = {
++	{ "mnt", { "vendor", NULL } }, { "mnt/vendor", { "persist", NULL } }, { "vendor", { "etc", NULL } },
++	{ "vendor/etc", { "sensors", NULL } }, { "vendor/etc/sensors", { "config", NULL } },
++	{ "vendor/etc/sensors/config", { NULL } }, { "system", { "vendor", NULL } }, { "system/vendor", { "etc", NULL } },
++	{ "system/vendor/etc", { "sensors", NULL } }, { "system/vendor/etc/sensors", { "config", NULL } },
++	{ "system/vendor/etc/sensors/config", { NULL } },
++};
++
+ static struct fr_file {
++	const struct fr_vdir *vd;
+ 	bool used, dir, ram;
+ 	struct e4_inode in;
+ 	struct sl_vol *vol;
+@@ -11226,8 +11353,42 @@
+ }
+ 
+ /* path (absolute, or relative to `env` dir already folded in) -> a new fd; 0 = ok, else an AEE code */
++static uint32_t fr_open_real(const char *path, bool want_dir, uint32_t *fd_out);
++
+ static uint32_t
+ fr_open(const char *path, bool want_dir, uint32_t *fd_out)
++{
++	uint32_t r = fr_open_real(path, want_dir, fd_out);
++	if (r == 0) {
++		return 0;
++	}
++	char norm[96];
++	const char *q = path;
++	while (*q == '/') {
++		q++;
++	}
++	strlcpy(norm, q, sizeof(norm));
++	size_t l = strlen(norm);
++	while (l && norm[l - 1] == '/') {
++		norm[--l] = 0;
++	}
++	for (unsigned i = 0; i < sizeof(fr_vdirs) / sizeof(fr_vdirs[0]); i++) {
++		if (!strcmp(norm, fr_vdirs[i].path)) {
++			int fd = fr_alloc_fd();
++			if (fd < 0) {
++				return AEE_ENOMEMORY;
++			}
++			fr_files[fd].vd = &fr_vdirs[i];
++			fr_files[fd].dir = true;
++			*fd_out = (uint32_t)fd;
++			return 0;
++		}
++	}
++	return r;
++}
++
++static uint32_t
++fr_open_real(const char *path, bool want_dir, uint32_t *fd_out)
+ {
+ 	char rest[200];
+ 	int v = fr_map_path(path, rest, sizeof(rest));
+@@ -11272,6 +11433,14 @@
+ fr_dirent(struct fr_file *f, uint32_t n, char *name, unsigned max)
+ {
+ 	unsigned cnt = 0;
++	if (f->vd) {
++		if (n < 3 && f->vd->ent[n]) {
++			strlcpy(name, f->vd->ent[n], max);
++			return 1;
++		}
++		name[0] = 0;
++		return 0;
++	}
+ 	if (e4_readdir(&f->vol->fs, &f->in, sl_ls_cb, &cnt) != 0) {
+ 		return -1;
+ 	}
+--- a/bsd/dev/bergamota_ext4.c
++++ b/bsd/dev/bergamota_ext4.c
+@@ -456,76 +456,130 @@
+ 	return 0;
+ }
+ 
+-/* ---- Android dynamic partitions (liblp): where a logical partition sits inside "super" */
+-int
+-lp_find(const struct e4_dev *super, const char *name, struct lp_extent *ext, unsigned max, unsigned *n)
++/* ---- Android dynamic partitions (liblp): where a logical partition sits ("super", or a retrofit layout) */
++static uint8_t *
++lp_load(const struct e4_dev *dev, uint32_t *max_meta_out, uint32_t *slot_out)
+ {
+ 	uint8_t g[64];
+-	*n = 0;
+-	int err = super->read(super->ctx, 4096, g, sizeof(g));
+-	if (err) {
+-		return err;
+-	}
+-	if (e4_le32(g) != 0x616c4467u) {
+-		return ENXIO;
++	if (dev->read(dev->ctx, 4096, g, sizeof(g)) || e4_le32(g) != 0x616c4467u) {
++		return NULL;
+ 	}
+ 	uint32_t max_meta = e4_le32(g + 40), slots = e4_le32(g + 44);
+ 	if (max_meta < 256 || max_meta > 0x100000u || slots == 0 || slots > 4) {
+-		return EINVAL;
++		return NULL;
+ 	}
+ 	uint8_t *m = E4_ALLOC(max_meta);
+ 	if (!m) {
+-		return ENOMEM;
++		return NULL;
+ 	}
+-	int rc = ENOENT;
+-	for (uint32_t slot = 0; slot < slots && rc == ENOENT; slot++) {
+-		err = super->read(super->ctx, 12288 + (uint64_t)slot * max_meta, m, max_meta);
+-		if (err) {
+-			rc = err;
++	for (uint32_t slot = 0; slot < slots; slot++) {
++		if (dev->read(dev->ctx, 12288 + (uint64_t)slot * max_meta, m, max_meta)) {
+ 			break;
+ 		}
+ 		if (e4_le32(m) != 0x414c5030u) {
+ 			continue;
+ 		}
+-		uint32_t hs = e4_le32(m + 8);
+-		uint32_t po = e4_le32(m + 80), pn = e4_le32(m + 84), ps = e4_le32(m + 88);
+-		uint32_t eo = e4_le32(m + 92), en = e4_le32(m + 96), es = e4_le32(m + 100);
++		uint32_t hs = e4_le32(m + 8), pn = e4_le32(m + 84), ps = e4_le32(m + 88), po = e4_le32(m + 80);
++		uint32_t en = e4_le32(m + 96), es = e4_le32(m + 100), eo = e4_le32(m + 92);
+ 		if (ps < 52 || es < 24 || hs > max_meta || (uint64_t)hs + po + (uint64_t)pn * ps > max_meta ||
+ 		    (uint64_t)hs + eo + (uint64_t)en * es > max_meta) {
+ 			continue;
+ 		}
+-		for (uint32_t i = 0; i < pn; i++) {
+-			const uint8_t *pe = m + hs + po + (uint64_t)i * ps;
+-			char nm[37];
+-			memcpy(nm, pe, 36);
+-			nm[36] = 0;
+-			if (strcmp(nm, name)) {
+-				continue;
+-			}
+-			uint32_t first = e4_le32(pe + 40), cnt = e4_le32(pe + 44);
+-			if (cnt > max || first + cnt > en) {
+-				rc = EFBIG;
+-				break;
++		*max_meta_out = max_meta;
++		*slot_out = slot;
++		return m;
++	}
++	E4_FREE(m, max_meta);
++	return NULL;
++}
++
++int
++lp_list(const struct e4_dev *dev, void (*cb)(const char *, uint32_t, uint64_t, uint32_t, uint32_t, void *), void *ctx)
++{
++	uint32_t max_meta, slot;
++	uint8_t *m = lp_load(dev, &max_meta, &slot);
++	if (!m) {
++		return ENXIO;
++	}
++	uint32_t hs = e4_le32(m + 8), po = e4_le32(m + 80), pn = e4_le32(m + 84), ps = e4_le32(m + 88);
++	uint32_t eo = e4_le32(m + 92), en = e4_le32(m + 96), es = e4_le32(m + 100);
++	for (uint32_t i = 0; i < pn; i++) {
++		const uint8_t *pe = m + hs + po + (uint64_t)i * ps;
++		char nm[37];
++		memcpy(nm, pe, 36);
++		nm[36] = 0;
++		uint32_t first = e4_le32(pe + 40), cnt = e4_le32(pe + 44), dev0 = 0;
++		uint64_t sectors = 0;
++		for (uint32_t k = 0; k < cnt && first + k < en; k++) {
++			const uint8_t *ee = m + hs + eo + (uint64_t)(first + k) * es;
++			sectors += e4_le64(ee);
++			if (k == 0) {
++				dev0 = e4_le32(ee + 20);
+ 			}
+-			rc = 0;
+-			for (uint32_t k = 0; k < cnt; k++) {
+-				const uint8_t *ee = m + hs + eo + (uint64_t)(first + k) * es;
+-				if (e4_le32(ee + 8) != 0 || e4_le32(ee + 20) != 0) {
+-					rc = EOPNOTSUPP;      /* zero targets / other block devices */
+-					break;
+-				}
+-				ext[k].first_sector = e4_le64(ee + 12);
+-				ext[k].sectors = e4_le64(ee);
++		}
++		cb(nm, cnt, sectors, e4_le32(pe + 36), dev0, ctx);
++	}
++	E4_FREE(m, max_meta);
++	return 0;
++}
++
++int
++lp_find(const struct e4_dev *super, const char *name, struct lp_extent *ext, unsigned max, unsigned *n,
++    struct lp_info *info)
++{
++	uint32_t max_meta, slot;
++	*n = 0;
++	uint8_t *m = lp_load(super, &max_meta, &slot);
++	if (!m) {
++		return ENXIO;
++	}
++	int rc = ENOENT;
++	uint32_t hs = e4_le32(m + 8), po = e4_le32(m + 80), pn = e4_le32(m + 84), ps = e4_le32(m + 88);
++	uint32_t eo = e4_le32(m + 92), en = e4_le32(m + 96), es = e4_le32(m + 100);
++	uint32_t bo = e4_le32(m + 116), bn = e4_le32(m + 120), bs = e4_le32(m + 124);
++	if (info) {
++		memset(info, 0, sizeof(*info));
++		if (bs >= 64 && (uint64_t)hs + bo + (uint64_t)bn * bs <= max_meta) {
++			info->nbdev = E4_MIN(bn, 4u);
++			for (uint32_t k = 0; k < info->nbdev; k++) {
++				memcpy(info->bdev[k], m + hs + bo + (uint64_t)k * bs + 24, 36);
++				info->bdev[k][35] = 0;
+ 			}
+-			*n = rc ? 0 : cnt;
++		}
++	}
++	for (uint32_t i = 0; i < pn; i++) {
++		const uint8_t *pe = m + hs + po + (uint64_t)i * ps;
++		char nm[37];
++		memcpy(nm, pe, 36);
++		nm[36] = 0;
++		if (strcmp(nm, name)) {
++			continue;
++		}
++		uint32_t first = e4_le32(pe + 40), cnt = e4_le32(pe + 44);
++		if (cnt > max || first + cnt > en) {
++			rc = EFBIG;
+ 			break;
+ 		}
++		rc = 0;
++		for (uint32_t k = 0; k < cnt; k++) {
++			const uint8_t *ee = m + hs + eo + (uint64_t)(first + k) * es;
++			uint32_t dev = e4_le32(ee + 20);
++			if (e4_le32(ee + 8) != 0 || dev >= 4) {
++				rc = EOPNOTSUPP;      /* zero targets / more than 4 block devices */
++				break;
++			}
++			ext[k].first_sector = e4_le64(ee + 12);
++			ext[k].sectors = e4_le64(ee);
++			ext[k].dev = dev;
++		}
++		*n = rc ? 0 : cnt;
++		break;
+ 	}
+ 	E4_FREE(m, max_meta);
+ 	return rc;
+ }
+ 
+-/* a device made of lp extents over a base device (512-byte sectors) */
++/* a device made of lp extents (512-byte sectors) over the view's block devices */
+ int
+ lp_read(void *ctx, uint64_t off, void *dst, uint64_t len)
+ {
+@@ -542,11 +596,12 @@
+ 			}
+ 			base += bytes;
+ 		}
+-		if (i == v->n) {
++		if (i == v->n || !v->devs[v->ext[i].dev]) {
+ 			return EINVAL;
+ 		}
++		const struct e4_dev *bd = v->devs[v->ext[i].dev];
+ 		uint64_t take = E4_MIN(len, left);
+-		int err = v->base->read(v->base->ctx, v->ext[i].first_sector * 512 + (off - base), d, take);
++		int err = bd->read(bd->ctx, v->ext[i].first_sector * 512 + (off - base), d, take);
+ 		if (err) {
+ 			return err;
+ 		}
+@@ -557,4 +612,34 @@
+ 	return 0;
+ }
+ 
++int
++fs_magic(const struct e4_dev *dev, char *out, unsigned max)
++{
++	uint8_t *b = E4_ALLOC(8192);
++	if (!b) {
++		return ENOMEM;
++	}
++	int err = dev->read(dev->ctx, 0, b, 8192);
++	if (err) {
++		E4_FREE(b, 8192);
++		snprintf(out, max, "unreadable (errno %d)", err);
++		return err;
++	}
++	if (e4_le16(b + 1024 + 56) == E4_MAGIC) {
++		snprintf(out, max, "ext4");
++	} else if (e4_le32(b + 1024) == 0xe0f5e1e2u) {
++		snprintf(out, max, "erofs");
++	} else if (e4_le32(b + 1024) == 0xf2f52010u) {
++		snprintf(out, max, "f2fs");
++	} else if (e4_le32(b) == 0x73717368u) {
++		snprintf(out, max, "squashfs");
++	} else if (e4_le32(b + 4096) == 0x616c4467u) {
++		snprintf(out, max, "liblp");
++	} else {
++		snprintf(out, max, "unknown %08x %08x", e4_le32(b), e4_le32(b + 1024));
++	}
++	E4_FREE(b, 8192);
++	return 0;
++}
++
+ #endif
+--- a/bsd/dev/bergamota_ext4.h
++++ b/bsd/dev/bergamota_ext4.h
+@@ -25,10 +25,16 @@
+ 
+ struct lp_extent {
+ 	uint64_t first_sector, sectors;
++	uint32_t dev;                           /* index into the metadata's block devices (0 = the device it was read from) */
+ };
+ 
++struct lp_info {
++	uint32_t nbdev;
++	char bdev[4][36];                       /* block device (GPT partition) names, as in a retrofit layout */
++};
++
+ struct lp_view {
+-	const struct e4_dev *base;
++	const struct e4_dev *devs[4];           /* devs[extent.dev] */
+ 	struct lp_extent ext[8];
+ 	unsigned n;
+ };
+@@ -40,7 +46,12 @@
+ int e4_readdir(struct e4_fs *fs, const struct e4_inode *dir, int (*cb)(const char *, unsigned, uint32_t, unsigned, void *),
+     void *ctx);
+ int e4_lookup(struct e4_fs *fs, const char *path, struct e4_inode *out);
+-int lp_find(const struct e4_dev *super, const char *name, struct lp_extent *ext, unsigned max, unsigned *n);
++int lp_find(const struct e4_dev *super, const char *name, struct lp_extent *ext, unsigned max, unsigned *n,
++    struct lp_info *info);
++/* cb(name, extents, sectors, attributes, first extent's device, ctx) for every logical partition */
++int lp_list(const struct e4_dev *super, void (*cb)(const char *, uint32_t, uint64_t, uint32_t, uint32_t, void *), void *ctx);
++/* what is at the start of a device: "ext4", "erofs", "f2fs", "squashfs", "liblp" or "unknown ..." */
++int fs_magic(const struct e4_dev *dev, char *out, unsigned max);
+ int lp_read(void *ctx, uint64_t off, void *dst, uint64_t len);
+ 
+ #endif

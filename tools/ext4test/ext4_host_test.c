@@ -95,12 +95,15 @@ main(int argc, char **argv)
 		return 2;
 	}
 	struct e4_dev base = { rd, NULL }, dev = base;
-	struct lp_view v = { &base, { { 0, 0 } }, 0 };
+	struct lp_view v = { { &base, NULL, NULL, NULL }, { { 0, 0, 0 } }, 0 };
 	if (argc >= 5) {
 		fclose(img);
 		img = fopen(argv[3], "rb");
 		unsigned n = 0;
-		int err = lp_find(&base, argv[4], v.ext, 8, &n);
+		int err = lp_find(&base, argv[4], v.ext, 8, &n, NULL);
+		char mg[48];
+		fs_magic(&base, mg, sizeof(mg));
+		printf("super magic: %s\n", mg);
 		printf("lp_find %s: err %d, %u extents", argv[4], err, n);
 		for (unsigned i = 0; i < n; i++) {
 			printf(" [%llu+%llu]", v.ext[i].first_sector, v.ext[i].sectors);

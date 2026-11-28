@@ -456,76 +456,130 @@ e4_lookup(struct e4_fs *fs, const char *path, struct e4_inode *out)
 	return 0;
 }
 
-/* ---- Android dynamic partitions (liblp): where a logical partition sits inside "super" */
-int
-lp_find(const struct e4_dev *super, const char *name, struct lp_extent *ext, unsigned max, unsigned *n)
+/* ---- Android dynamic partitions (liblp): where a logical partition sits ("super", or a retrofit layout) */
+static uint8_t *
+lp_load(const struct e4_dev *dev, uint32_t *max_meta_out, uint32_t *slot_out)
 {
 	uint8_t g[64];
-	*n = 0;
-	int err = super->read(super->ctx, 4096, g, sizeof(g));
-	if (err) {
-		return err;
-	}
-	if (e4_le32(g) != 0x616c4467u) {
-		return ENXIO;
+	if (dev->read(dev->ctx, 4096, g, sizeof(g)) || e4_le32(g) != 0x616c4467u) {
+		return NULL;
 	}
 	uint32_t max_meta = e4_le32(g + 40), slots = e4_le32(g + 44);
 	if (max_meta < 256 || max_meta > 0x100000u || slots == 0 || slots > 4) {
-		return EINVAL;
+		return NULL;
 	}
 	uint8_t *m = E4_ALLOC(max_meta);
 	if (!m) {
-		return ENOMEM;
+		return NULL;
 	}
-	int rc = ENOENT;
-	for (uint32_t slot = 0; slot < slots && rc == ENOENT; slot++) {
-		err = super->read(super->ctx, 12288 + (uint64_t)slot * max_meta, m, max_meta);
-		if (err) {
-			rc = err;
+	for (uint32_t slot = 0; slot < slots; slot++) {
+		if (dev->read(dev->ctx, 12288 + (uint64_t)slot * max_meta, m, max_meta)) {
 			break;
 		}
 		if (e4_le32(m) != 0x414c5030u) {
 			continue;
 		}
-		uint32_t hs = e4_le32(m + 8);
-		uint32_t po = e4_le32(m + 80), pn = e4_le32(m + 84), ps = e4_le32(m + 88);
-		uint32_t eo = e4_le32(m + 92), en = e4_le32(m + 96), es = e4_le32(m + 100);
+		uint32_t hs = e4_le32(m + 8), pn = e4_le32(m + 84), ps = e4_le32(m + 88), po = e4_le32(m + 80);
+		uint32_t en = e4_le32(m + 96), es = e4_le32(m + 100), eo = e4_le32(m + 92);
 		if (ps < 52 || es < 24 || hs > max_meta || (uint64_t)hs + po + (uint64_t)pn * ps > max_meta ||
 		    (uint64_t)hs + eo + (uint64_t)en * es > max_meta) {
 			continue;
 		}
-		for (uint32_t i = 0; i < pn; i++) {
-			const uint8_t *pe = m + hs + po + (uint64_t)i * ps;
-			char nm[37];
-			memcpy(nm, pe, 36);
-			nm[36] = 0;
-			if (strcmp(nm, name)) {
-				continue;
+		*max_meta_out = max_meta;
+		*slot_out = slot;
+		return m;
+	}
+	E4_FREE(m, max_meta);
+	return NULL;
+}
+
+int
+lp_list(const struct e4_dev *dev, void (*cb)(const char *, uint32_t, uint64_t, uint32_t, uint32_t, void *), void *ctx)
+{
+	uint32_t max_meta, slot;
+	uint8_t *m = lp_load(dev, &max_meta, &slot);
+	if (!m) {
+		return ENXIO;
+	}
+	uint32_t hs = e4_le32(m + 8), po = e4_le32(m + 80), pn = e4_le32(m + 84), ps = e4_le32(m + 88);
+	uint32_t eo = e4_le32(m + 92), en = e4_le32(m + 96), es = e4_le32(m + 100);
+	for (uint32_t i = 0; i < pn; i++) {
+		const uint8_t *pe = m + hs + po + (uint64_t)i * ps;
+		char nm[37];
+		memcpy(nm, pe, 36);
+		nm[36] = 0;
+		uint32_t first = e4_le32(pe + 40), cnt = e4_le32(pe + 44), dev0 = 0;
+		uint64_t sectors = 0;
+		for (uint32_t k = 0; k < cnt && first + k < en; k++) {
+			const uint8_t *ee = m + hs + eo + (uint64_t)(first + k) * es;
+			sectors += e4_le64(ee);
+			if (k == 0) {
+				dev0 = e4_le32(ee + 20);
 			}
-			uint32_t first = e4_le32(pe + 40), cnt = e4_le32(pe + 44);
-			if (cnt > max || first + cnt > en) {
-				rc = EFBIG;
-				break;
+		}
+		cb(nm, cnt, sectors, e4_le32(pe + 36), dev0, ctx);
+	}
+	E4_FREE(m, max_meta);
+	return 0;
+}
+
+int
+lp_find(const struct e4_dev *super, const char *name, struct lp_extent *ext, unsigned max, unsigned *n,
+    struct lp_info *info)
+{
+	uint32_t max_meta, slot;
+	*n = 0;
+	uint8_t *m = lp_load(super, &max_meta, &slot);
+	if (!m) {
+		return ENXIO;
+	}
+	int rc = ENOENT;
+	uint32_t hs = e4_le32(m + 8), po = e4_le32(m + 80), pn = e4_le32(m + 84), ps = e4_le32(m + 88);
+	uint32_t eo = e4_le32(m + 92), en = e4_le32(m + 96), es = e4_le32(m + 100);
+	uint32_t bo = e4_le32(m + 116), bn = e4_le32(m + 120), bs = e4_le32(m + 124);
+	if (info) {
+		memset(info, 0, sizeof(*info));
+		if (bs >= 64 && (uint64_t)hs + bo + (uint64_t)bn * bs <= max_meta) {
+			info->nbdev = E4_MIN(bn, 4u);
+			for (uint32_t k = 0; k < info->nbdev; k++) {
+				memcpy(info->bdev[k], m + hs + bo + (uint64_t)k * bs + 24, 36);
+				info->bdev[k][35] = 0;
 			}
-			rc = 0;
-			for (uint32_t k = 0; k < cnt; k++) {
-				const uint8_t *ee = m + hs + eo + (uint64_t)(first + k) * es;
-				if (e4_le32(ee + 8) != 0 || e4_le32(ee + 20) != 0) {
-					rc = EOPNOTSUPP;      /* zero targets / other block devices */
-					break;
-				}
-				ext[k].first_sector = e4_le64(ee + 12);
-				ext[k].sectors = e4_le64(ee);
-			}
-			*n = rc ? 0 : cnt;
+		}
+	}
+	for (uint32_t i = 0; i < pn; i++) {
+		const uint8_t *pe = m + hs + po + (uint64_t)i * ps;
+		char nm[37];
+		memcpy(nm, pe, 36);
+		nm[36] = 0;
+		if (strcmp(nm, name)) {
+			continue;
+		}
+		uint32_t first = e4_le32(pe + 40), cnt = e4_le32(pe + 44);
+		if (cnt > max || first + cnt > en) {
+			rc = EFBIG;
 			break;
 		}
+		rc = 0;
+		for (uint32_t k = 0; k < cnt; k++) {
+			const uint8_t *ee = m + hs + eo + (uint64_t)(first + k) * es;
+			uint32_t dev = e4_le32(ee + 20);
+			if (e4_le32(ee + 8) != 0 || dev >= 4) {
+				rc = EOPNOTSUPP;      /* zero targets / more than 4 block devices */
+				break;
+			}
+			ext[k].first_sector = e4_le64(ee + 12);
+			ext[k].sectors = e4_le64(ee);
+			ext[k].dev = dev;
+		}
+		*n = rc ? 0 : cnt;
+		break;
 	}
 	E4_FREE(m, max_meta);
 	return rc;
 }
 
-/* a device made of lp extents over a base device (512-byte sectors) */
+/* a device made of lp extents (512-byte sectors) over the view's block devices */
 int
 lp_read(void *ctx, uint64_t off, void *dst, uint64_t len)
 {
@@ -542,11 +596,12 @@ lp_read(void *ctx, uint64_t off, void *dst, uint64_t len)
 			}
 			base += bytes;
 		}
-		if (i == v->n) {
+		if (i == v->n || !v->devs[v->ext[i].dev]) {
 			return EINVAL;
 		}
+		const struct e4_dev *bd = v->devs[v->ext[i].dev];
 		uint64_t take = E4_MIN(len, left);
-		int err = v->base->read(v->base->ctx, v->ext[i].first_sector * 512 + (off - base), d, take);
+		int err = bd->read(bd->ctx, v->ext[i].first_sector * 512 + (off - base), d, take);
 		if (err) {
 			return err;
 		}
@@ -554,6 +609,36 @@ lp_read(void *ctx, uint64_t off, void *dst, uint64_t len)
 		off += take;
 		len -= take;
 	}
+	return 0;
+}
+
+int
+fs_magic(const struct e4_dev *dev, char *out, unsigned max)
+{
+	uint8_t *b = E4_ALLOC(8192);
+	if (!b) {
+		return ENOMEM;
+	}
+	int err = dev->read(dev->ctx, 0, b, 8192);
+	if (err) {
+		E4_FREE(b, 8192);
+		snprintf(out, max, "unreadable (errno %d)", err);
+		return err;
+	}
+	if (e4_le16(b + 1024 + 56) == E4_MAGIC) {
+		snprintf(out, max, "ext4");
+	} else if (e4_le32(b + 1024) == 0xe0f5e1e2u) {
+		snprintf(out, max, "erofs");
+	} else if (e4_le32(b + 1024) == 0xf2f52010u) {
+		snprintf(out, max, "f2fs");
+	} else if (e4_le32(b) == 0x73717368u) {
+		snprintf(out, max, "squashfs");
+	} else if (e4_le32(b + 4096) == 0x616c4467u) {
+		snprintf(out, max, "liblp");
+	} else {
+		snprintf(out, max, "unknown %08x %08x", e4_le32(b), e4_le32(b + 1024));
+	}
+	E4_FREE(b, 8192);
 	return 0;
 }
 

@@ -917,3 +917,42 @@ listed while QMI answers = sensor_process waits for something more (see the `fas
 Risks: no new hardware access beyond 1148 (QRTR packets to node 9). The 10 s stats and first-event lines are the only log output per
 event; high-rate sensors do not log per event. A sensor enabled at a rate the hub dislikes may reply with an error response instead.
 
+---------------------------------------------------------------------------------------------------------------------
+
+## 17. Boot 36 and 1152: the vendor filesystem
+
+Observed in boot 36 (kernel 1151, `bergamotaslpisee=1`, hold 180 s): the FastRPC client works end to end. attach 0, listener running, no fatal and
+no USER-PD DOG this time; the DSP made about 590 file calls and read the whole Android-generated registry from
+`/mnt/vendor/persist/sensors/registry/registry/` (sns_reg_config, bmi160/ak0991x/adux1050/tmd2725, every `*_platform*` file with `fac_cal`,
+the `sns_*` virtual-sensor files) without error. What failed: `opendir("/mnt/vendor")`, `stat` of `sns_reg_config` under `/system/etc/sensors`,
+`/vendor/etc/sensors`, `/persist/sensors/registry` (it then used the registry copy), and `opendir("/system/vendor/etc/sensors/config")` (asked
+at the end, twice), after `super: no vendor logical partition (errno 2)`. Every `registry` SUID lookup then answered 0 sensors.
+
+Reading (guess, to be tested): the persist registry already holds the Android-generated platform configuration, so the JSON directory is probably
+only an update source; the SLPI's registry sensor most likely goes on only after that directory scan finishes, and a failed `opendir` leaves it
+waiting. 1152 therefore does two things.
+
+1. **Find vendor.** `errno 2` from `lp_find` means the liblp geometry in `super` was readable but no logical partition is called `vendor`,
+   `vendor_a` or `vendor_b`. 1152 logs what is there: the stage-1 inventory prints the GPT partitions that exist (system*, vendor*, product*, odm*,
+   super, persist, dsp, modem, cust, cache, userdata, metadata, vbmeta, boot*, recovery, dtbo, vendor_boot, with size and LUN) and, for every
+   candidate, `GPT <name>: LUN, MiB, content: ext4|erofs|f2fs|squashfs|liblp|unknown <words>`. Search order: GPT `vendor`, `vendor_a`, `vendor_b`
+   (mounted if ext4; liblp metadata searched if liblp), then liblp in `super`, `system`, `system_a`, `system_b` (a retrofit layout keeps its metadata
+   in the first block device and maps logical partitions onto GPT partitions by name: `lp_find` now returns the extents' block-device index and the
+   device names, `lp_read` reads each extent from the right partition). Every liblp found prints all its logical partitions
+   (`name:MiB/extents/dN`, `/ro` for read-only). Not yet written: an **erofs** reader (Android 13+ vendor images are often lz4-compressed erofs: it needs
+   the erofs inode formats plus an LZ4 block decoder) and f2fs. If the log says `content: erofs`, that is the next job; the host test setup
+   (`mkfs.erofs` is not installed here) is part of it.
+2. **Serve what is asked.** FastRPC now answers `opendir("/mnt/vendor")` (one entry, `persist`; `/mnt` -> `vendor`), and when the real vendor tree is
+   unreadable `/vendor/etc/sensors/config` and `/system/vendor/etc/sensors/config` (plus their parents) are served as **empty** directories: a known
+   absence instead of an error. A mounted vendor always wins. The `sns_reg_config` probes outside the persist registry stay failures (the DSP handles
+   that already).
+
+Boot-args for the next run (same as boot 36, nothing new): `bergamotasensors=3 bergamotaslpisee=1 bergamotaslpihold=180` (Wi-Fi off). To see the
+partition inventory without starting the SLPI add a separate boot with `bergamotaslpi=1` (about 15 bytes).
+
+Fallback for a vendor that cannot be read at all: the sensor JSONs for the Poco F1 exist in the sdm845-mainline `firmware-xiaomi-beryllium`
+package (and a pmOS device package), extracted from Xiaomi's vendor image. They are Qualcomm/Xiaomi files with no licence I could find that allows
+redistribution, so I did not download them and did not bake any content into the kernel. Options that need no invented data: (a) the empty
+directories above; (b) the user pulls `/vendor/etc/sensors` from the original Android over adb and we push it to the iOS root (the kernel could then
+read it with VFS or from an ADT property, as the GPU firmware travels); (c) the registry in persist, which is already complete.
+
